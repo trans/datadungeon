@@ -1,0 +1,47 @@
+# Art style prompts, scene context, and character framings for image generation.
+# Loaded at compile time by Crystal.
+
+scene_context: >-
+  Scene from a classic fantasy text adventure game (like Zork).
+  The player is an adventurer exploring underground caverns, ruins, and wilderness.
+  All actions describe the adventurer interacting with objects and environments —
+  words like 'take' mean picking up an item, 'light' means igniting something,
+  'open' means opening a container or door. There are no other people unless
+  explicitly described.
+
+character_framings:
+  - "a wide shot of"
+  - "a close up of"
+  - "a full body frontal shot of"
+  - "from behind,"
+  - "a side profile of"
+  - "a low angle shot looking up at"
+  - "a high angle shot looking down at"
+  - "a silhouette of"
+  - "a distant shot of"
+
+styles:
+  golden:
+    bg: "Golden Age comic book art, crude thick outlines, primary colors only, simple flat compositions, 1940s-50s pulp adventure style. "
+    tile: "a Golden Age comic panel, thick crude ink outlines, limited primary color palette, simple shading, 1940s-50s pulp era style. "
+  silver:
+    bg: "classic comic book art, bold ink outlines, flat limited color palette, Ben-Day dots, 1960s Marvel/DC style. "
+    tile: "a classic comic book panel, heavy black ink outlines, flat colors, halftone shading, Silver Age style. "
+  fantasy:
+    bg: "a fantasy book cover, painterly, rich colors, moody lighting, watercolor washes and detailed oil painting. "
+    tile: "a fantasy illustration, painterly detail, soft watercolor edges, rich color palette, dramatic lighting. "
+  realism:
+    bg: "photorealistic digital art, cinematic lighting, detailed textures, realistic proportions. "
+    tile: "a photorealistic portrait, dramatic studio lighting, hyper-detailed. "
+  3d:
+    bg: "a 3D rendered animated scene, vibrant colors, soft global illumination, stylized realism. "
+    tile: "a 3D rendered animated character, expressive features, smooth shading, appealing proportions. "
+  manga:
+    bg: "a dark manga-style background, heavy shadows, detailed linework, screentone shading, noir Japanese comic aesthetic. "
+    tile: "a dark manga panel, dynamic pose, heavy ink, cross-hatching, stark shadows, speed lines, expressive eyes. "
+  pixel:
+    bg: "a 16-bit pixel art fantasy scene, retro game aesthetic. "
+    tile: "a 16-bit pixel art character portrait, retro RPG style. "
+  retro:
+    bg: "green monochrome CRT terminal display, phosphor glow, scanlines, green-on-black, lo-fi computer screen aesthetic. "
+    tile: "green monochrome CRT character display, phosphor glow on black background, scanlines, retro terminal aesthetic. "
