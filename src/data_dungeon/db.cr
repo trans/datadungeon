@@ -2,8 +2,7 @@ require "sqlite3"
 
 module DataDungeon
   class DB
-    include PortraitIndex
-    include RaceRegistry
+    TIME_FORMAT = "%F %T"
 
     @db : ::DB::Database
 
@@ -18,62 +17,485 @@ module DataDungeon
       @db.close
     end
 
+    # ── Schema ──
+
+    ASSETS_SCHEMA = <<-SQL
+      CREATE TABLE IF NOT EXISTS assets (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        asset_type    TEXT NOT NULL,
+        media         TEXT NOT NULL,
+        content_type  TEXT NOT NULL,
+        file_path     TEXT NOT NULL UNIQUE,
+        canonical_key TEXT NOT NULL,
+        file_hash     TEXT,
+        created_at    TEXT NOT NULL,
+        last_used_at  TEXT,
+        use_count     INTEGER DEFAULT 0,
+        permanent     INTEGER DEFAULT 0,
+        pool          INTEGER DEFAULT 0,
+        generator     TEXT,
+        generation    TEXT,
+        rating        INTEGER,
+        flagged       INTEGER DEFAULT 0
+      )
+    SQL
+
+    ASSETS_INDEXES = <<-SQL
+      CREATE INDEX IF NOT EXISTS idx_assets_lookup
+        ON assets(asset_type, canonical_key);
+      CREATE INDEX IF NOT EXISTS idx_assets_type
+        ON assets(asset_type);
+      CREATE INDEX IF NOT EXISTS idx_assets_generator
+        ON assets(generator)
+    SQL
+
+    ASSET_TAGS_SCHEMA = <<-SQL
+      CREATE TABLE IF NOT EXISTS asset_tags (
+        asset_id  INTEGER NOT NULL,
+        tag_key   TEXT NOT NULL,
+        tag_value TEXT NOT NULL,
+        PRIMARY KEY (asset_id, tag_key),
+        FOREIGN KEY (asset_id) REFERENCES assets(id) ON DELETE CASCADE
+      )
+    SQL
+
+    ASSET_TAGS_INDEX = <<-SQL
+      CREATE INDEX IF NOT EXISTS idx_tags_kv
+        ON asset_tags(tag_key, tag_value)
+    SQL
+
+    IMAGE_META_SCHEMA = <<-SQL
+      CREATE TABLE IF NOT EXISTS image_meta (
+        asset_id      INTEGER PRIMARY KEY,
+        width         INTEGER,
+        height        INTEGER,
+        usage_class   TEXT,
+        animated      INTEGER DEFAULT 0,
+        frame_count   INTEGER,
+        duration_ms   INTEGER,
+        compression   TEXT DEFAULT 'original',
+        quality_floor INTEGER,
+        max_colors    INTEGER,
+        target_format TEXT,
+        presentation  TEXT,
+        FOREIGN KEY (asset_id) REFERENCES assets(id) ON DELETE CASCADE
+      )
+    SQL
+
+    AUDIO_META_SCHEMA = <<-SQL
+      CREATE TABLE IF NOT EXISTS audio_meta (
+        asset_id      INTEGER PRIMARY KEY,
+        duration_ms   INTEGER,
+        sample_rate   INTEGER,
+        bitrate       INTEGER,
+        channels      INTEGER DEFAULT 1,
+        transcript_id INTEGER,
+        compression   TEXT DEFAULT 'original',
+        target_format TEXT,
+        FOREIGN KEY (asset_id) REFERENCES assets(id) ON DELETE CASCADE,
+        FOREIGN KEY (transcript_id) REFERENCES assets(id)
+      )
+    SQL
+
+    VIDEO_META_SCHEMA = <<-SQL
+      CREATE TABLE IF NOT EXISTS video_meta (
+        asset_id      INTEGER PRIMARY KEY,
+        width         INTEGER,
+        height        INTEGER,
+        duration_ms   INTEGER,
+        frame_rate    REAL,
+        usage_class   TEXT,
+        has_audio     INTEGER DEFAULT 0,
+        compression   TEXT DEFAULT 'original',
+        quality_floor INTEGER,
+        target_format TEXT,
+        presentation  TEXT,
+        FOREIGN KEY (asset_id) REFERENCES assets(id) ON DELETE CASCADE
+      )
+    SQL
+
+    TEXT_META_SCHEMA = <<-SQL
+      CREATE TABLE IF NOT EXISTS text_meta (
+        asset_id  INTEGER PRIMARY KEY,
+        content   TEXT NOT NULL,
+        language  TEXT,
+        FOREIGN KEY (asset_id) REFERENCES assets(id) ON DELETE CASCADE
+      )
+    SQL
+
     private def setup_schema : Nil
       @db.exec("PRAGMA journal_mode=WAL")
-      # Migration: portrait_index v2 uses measurement buckets instead of height/build strings
-      migrate_portrait_index_v2
-      @db.exec(PORTRAIT_INDEX_SCHEMA)
-      @db.exec(RACE_SCHEMA)
-      @db.exec(RACE_MEASUREMENTS_SCHEMA)
-      @db.exec(RACE_OPTIONS_SCHEMA)
-      # Migration: race_options gained a gender column (must run before seed)
-      migrate_race_options_gender
-      seed_races
+      @db.exec("PRAGMA foreign_keys=ON")
+
+      # New asset store tables
+      @db.exec(ASSETS_SCHEMA)
+      ASSETS_INDEXES.split(";").each { |s| @db.exec(s.strip) unless s.strip.empty? }
+      @db.exec(ASSET_TAGS_SCHEMA)
+      @db.exec(ASSET_TAGS_INDEX)
+      @db.exec(IMAGE_META_SCHEMA)
+      @db.exec(AUDIO_META_SCHEMA)
+      @db.exec(VIDEO_META_SCHEMA)
+      @db.exec(TEXT_META_SCHEMA)
     end
 
-    private def migrate_portrait_index_v2 : Nil
-      # Check if old schema has 'height TEXT' column (v1) — drop and let it recreate
-      has_old_height = false
-      begin
-        @db.query("PRAGMA table_info(portrait_index)") do |rs|
-          rs.each do
-            _cid = rs.read(Int32)
-            name = rs.read(String)
-            col_type = rs.read(String?)
-            if name == "height" && col_type.try(&.upcase) == "TEXT"
-              has_old_height = true
-            end
-            rs.read(Int32)    # notnull
-            rs.read(String?)  # dflt_value
-            rs.read(Int32)    # pk
-          end
+    # ── Store ──
+
+    def store_asset(
+      asset_type : String,
+      media : String,
+      content_type : String,
+      file_path : String,
+      canonical_tags : Hash(String, String),
+      extra_tags : Hash(String, String) = {} of String => String,
+      file_hash : String? = nil,
+      pool : Bool = false,
+      permanent : Bool = false,
+      generator : String? = nil,
+      generation : String? = nil,
+      image : ImageMeta? = nil,
+      audio : AudioMeta? = nil,
+      video : VideoMeta? = nil,
+      text : TextMeta? = nil,
+    ) : Int64
+      now = Time.utc.to_s(TIME_FORMAT)
+      key = DataDungeon.canonical_key(canonical_tags)
+
+      # For non-pool assets, replace existing with same canonical key
+      unless pool
+        existing = @db.query_one?(
+          "SELECT id FROM assets WHERE asset_type = ? AND canonical_key = ? LIMIT 1",
+          asset_type, key
+        ) { |rs| rs.read(Int64) }
+        if existing
+          delete_asset(existing)
         end
-      rescue
-        # Table doesn't exist yet — nothing to migrate
-        return
       end
-      return unless has_old_height
-      @db.exec("DROP TABLE IF EXISTS portrait_index")
+
+      @db.exec(
+        <<-SQL,
+          INSERT INTO assets
+          (asset_type, media, content_type, file_path, canonical_key, file_hash,
+           created_at, last_used_at, use_count, permanent, pool,
+           generator, generation, rating, flagged)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, NULL, 0)
+        SQL
+        asset_type, media, content_type, file_path, key, file_hash,
+        now, now, permanent ? 1 : 0, pool ? 1 : 0,
+        generator, generation
+      )
+
+      asset_id = @db.scalar("SELECT last_insert_rowid()").as(Int64)
+
+      # Store all tags (canonical + extra)
+      all_tags = canonical_tags.merge(extra_tags)
+      all_tags.each do |k, v|
+        @db.exec(
+          "INSERT INTO asset_tags (asset_id, tag_key, tag_value) VALUES (?, ?, ?)",
+          asset_id, k, v
+        )
+      end
+
+      # Store media-specific metadata
+      if im = image
+        @db.exec(
+          <<-SQL,
+            INSERT INTO image_meta
+            (asset_id, width, height, usage_class, animated, frame_count,
+             duration_ms, compression, quality_floor, max_colors,
+             target_format, presentation)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          SQL
+          asset_id, im.width, im.height, im.usage_class,
+          im.animated ? 1 : 0, im.frame_count, im.duration_ms,
+          im.compression, im.quality_floor, im.max_colors,
+          im.target_format, im.presentation
+        )
+      end
+
+      if am = audio
+        @db.exec(
+          <<-SQL,
+            INSERT INTO audio_meta
+            (asset_id, duration_ms, sample_rate, bitrate, channels,
+             transcript_id, compression, target_format)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          SQL
+          asset_id, am.duration_ms, am.sample_rate, am.bitrate,
+          am.channels, am.transcript_id, am.compression, am.target_format
+        )
+      end
+
+      if vm = video
+        @db.exec(
+          <<-SQL,
+            INSERT INTO video_meta
+            (asset_id, width, height, duration_ms, frame_rate, usage_class,
+             has_audio, compression, quality_floor, target_format, presentation)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          SQL
+          asset_id, vm.width, vm.height, vm.duration_ms, vm.frame_rate,
+          vm.usage_class, vm.has_audio ? 1 : 0, vm.compression,
+          vm.quality_floor, vm.target_format, vm.presentation
+        )
+      end
+
+      if tm = text
+        @db.exec(
+          "INSERT INTO text_meta (asset_id, content, language) VALUES (?, ?, ?)",
+          asset_id, tm.content, tm.language
+        )
+      end
+
+      asset_id
     end
 
-    private def migrate_race_options_gender : Nil
-      has_gender = false
-      @db.query("PRAGMA table_info(race_options)") do |rs|
+    # ── Find ──
+
+    def find_asset(asset_type : String, canonical_tags : Hash(String, String)) : AssetRecord?
+      key = DataDungeon.canonical_key(canonical_tags)
+      @db.query_one?(
+        "SELECT * FROM assets WHERE asset_type = ? AND canonical_key = ? LIMIT 1",
+        asset_type, key
+      ) { |rs| read_asset_record(rs) }
+    end
+
+    def find_assets_by_tags(asset_type : String, filter_tags : Hash(String, String)) : Array(AssetRecord)
+      return [] of AssetRecord if filter_tags.empty?
+
+      conditions = filter_tags.map { |_, _| "(t.tag_key = ? AND t.tag_value = ?)" }.join(" OR ")
+      sql = <<-SQL
+        SELECT a.* FROM assets a
+        JOIN asset_tags t ON t.asset_id = a.id
+        WHERE a.asset_type = ? AND (#{conditions})
+        GROUP BY a.id
+        HAVING COUNT(*) = ?
+      SQL
+
+      params = [] of ::DB::Any
+      params << asset_type
+      filter_tags.each do |k, v|
+        params << k
+        params << v
+      end
+      params << filter_tags.size.to_i64
+
+      results = [] of AssetRecord
+      @db.query(sql, args: params) do |rs|
+        rs.each { results << read_asset_record(rs) }
+      end
+      results
+    end
+
+    def asset_exists?(asset_type : String, canonical_tags : Hash(String, String)) : Bool
+      key = DataDungeon.canonical_key(canonical_tags)
+      result = @db.scalar(
+        "SELECT COUNT(*) FROM assets WHERE asset_type = ? AND canonical_key = ?",
+        asset_type, key
+      )
+      result.as(Int64) > 0
+    end
+
+    # ── Touch ──
+
+    def touch_asset(id : Int64) : Nil
+      now = Time.utc.to_s(TIME_FORMAT)
+      @db.exec(
+        "UPDATE assets SET last_used_at = ?, use_count = use_count + 1 WHERE id = ?",
+        now, id
+      )
+    end
+
+    # ── Tags ──
+
+    def load_tags(asset_id : Int64) : Hash(String, String)
+      tags = {} of String => String
+      @db.query("SELECT tag_key, tag_value FROM asset_tags WHERE asset_id = ?", asset_id) do |rs|
+        rs.each { tags[rs.read(String)] = rs.read(String) }
+      end
+      tags
+    end
+
+    def load_tags_batch(asset_ids : Array(Int64)) : Hash(Int64, Hash(String, String))
+      result = {} of Int64 => Hash(String, String)
+      return result if asset_ids.empty?
+
+      placeholders = asset_ids.map { "?" }.join(", ")
+      params = asset_ids.map(&.as(::DB::Any))
+      @db.query(
+        "SELECT asset_id, tag_key, tag_value FROM asset_tags WHERE asset_id IN (#{placeholders})",
+        args: params
+      ) do |rs|
         rs.each do
-          _cid = rs.read(Int32)
-          name = rs.read(String)
-          has_gender = true if name == "gender"
-          rs.read(String?)  # type
-          rs.read(Int32)    # notnull
-          rs.read(String?)  # dflt_value
-          rs.read(Int32)    # pk
+          aid = rs.read(Int64)
+          k = rs.read(String)
+          v = rs.read(String)
+          result[aid] ||= {} of String => String
+          result[aid][k] = v
         end
       end
-      return if has_gender
+      result
+    end
 
-      @db.exec("DROP TABLE IF EXISTS race_options")
-      @db.exec(RACE_OPTIONS_SCHEMA)
-      seed_races # re-seed to populate with gender-aware options
+    # ── Media Meta ──
+
+    def load_image_meta(asset_id : Int64) : ImageMeta?
+      @db.query_one?(
+        "SELECT * FROM image_meta WHERE asset_id = ?", asset_id
+      ) do |rs|
+        _id = rs.read(Int64) # asset_id
+        ImageMeta.new(
+          width: rs.read(Int32?),
+          height: rs.read(Int32?),
+          usage_class: rs.read(String?),
+          animated: (rs.read(Int32?) || 0) != 0,
+          frame_count: rs.read(Int32?),
+          duration_ms: rs.read(Int32?),
+          compression: rs.read(String?) || "original",
+          quality_floor: rs.read(Int32?),
+          max_colors: rs.read(Int32?),
+          target_format: rs.read(String?),
+          presentation: rs.read(String?),
+        )
+      end
+    end
+
+    def load_audio_meta(asset_id : Int64) : AudioMeta?
+      @db.query_one?(
+        "SELECT * FROM audio_meta WHERE asset_id = ?", asset_id
+      ) do |rs|
+        _id = rs.read(Int64)
+        AudioMeta.new(
+          duration_ms: rs.read(Int32?),
+          sample_rate: rs.read(Int32?),
+          bitrate: rs.read(Int32?),
+          channels: rs.read(Int32?) || 1,
+          transcript_id: rs.read(Int64?),
+          compression: rs.read(String?) || "original",
+          target_format: rs.read(String?),
+        )
+      end
+    end
+
+    def load_text_meta(asset_id : Int64) : TextMeta?
+      @db.query_one?(
+        "SELECT * FROM text_meta WHERE asset_id = ?", asset_id
+      ) do |rs|
+        _id = rs.read(Int64)
+        TextMeta.new(
+          content: rs.read(String),
+          language: rs.read(String?),
+        )
+      end
+    end
+
+    # ── Delete ──
+
+    def delete_asset(id : Int64) : Nil
+      # Sidecar tables cleaned up by ON DELETE CASCADE
+      @db.exec("DELETE FROM assets WHERE id = ?", id)
+    end
+
+    # ── Pool helpers ──
+
+    def count_pool_assets(asset_type : String, filter_tags : Hash(String, String)) : Int32
+      return @db.scalar("SELECT COUNT(*) FROM assets WHERE asset_type = ?", asset_type).as(Int64).to_i32 if filter_tags.empty?
+
+      conditions = filter_tags.map { |_, _| "(t.tag_key = ? AND t.tag_value = ?)" }.join(" OR ")
+      sql = <<-SQL
+        SELECT COUNT(*) FROM (
+          SELECT a.id FROM assets a
+          JOIN asset_tags t ON t.asset_id = a.id
+          WHERE a.asset_type = ? AND (#{conditions})
+          GROUP BY a.id
+          HAVING COUNT(*) = ?
+        )
+      SQL
+
+      params = [] of ::DB::Any
+      params << asset_type
+      filter_tags.each do |k, v|
+        params << k
+        params << v
+      end
+      params << filter_tags.size.to_i64
+
+      @db.scalar(sql, args: params).as(Int64).to_i32
+    end
+
+    def random_pool_text(asset_type : String, filter_tags : Hash(String, String)) : String?
+      if filter_tags.empty?
+        return @db.query_one?(
+          <<-SQL,
+            SELECT tm.content FROM assets a
+            JOIN text_meta tm ON tm.asset_id = a.id
+            WHERE a.asset_type = ?
+            ORDER BY RANDOM() LIMIT 1
+          SQL
+          asset_type
+        ) { |rs| rs.read(String) }
+      end
+
+      conditions = filter_tags.map { |_, _| "(t.tag_key = ? AND t.tag_value = ?)" }.join(" OR ")
+      sql = <<-SQL
+        SELECT tm.content FROM assets a
+        JOIN asset_tags t ON t.asset_id = a.id
+        JOIN text_meta tm ON tm.asset_id = a.id
+        WHERE a.asset_type = ? AND (#{conditions})
+        GROUP BY a.id
+        HAVING COUNT(DISTINCT t.tag_key) = ?
+        ORDER BY RANDOM() LIMIT 1
+      SQL
+
+      params = [] of ::DB::Any
+      params << asset_type
+      filter_tags.each do |k, v|
+        params << k
+        params << v
+      end
+      params << filter_tags.size.to_i64
+
+      @db.query_one?(sql, args: params) { |rs| rs.read(String) }
+    end
+
+    # ── Eviction helpers ──
+
+    def eviction_candidates(limit : Int32 = 100) : Array(AssetRecord)
+      results = [] of AssetRecord
+      @db.query(
+        <<-SQL,
+          SELECT * FROM assets
+          WHERE permanent = 0
+          ORDER BY last_used_at ASC NULLS FIRST
+          LIMIT ?
+        SQL
+        limit
+      ) do |rs|
+        rs.each { results << read_asset_record(rs) }
+      end
+      results
+    end
+
+    # ── Internal ──
+
+    private def read_asset_record(rs) : AssetRecord
+      AssetRecord.new(
+        id: rs.read(Int64),
+        asset_type: rs.read(String),
+        media: rs.read(String),
+        content_type: rs.read(String),
+        file_path: rs.read(String),
+        canonical_key: rs.read(String),
+        file_hash: rs.read(String?),
+        created_at: rs.read(String),
+        last_used_at: rs.read(String?),
+        use_count: (rs.read(Int32?) || 0),
+        permanent: (rs.read(Int32?) || 0) != 0,
+        pool: (rs.read(Int32?) || 0) != 0,
+        generator: rs.read(String?),
+        generation: rs.read(String?),
+        rating: rs.read(Int32?),
+        flagged: (rs.read(Int32?) || 0) != 0,
+      )
     end
   end
 end

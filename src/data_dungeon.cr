@@ -1,5 +1,6 @@
 require "./data_dungeon/cache"
 require "./data_dungeon/prompts"
+require "./data_dungeon/asset_record"
 require "./data_dungeon/portrait_index"
-require "./data_dungeon/race_registry"
+require "./data_dungeon/webp"
 require "./data_dungeon/db"

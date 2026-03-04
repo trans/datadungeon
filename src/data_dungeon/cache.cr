@@ -62,7 +62,7 @@ module DataDungeon
 
     def cache_location_for(prompt : String, kind : Symbol, params_hash : String) : CacheLocation
       prompt_hash = Digest::SHA256.hexdigest(prompt)
-      filename = "#{prompt_hash}.png"
+      filename = "#{prompt_hash}.webp"
       path = File.join(@cache_root, params_hash, filename)
       url = "/api/images/#{params_hash}/#{filename}"
       CacheLocation.new(path, url, kind.to_s, params_hash, prompt_hash, filename)
@@ -128,7 +128,7 @@ module DataDungeon
       g = Prompts::VALID_GENDERS.includes?(gender) ? gender : "x"
 
       dir = File.join(@cache_root, "portraits", s, rt, r, g)
-      filename = "#{embellishment_hash}.png"
+      filename = "#{embellishment_hash}.webp"
       path = File.join(dir, filename)
       url = "/api/portraits/#{s}/#{rt}/#{r}/#{g}/#{filename}"
       PortraitCacheLocation.new(path, url, dir, filename, s, rt, r, g)
@@ -142,7 +142,7 @@ module DataDungeon
       return nil unless Prompts::VALID_RATINGS.includes?(rating)
       return nil unless Prompts::VALID_RACES.includes?(race)
       return nil unless Prompts::VALID_GENDERS.includes?(gender)
-      return nil unless filename =~ /\A[a-f0-9]{64}\.png\z/
+      return nil unless filename =~ /\A[a-f0-9]{64}\.(png|webp)\z/
 
       path = File.join(@cache_root, "portraits", art_style, rating, race, gender, filename)
       File.file?(path) ? path : nil
