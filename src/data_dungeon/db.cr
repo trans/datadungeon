@@ -5,11 +5,13 @@ module DataDungeon
     TIME_FORMAT = "%F %T"
 
     @db : ::DB::Database
+    getter storage : Storage?
 
-    def initialize(path : String)
+    def initialize(path : String, storage : Storage? = nil, cache_root : String? = nil)
       dir = File.dirname(path)
       Dir.mkdir_p(dir) unless Dir.exists?(dir)
       @db = ::DB.open("sqlite3://#{path}")
+      @storage = storage || (cache_root ? LocalStorage.new(cache_root) : nil)
       setup_schema
     end
 
@@ -249,6 +251,158 @@ module DataDungeon
       asset_id
     end
 
+    # ── High-level asset management (owns hashing, policy, file write) ──
+
+    # Store an asset end to end: apply the media compression policy, hash the
+    # resulting bytes, write the file to a storage key DataDungeon derives and
+    # owns, then index it. Returns the stored AssetRecord.
+    #
+    # Provide the source as exactly one of `source_path` or `bytes`.
+    def store(
+      asset_type : String,
+      canonical_tags : Hash(String, String),
+      *,
+      source_path : String? = nil,
+      bytes : Bytes? = nil,
+      content_type : String,
+      media : String? = nil,
+      extra_tags : Hash(String, String) = {} of String => String,
+      pool : Bool = false,
+      permanent : Bool = false,
+      generator : String? = nil,
+      generation : String? = nil,
+      image : ImageMeta? = nil,
+      audio : AudioMeta? = nil,
+      video : VideoMeta? = nil,
+      text : TextMeta? = nil,
+    ) : AssetRecord
+      store = @storage || raise "DataDungeon::DB has no storage backend; construct with cache_root: or storage:"
+      unless source_path.nil? ^ bytes.nil?
+        raise ArgumentError.new("provide exactly one of source_path / bytes")
+      end
+
+      data = bytes || File.open(source_path.not_nil!, "rb", &.getb_to_end)
+      ct = content_type
+      m = media || infer_media(ct)
+
+      # Apply the compression policy (may change bytes and content type).
+      if m == "image" && (im = image)
+        data, ct = process_image(data, ct, im)
+      end
+
+      file_hash = Digest::SHA256.hexdigest(data)
+      key = DataDungeon.canonical_key(canonical_tags)
+      prefix = key[0, 2]
+      ext = ext_for(ct)
+      storage_key =
+        if pool
+          File.join(asset_type, prefix, key, "#{file_hash}.#{ext}")
+        else
+          File.join(asset_type, prefix, "#{key}.#{ext}")
+        end
+
+      # Write-skip: single-best re-store of identical bytes is a no-op.
+      unless pool
+        if existing = find_asset(asset_type, canonical_tags)
+          if existing.file_hash == file_hash && store.exists?(existing.file_path)
+            touch_asset(existing.id)
+            return existing
+          end
+        end
+      end
+
+      store.write(storage_key, data)
+
+      id = store_asset(
+        asset_type: asset_type,
+        media: m,
+        content_type: ct,
+        file_path: storage_key,
+        canonical_tags: canonical_tags,
+        extra_tags: extra_tags,
+        file_hash: file_hash,
+        pool: pool,
+        permanent: permanent,
+        generator: generator,
+        generation: generation,
+        image: image,
+        audio: audio,
+        video: video,
+        text: text,
+      )
+
+      find_asset_by_id(id).not_nil!
+    end
+
+    # High-level lookup: verifies the backing file still exists (self-heals a
+    # stale row to a miss), touches usage, and returns the record. Retires the
+    # caller-side File.exists? cache-gate.
+    def get(asset_type : String, canonical_tags : Hash(String, String)) : AssetRecord?
+      rec = find_asset(asset_type, canonical_tags)
+      return nil unless rec
+      if store = @storage
+        return nil unless store.exists?(rec.file_path)
+      end
+      touch_asset(rec.id)
+      rec
+    end
+
+    # Resolve a record's storage key to a usable location (local path or URL).
+    def path_for(rec : AssetRecord) : String
+      store = @storage || raise "DataDungeon::DB has no storage backend"
+      store.resolve(rec.file_path)
+    end
+
+    # ── Media policy / processing ──
+
+    private def process_image(data : Bytes, content_type : String, meta : ImageMeta) : {Bytes, String}
+      policy = meta.compression
+      return {data, content_type} if policy == "original"
+
+      target = meta.target_format || "webp"
+      return {data, content_type} unless target == "webp"   # only WebP output supported today
+      return {data, content_type} if content_type.downcase == "image/webp"  # already target
+
+      quality = case policy
+                when "compress" then (meta.quality_floor || 80).to_f32
+                else                 (meta.quality_floor || 90).to_f32  # normalize
+                end
+
+      case content_type.downcase
+      when "image/png"
+        {WebP.png_to_webp_bytes(data, quality), "image/webp"}
+      else
+        {data, content_type}   # unsupported input (jpg/etc.) — passthrough for now
+      end
+    end
+
+    private def infer_media(content_type : String) : String
+      case content_type.downcase
+      when .starts_with?("image/") then "image"
+      when .starts_with?("audio/") then "audio"
+      when .starts_with?("video/") then "video"
+      when .starts_with?("text/")  then "text"
+      else                              "image"
+      end
+    end
+
+    private def ext_for(content_type : String) : String
+      case content_type.downcase
+      when "image/webp"               then "webp"
+      when "image/png"                then "png"
+      when "image/jpeg", "image/jpg"  then "jpg"
+      when "image/gif"                then "gif"
+      when "audio/mpeg", "audio/mp3"  then "mp3"
+      when "audio/ogg"                then "ogg"
+      when "audio/wav", "audio/x-wav" then "wav"
+      when "video/webm"               then "webm"
+      when "video/mp4"                then "mp4"
+      when "text/plain"               then "txt"
+      when "application/json"         then "json"
+      else                                 "bin"
+      end
+    end
+
     # ── Find ──
 
     def find_asset(asset_type : String, canonical_tags : Hash(String, String)) : AssetRecord?
@@ -256,6 +410,12 @@ module DataDungeon
       @db.query_one?(
         "SELECT * FROM assets WHERE asset_type = ? AND canonical_key = ? LIMIT 1",
         asset_type, key
+      ) { |rs| read_asset_record(rs) }
+    end
+
+    def find_asset_by_id(id : Int64) : AssetRecord?
+      @db.query_one?(
+        "SELECT * FROM assets WHERE id = ? LIMIT 1", id
       ) { |rs| read_asset_record(rs) }
     end
 

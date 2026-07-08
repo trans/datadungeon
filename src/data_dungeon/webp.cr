@@ -113,6 +113,36 @@ module DataDungeon
       end
     end
 
+    # Encode RGBA pixels to WebP in memory. Returns the encoded bytes.
+    def self.encode_webp_bytes(rgba : Bytes, width : Int32, height : Int32,
+                               quality : Float32 = QUALITY) : Bytes
+      stride = width * 4
+      output_ptr = Pointer(UInt8).null
+      size = LibWebP.WebPEncodeRGBA(rgba.to_unsafe, width, height, stride, quality, pointerof(output_ptr))
+      raise "WebP encode failed" if size == 0 || output_ptr.null?
+
+      begin
+        bytes = Bytes.new(size)
+        Slice.new(output_ptr, size).copy_to(bytes)
+        bytes
+      ensure
+        LibWebP.WebPFree(output_ptr.as(Void*))
+      end
+    end
+
+    # Convert PNG bytes to WebP bytes. libpng reads through a real file
+    # descriptor, so the input is staged to a temp file for decoding.
+    def self.png_to_webp_bytes(png : Bytes, quality : Float32 = QUALITY) : Bytes
+      tmp = File.tempfile("dd-png", ".png")
+      begin
+        File.write(tmp.path, png)
+        width, height, pixels = decode_png(tmp.path)
+        encode_webp_bytes(pixels, width, height, quality)
+      ensure
+        tmp.delete
+      end
+    end
+
     # Convert a PNG file to WebP. Returns the new .webp path.
     def self.encode(png_path : String, webp_path : String, quality : Float32 = QUALITY) : Int64
       width, height, pixels = decode_png(png_path)
