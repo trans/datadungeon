@@ -337,14 +337,50 @@ module DataDungeon
     # High-level lookup: verifies the backing file still exists (self-heals a
     # stale row to a miss), touches usage, and returns the record. Retires the
     # caller-side File.exists? cache-gate.
-    def get(asset_type : String, canonical_tags : Hash(String, String)) : AssetRecord?
+    def get(asset_type : String, canonical_tags : Hash(String, String), touch : Bool = true) : AssetRecord?
       rec = find_asset(asset_type, canonical_tags)
       return nil unless rec
       if store = @storage
         return nil unless store.exists?(rec.file_path)
       end
-      touch_asset(rec.id)
+      touch_asset(rec.id) if touch
       rec
+    end
+
+    # Eager lookup: record + image metadata (presentation pins, dimensions,
+    # policy) in a single query. Same self-heal + touch semantics as `get`.
+    # Returns {record, image_meta?} or nil on miss. image_meta is nil when the
+    # asset has no image_meta row. Halves round-trips on serve paths that need
+    # the presentation blob on every hit.
+    def get_with_image_meta(
+      asset_type : String,
+      canonical_tags : Hash(String, String),
+      touch : Bool = true,
+    ) : {AssetRecord, ImageMeta?}?
+      key = DataDungeon.canonical_key(canonical_tags)
+      pair = @db.query_one?(
+        <<-SQL,
+          SELECT a.*, im.asset_id, im.width, im.height, im.usage_class, im.animated,
+                 im.frame_count, im.duration_ms, im.compression, im.quality_floor,
+                 im.max_colors, im.target_format, im.presentation
+          FROM assets a
+          LEFT JOIN image_meta im ON im.asset_id = a.id
+          WHERE a.asset_type = ? AND a.canonical_key = ?
+          LIMIT 1
+        SQL
+        asset_type, key
+      ) do |rs|
+        rec = read_asset_record(rs)
+        {rec, read_image_meta_join(rs)}
+      end
+      return nil unless pair
+
+      rec, meta = pair
+      if store = @storage
+        return nil unless store.exists?(rec.file_path)
+      end
+      touch_asset(rec.id) if touch
+      {rec, meta}
     end
 
     # Resolve a record's storage key to a usable location (local path or URL).
@@ -636,6 +672,30 @@ module DataDungeon
     end
 
     # ── Internal ──
+
+    # Read image_meta columns from a joined row (columns follow assets.*).
+    # Returns nil when the LEFT JOIN produced no image_meta row (asset_id NULL).
+    private def read_image_meta_join(rs) : ImageMeta?
+      asset_id = rs.read(Int64?)
+      if asset_id.nil?
+        # Consume the remaining NULL meta columns so the row cursor stays aligned.
+        11.times { rs.read(::DB::Any) }
+        return nil
+      end
+      ImageMeta.new(
+        width: rs.read(Int32?),
+        height: rs.read(Int32?),
+        usage_class: rs.read(String?),
+        animated: (rs.read(Int32?) || 0) != 0,
+        frame_count: rs.read(Int32?),
+        duration_ms: rs.read(Int32?),
+        compression: rs.read(String?) || "original",
+        quality_floor: rs.read(Int32?),
+        max_colors: rs.read(Int32?),
+        target_format: rs.read(String?),
+        presentation: rs.read(String?),
+      )
+    end
 
     private def read_asset_record(rs) : AssetRecord
       AssetRecord.new(

@@ -89,6 +89,47 @@ describe DataDungeon::DB do
     FileUtils.rm_rf(dir) if dir
   end
 
+  it "returns record + image meta in one call via get_with_image_meta" do
+    dir = File.tempname("dd-eager")
+    Dir.mkdir_p(dir)
+    db = open_db(dir)
+    tags = {"venue" => "arcade"}
+    pins = {"water" => 0.62}.to_json
+
+    stored = db.store("venue", tags, bytes: "webp".to_slice, content_type: "image/webp",
+      image: DataDungeon::ImageMeta.new(compression: "original", usage_class: "bg", presentation: pins))
+
+    pair = db.get_with_image_meta("venue", tags)
+    pair.should_not be_nil
+    rec, meta = pair.not_nil!
+    rec.id.should eq stored.id
+    meta.should_not be_nil
+    meta.not_nil!.presentation.should eq pins
+    meta.not_nil!.usage_class.should eq "bg"
+
+    db.get_with_image_meta("venue", {"venue" => "missing"}).should be_nil
+  ensure
+    db.try(&.close)
+    FileUtils.rm_rf(dir) if dir
+  end
+
+  it "does not touch usage when touch: false" do
+    dir = File.tempname("dd-notouch")
+    Dir.mkdir_p(dir)
+    db = open_db(dir)
+    tags = {"venue" => "arcade"}
+
+    rec = db.store("venue", tags, bytes: "webp".to_slice, content_type: "image/webp",
+      image: DataDungeon::ImageMeta.new(compression: "original"))
+    db.get("venue", tags, touch: false)
+    db.get_with_image_meta("venue", tags, touch: false)
+
+    db.find_asset_by_id(rec.id).not_nil!.use_count.should eq 0  # no write on read
+  ensure
+    db.try(&.close)
+    FileUtils.rm_rf(dir) if dir
+  end
+
   it "keeps distinct pool members content-addressed" do
     dir = File.tempname("dd-pool")
     Dir.mkdir_p(dir)
