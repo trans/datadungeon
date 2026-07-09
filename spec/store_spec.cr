@@ -89,7 +89,7 @@ describe DataDungeon::DB do
     FileUtils.rm_rf(dir) if dir
   end
 
-  it "returns record + image meta in one call via get_with_image_meta" do
+  it "returns record + polymorphic image meta in one call via get_with_meta" do
     dir = File.tempname("dd-eager")
     Dir.mkdir_p(dir)
     db = open_db(dir)
@@ -99,15 +99,42 @@ describe DataDungeon::DB do
     stored = db.store("venue", tags, bytes: "webp".to_slice, content_type: "image/webp",
       image: DataDungeon::ImageMeta.new(compression: "original", usage_class: "bg", presentation: pins))
 
-    pair = db.get_with_image_meta("venue", tags)
+    pair = db.get_with_meta("venue", tags)
     pair.should_not be_nil
     rec, meta = pair.not_nil!
     rec.id.should eq stored.id
     meta.should_not be_nil
-    meta.not_nil!.presentation.should eq pins
-    meta.not_nil!.usage_class.should eq "bg"
+    meta.not_nil!.presentation.should eq pins           # base accessor, no narrowing
+    meta.should be_a DataDungeon::ImageMeta
+    meta.as(DataDungeon::ImageMeta).usage_class.should eq "bg"  # narrow for specifics
 
-    db.get_with_image_meta("venue", {"venue" => "missing"}).should be_nil
+    db.get_with_meta("venue", {"venue" => "missing"}).should be_nil
+  ensure
+    db.try(&.close)
+    FileUtils.rm_rf(dir) if dir
+  end
+
+  it "dispatches get_with_meta to the right sidecar per media" do
+    dir = File.tempname("dd-poly")
+    Dir.mkdir_p(dir)
+    db = open_db(dir)
+
+    # audio asset → AudioMeta (presentation is nil for non-visual media)
+    atags = {"line" => "greeting"}
+    db.store("banter", atags, bytes: "ogg".to_slice, content_type: "audio/ogg",
+      audio: DataDungeon::AudioMeta.new(duration_ms: 1200, bitrate: 128))
+    _, ameta = db.get_with_meta("banter", atags).not_nil!
+    ameta.should be_a DataDungeon::AudioMeta
+    ameta.not_nil!.presentation.should be_nil
+    ameta.as(DataDungeon::AudioMeta).duration_ms.should eq 1200
+
+    # text asset → TextMeta
+    ttags = {"quest" => "zork"}
+    db.store("decree", ttags, bytes: "top hats".to_slice, content_type: "text/plain",
+      text: DataDungeon::TextMeta.new(content: "top hats", language: "en"))
+    _, tmeta = db.get_with_meta("decree", ttags).not_nil!
+    tmeta.should be_a DataDungeon::TextMeta
+    tmeta.as(DataDungeon::TextMeta).content.should eq "top hats"
   ensure
     db.try(&.close)
     FileUtils.rm_rf(dir) if dir
@@ -122,7 +149,7 @@ describe DataDungeon::DB do
     rec = db.store("venue", tags, bytes: "webp".to_slice, content_type: "image/webp",
       image: DataDungeon::ImageMeta.new(compression: "original"))
     db.get("venue", tags, touch: false)
-    db.get_with_image_meta("venue", tags, touch: false)
+    db.get_with_meta("venue", tags, touch: false)
 
     db.find_asset_by_id(rec.id).not_nil!.use_count.should eq 0  # no write on read
   ensure

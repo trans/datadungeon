@@ -47,7 +47,19 @@ module DataDungeon
     end
   end
 
-  struct ImageMeta
+  # Common base for all media metadata. Lets a single accessor
+  # (`DB#get_with_meta`) return the sidecar appropriate to the asset's media
+  # as one polymorphic type. Callers narrow with `.as?(ImageMeta)` etc. when
+  # they need media-specific fields.
+  abstract struct AssetMeta
+    # Renderer placement hint (opaque JSON blob). Present on visual media
+    # (image, video); nil for audio and text.
+    def presentation : String?
+      nil
+    end
+  end
+
+  struct ImageMeta < AssetMeta
     getter width : Int32?
     getter height : Int32?
     getter usage_class : String?
@@ -76,7 +88,7 @@ module DataDungeon
     end
   end
 
-  struct AudioMeta
+  struct AudioMeta < AssetMeta
     getter duration_ms : Int32?
     getter sample_rate : Int32?
     getter bitrate : Int32?
@@ -97,7 +109,7 @@ module DataDungeon
     end
   end
 
-  struct VideoMeta
+  struct VideoMeta < AssetMeta
     getter width : Int32?
     getter height : Int32?
     getter duration_ms : Int32?
@@ -124,7 +136,7 @@ module DataDungeon
     end
   end
 
-  struct TextMeta
+  struct TextMeta < AssetMeta
     getter content : String
     getter language : String?
 

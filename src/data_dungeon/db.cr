@@ -347,31 +347,56 @@ module DataDungeon
       rec
     end
 
-    # Eager lookup: record + image metadata (presentation pins, dimensions,
-    # policy) in a single query. Same self-heal + touch semantics as `get`.
-    # Returns {record, image_meta?} or nil on miss. image_meta is nil when the
-    # asset has no image_meta row. Halves round-trips on serve paths that need
-    # the presentation blob on every hit.
-    def get_with_image_meta(
+    # Eager lookup: record + the media metadata appropriate to the asset's
+    # media (ImageMeta / AudioMeta / VideoMeta / TextMeta), returned as the
+    # polymorphic AssetMeta base, in a single query. Same self-heal + touch
+    # semantics as `get`. Returns {record, meta?} or nil on miss; meta is nil
+    # when the asset has no sidecar row. Callers narrow with `.as?(ImageMeta)`
+    # when they need media-specific fields; `.presentation` works directly on
+    # any visual medium without narrowing.
+    def get_with_meta(
       asset_type : String,
       canonical_tags : Hash(String, String),
       touch : Bool = true,
-    ) : {AssetRecord, ImageMeta?}?
+    ) : {AssetRecord, AssetMeta?}?
       key = DataDungeon.canonical_key(canonical_tags)
       pair = @db.query_one?(
         <<-SQL,
-          SELECT a.*, im.asset_id, im.width, im.height, im.usage_class, im.animated,
+          SELECT a.*,
+                 im.asset_id, im.width, im.height, im.usage_class, im.animated,
                  im.frame_count, im.duration_ms, im.compression, im.quality_floor,
-                 im.max_colors, im.target_format, im.presentation
+                 im.max_colors, im.target_format, im.presentation,
+                 am.asset_id, am.duration_ms, am.sample_rate, am.bitrate,
+                 am.channels, am.transcript_id, am.compression, am.target_format,
+                 vm.asset_id, vm.width, vm.height, vm.duration_ms, vm.frame_rate,
+                 vm.usage_class, vm.has_audio, vm.compression, vm.quality_floor,
+                 vm.target_format, vm.presentation,
+                 tm.asset_id, tm.content, tm.language
           FROM assets a
           LEFT JOIN image_meta im ON im.asset_id = a.id
+          LEFT JOIN audio_meta am ON am.asset_id = a.id
+          LEFT JOIN video_meta vm ON vm.asset_id = a.id
+          LEFT JOIN text_meta  tm ON tm.asset_id = a.id
           WHERE a.asset_type = ? AND a.canonical_key = ?
           LIMIT 1
         SQL
         asset_type, key
       ) do |rs|
         rec = read_asset_record(rs)
-        {rec, read_image_meta_join(rs)}
+        # Consume every sidecar block in order to keep the cursor aligned,
+        # then pick the one matching this asset's media.
+        im = read_image_meta_join(rs)
+        am = read_audio_meta_join(rs)
+        vm = read_video_meta_join(rs)
+        tm = read_text_meta_join(rs)
+        meta = case rec.media
+               when "image" then im
+               when "audio" then am
+               when "video" then vm
+               when "text"  then tm
+               else              nil
+               end
+        {rec, meta.as(AssetMeta?)}
       end
       return nil unless pair
 
@@ -572,6 +597,26 @@ module DataDungeon
       end
     end
 
+    def load_video_meta(asset_id : Int64) : VideoMeta?
+      @db.query_one?(
+        "SELECT * FROM video_meta WHERE asset_id = ?", asset_id
+      ) do |rs|
+        _id = rs.read(Int64)
+        VideoMeta.new(
+          width: rs.read(Int32?),
+          height: rs.read(Int32?),
+          duration_ms: rs.read(Int32?),
+          frame_rate: rs.read(Float64?),
+          usage_class: rs.read(String?),
+          has_audio: (rs.read(Int32?) || 0) != 0,
+          compression: rs.read(String?) || "original",
+          quality_floor: rs.read(Int32?),
+          target_format: rs.read(String?),
+          presentation: rs.read(String?),
+        )
+      end
+    end
+
     def load_text_meta(asset_id : Int64) : TextMeta?
       @db.query_one?(
         "SELECT * FROM text_meta WHERE asset_id = ?", asset_id
@@ -694,6 +739,58 @@ module DataDungeon
         max_colors: rs.read(Int32?),
         target_format: rs.read(String?),
         presentation: rs.read(String?),
+      )
+    end
+
+    # Read audio_meta columns from a joined row (7 columns after asset_id).
+    private def read_audio_meta_join(rs) : AudioMeta?
+      asset_id = rs.read(Int64?)
+      if asset_id.nil?
+        7.times { rs.read(::DB::Any) }
+        return nil
+      end
+      AudioMeta.new(
+        duration_ms: rs.read(Int32?),
+        sample_rate: rs.read(Int32?),
+        bitrate: rs.read(Int32?),
+        channels: rs.read(Int32?) || 1,
+        transcript_id: rs.read(Int64?),
+        compression: rs.read(String?) || "original",
+        target_format: rs.read(String?),
+      )
+    end
+
+    # Read video_meta columns from a joined row (10 columns after asset_id).
+    private def read_video_meta_join(rs) : VideoMeta?
+      asset_id = rs.read(Int64?)
+      if asset_id.nil?
+        10.times { rs.read(::DB::Any) }
+        return nil
+      end
+      VideoMeta.new(
+        width: rs.read(Int32?),
+        height: rs.read(Int32?),
+        duration_ms: rs.read(Int32?),
+        frame_rate: rs.read(Float64?),
+        usage_class: rs.read(String?),
+        has_audio: (rs.read(Int32?) || 0) != 0,
+        compression: rs.read(String?) || "original",
+        quality_floor: rs.read(Int32?),
+        target_format: rs.read(String?),
+        presentation: rs.read(String?),
+      )
+    end
+
+    # Read text_meta columns from a joined row (2 columns after asset_id).
+    private def read_text_meta_join(rs) : TextMeta?
+      asset_id = rs.read(Int64?)
+      if asset_id.nil?
+        2.times { rs.read(::DB::Any) }
+        return nil
+      end
+      TextMeta.new(
+        content: rs.read(String),
+        language: rs.read(String?),
       )
     end
 

@@ -4,6 +4,13 @@
 > and `DB#store`/`#get`/`#path_for` are in `src/`, covered by `spec/store_spec.cr`
 > and an end-to-end PNG→WebP smoke test (1.2 MB PNG → 70 KB WebP). infocomic
 > migration remains a separate later PR.
+>
+> **Eager metadata (post-0.3.0).** `DB#get_with_meta(asset_type, tags)` returns
+> `{AssetRecord, AssetMeta?}` in a single wide LEFT-JOIN query, dispatching to the
+> sidecar for the asset's media. The four meta structs now inherit an abstract
+> `AssetMeta` base that exposes `presentation` (nil for audio/text), so callers get
+> placement pins without narrowing and `.as?(ImageMeta)` for media specifics. This
+> also added the previously-missing `load_video_meta`.
 
 ## Problem
 
