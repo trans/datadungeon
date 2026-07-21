@@ -12,8 +12,13 @@ module DataDungeon
       getter url : String
       getter kind : String
       getter cached : Bool
+      getter raw_request : String
+      getter raw_response : String
 
-      def initialize(@path : String, @url : String, @kind : String, @cached : Bool)
+      def initialize(
+        @path : String, @url : String, @kind : String, @cached : Bool,
+        @raw_request : String = "", @raw_response : String = "",
+      )
       end
     end
 
