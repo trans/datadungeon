@@ -178,14 +178,20 @@ module DataDungeon
       now = Time.utc.to_s(TIME_FORMAT)
       key = DataDungeon.canonical_key(canonical_tags)
 
-      # For non-pool assets, replace existing with same canonical key
+      # For non-pool assets, replace existing with same canonical key.
       unless pool
         existing = @db.query_one?(
-          "SELECT id FROM assets WHERE asset_type = ? AND canonical_key = ? LIMIT 1",
+          "SELECT id, file_path FROM assets WHERE asset_type = ? AND canonical_key = ? LIMIT 1",
           asset_type, key
-        ) { |rs| rs.read(Int64) }
+        ) { |rs| {rs.read(Int64), rs.read(String)} }
         if existing
-          delete_asset(existing)
+          old_id, old_path = existing
+          delete_asset_row(old_id)
+          # Unlink the superseded object only when the new write landed at a
+          # *different* key (e.g. an extension change via target_format). A
+          # same-key rewrite already overwrote the object in store.write;
+          # deleting it here would strand the new row's file.
+          @storage.try(&.delete(old_path)) if old_path != file_path
         end
       end
 
@@ -647,8 +653,24 @@ module DataDungeon
 
     # ── Delete ──
 
+    # Public delete: removes the row *and* the backing object. DataDungeon owns
+    # the write path, so it owns the unlink too — callers must not reach around
+    # to File.delete the blob (that breaks for non-local backends). The object
+    # key is read before the row is removed; Storage#delete is a no-op if the
+    # object is already gone.
     def delete_asset(id : Int64) : Nil
-      # Sidecar tables cleaned up by ON DELETE CASCADE
+      path = @db.query_one?(
+        "SELECT file_path FROM assets WHERE id = ? LIMIT 1", id
+      ) { |rs| rs.read(String) }
+      delete_asset_row(id)
+      @storage.try(&.delete(path)) if path
+    end
+
+    # Row-only delete (sidecars fall via ON DELETE CASCADE). Used by the
+    # internal replace path in store_asset, which manages the backing object
+    # itself — it may be the same key just rewritten, so the object must not be
+    # unlinked here.
+    private def delete_asset_row(id : Int64) : Nil
       @db.exec("DELETE FROM assets WHERE id = ?", id)
     end
 
