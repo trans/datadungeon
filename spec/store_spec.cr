@@ -177,4 +177,20 @@ describe DataDungeon::DB do
     db.try(&.close)
     FileUtils.rm_rf(dir) if dir
   end
+
+  it "rejects a sidecar struct that disagrees with the media kind" do
+    dir = File.tempname("dd-mismatch")
+    Dir.mkdir_p(dir)
+    db = open_db(dir)
+    tags = {"venue" => "arcade"}
+
+    expect_raises(ArgumentError, /media is "image".*audio/) do
+      db.store("venue", tags,
+        bytes: "bytes".to_slice, content_type: "image/webp",
+        media: "image", audio: DataDungeon::AudioMeta.new)
+    end
+  ensure
+    db.try(&.close)
+    FileUtils.rm_rf(dir) if dir
+  end
 end

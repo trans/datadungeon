@@ -159,6 +159,22 @@ module DataDungeon
       video : VideoMeta? = nil,
       text : TextMeta? = nil,
     ) : Int64
+      # Invariant: the sidecar payload must match the media column that
+      # get_with_meta later dispatches on. Only the struct matching `media`
+      # may be non-nil; a mismatch would land a row in the wrong sidecar
+      # table and read back as a silent nil. Fail loud at the write instead.
+      offenders = [] of String
+      offenders << "image" if image && media != "image"
+      offenders << "audio" if audio && media != "audio"
+      offenders << "video" if video && media != "video"
+      offenders << "text" if text && media != "text"
+      unless offenders.empty?
+        raise ArgumentError.new(
+          "media is #{media.inspect} but got #{offenders.join(", ")} metadata; " \
+          "the sidecar struct must match the media kind"
+        )
+      end
+
       now = Time.utc.to_s(TIME_FORMAT)
       key = DataDungeon.canonical_key(canonical_tags)
 
