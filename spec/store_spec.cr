@@ -259,6 +259,86 @@ describe DataDungeon::DB do
     FileUtils.rm_rf(dir) if dir
   end
 
+  it "reports a clean store as consistent" do
+    dir = File.tempname("dd-fsck-clean")
+    Dir.mkdir_p(dir)
+    db = open_db(dir)
+
+    db.store("venue", {"venue" => "arcade"}, bytes: "a".to_slice,
+      content_type: "image/webp", image: DataDungeon::ImageMeta.new(compression: "original"))
+    db.store("venue", {"venue" => "diner"}, bytes: "b".to_slice,
+      content_type: "image/webp", image: DataDungeon::ImageMeta.new(compression: "original"))
+
+    report = db.check_consistency
+    report.clean?.should be_true
+    report.missing_objects.should be_empty
+    report.orphan_objects.should be_empty
+  ensure
+    db.try(&.close)
+    FileUtils.rm_rf(dir) if dir
+  end
+
+  it "detects and vacuums a row whose object is gone" do
+    dir = File.tempname("dd-fsck-missing")
+    Dir.mkdir_p(dir)
+    db = open_db(dir)
+    tags = {"venue" => "arcade"}
+
+    rec = db.store("venue", tags, bytes: "a".to_slice,
+      content_type: "image/webp", image: DataDungeon::ImageMeta.new(compression: "original"))
+    File.delete(db.path_for(rec)) # object vanishes, row remains
+
+    report = db.check_consistency
+    report.clean?.should be_false
+    report.missing_objects.map(&.id).should eq [rec.id]
+
+    # Report-only vacuum leaves the row in place.
+    db.vacuum
+    db.find_asset_by_id(rec.id).should_not be_nil
+
+    # Opt-in delete drops the dangling row.
+    swept = db.vacuum(delete_missing_rows: true)
+    swept.missing_objects.map(&.id).should eq [rec.id]
+    db.find_asset_by_id(rec.id).should be_nil
+    db.check_consistency.clean?.should be_true
+  ensure
+    db.try(&.close)
+    FileUtils.rm_rf(dir) if dir
+  end
+
+  it "detects and vacuums an orphaned object with no row" do
+    dir = File.tempname("dd-fsck-orphan")
+    Dir.mkdir_p(dir)
+    db = open_db(dir)
+
+    db.store("venue", {"venue" => "arcade"}, bytes: "a".to_slice,
+      content_type: "image/webp", image: DataDungeon::ImageMeta.new(compression: "original"))
+
+    # Simulate a leaked blob (e.g. a pre-v0.3.4 delete): drop a file into the
+    # store with no owning row.
+    orphan_key = File.join("venue", "ff", "orphan.webp")
+    orphan_abs = File.join(dir, "store", orphan_key)
+    Dir.mkdir_p(File.dirname(orphan_abs))
+    File.write(orphan_abs, "leaked")
+
+    report = db.check_consistency
+    report.orphan_objects.should eq [orphan_key]
+    report.missing_objects.should be_empty
+
+    # Report-only vacuum leaves it on disk.
+    db.vacuum
+    File.exists?(orphan_abs).should be_true
+
+    # Opt-in delete removes it.
+    swept = db.vacuum(delete_orphan_objects: true)
+    swept.orphan_objects.should eq [orphan_key]
+    File.exists?(orphan_abs).should be_false
+    db.check_consistency.clean?.should be_true
+  ensure
+    db.try(&.close)
+    FileUtils.rm_rf(dir) if dir
+  end
+
   it "rejects a sidecar struct that disagrees with the media kind" do
     dir = File.tempname("dd-mismatch")
     Dir.mkdir_p(dir)

@@ -11,6 +11,10 @@ module DataDungeon
     abstract def exists?(key : String) : Bool
     # Remove the object at the given key (no-op if absent).
     abstract def delete(key : String) : Nil
+    # Enumerate every object key currently in the backend. Used by the
+    # consistency sweep to find objects with no owning row. May be expensive
+    # on large object stores; intended for maintenance, not the hot path.
+    abstract def list_keys : Array(String)
     # Resolve a key to a usable location — a local absolute path here,
     # a URL for object stores.
     abstract def resolve(key : String) : String
@@ -45,6 +49,17 @@ module DataDungeon
     def delete(key : String) : Nil
       path = resolve(key)
       File.delete(path) if File.exists?(path)
+    end
+
+    def list_keys : Array(String)
+      return [] of String unless Dir.exists?(@root)
+      base = Path[@root]
+      keys = [] of String
+      Dir.glob(File.join(@root, "**", "*")) do |path|
+        next unless File.file?(path)
+        keys << Path[path].relative_to(base).to_s
+      end
+      keys
     end
   end
 end

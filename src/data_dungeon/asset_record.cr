@@ -47,6 +47,28 @@ module DataDungeon
     end
   end
 
+  # Outcome of a store-consistency sweep (`DB#check_consistency` / `DB#vacuum`).
+  # Divergence between the index and the backend can go two ways; this reports
+  # both. When produced by `vacuum`, the entries are what was found *and* acted
+  # on per the flags passed.
+  struct ConsistencyReport
+    # Rows whose backing object no longer resolves in storage.
+    getter missing_objects : Array(AssetRecord)
+    # Object keys present in storage with no owning `assets` row.
+    getter orphan_objects : Array(String)
+
+    def initialize(
+      @missing_objects : Array(AssetRecord),
+      @orphan_objects : Array(String),
+    )
+    end
+
+    # True when the index and the backend are fully reconciled.
+    def clean? : Bool
+      @missing_objects.empty? && @orphan_objects.empty?
+    end
+  end
+
   # Common base for all media metadata. Lets a single accessor
   # (`DB#get_with_meta`) return the sidecar appropriate to the asset's media
   # as one polymorphic type. Callers narrow with `.as?(ImageMeta)` etc. when

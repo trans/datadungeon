@@ -674,6 +674,57 @@ module DataDungeon
       @db.exec("DELETE FROM assets WHERE id = ?", id)
     end
 
+    # ── Consistency sweep (fsck / vacuum) ──
+
+    # Report-only reconciliation of the index against the storage backend.
+    # Walks both directions of divergence: rows whose object is missing, and
+    # stored objects with no owning row (leaked blobs — e.g. from deletes made
+    # before v0.3.4, when delete_asset didn't unlink). Changes nothing.
+    def check_consistency : ConsistencyReport
+      store = @storage || raise "DataDungeon::DB has no storage backend; construct with cache_root: or storage:"
+
+      indexed = Set(String).new
+      missing_ids = [] of Int64
+      # Collect first; don't issue nested queries while this cursor is open.
+      @db.query("SELECT id, file_path FROM assets") do |rs|
+        rs.each do
+          id = rs.read(Int64)
+          path = rs.read(String)
+          indexed << path
+          missing_ids << id unless store.exists?(path)
+        end
+      end
+
+      missing = missing_ids.compact_map { |id| find_asset_by_id(id) }
+      orphans = store.list_keys.reject { |key| indexed.includes?(key) }
+      ConsistencyReport.new(missing, orphans)
+    end
+
+    # Reconcile the index and the backend. Off by default (behaves like
+    # check_consistency); pass the flags to actually delete. Returns the report
+    # of what was found — and, per the flags, acted on.
+    #
+    # - delete_missing_rows: drop rows whose backing object is gone.
+    # - delete_orphan_objects: unlink stored objects with no owning row.
+    def vacuum(
+      delete_missing_rows : Bool = false,
+      delete_orphan_objects : Bool = false,
+    ) : ConsistencyReport
+      store = @storage || raise "DataDungeon::DB has no storage backend; construct with cache_root: or storage:"
+      report = check_consistency
+
+      if delete_missing_rows
+        # Object already confirmed gone — drop the row only (no unlink needed).
+        report.missing_objects.each { |rec| delete_asset_row(rec.id) }
+      end
+
+      if delete_orphan_objects
+        report.orphan_objects.each { |key| store.delete(key) }
+      end
+
+      report
+    end
+
     # ── Pool helpers ──
 
     def count_pool_assets(asset_type : String, filter_tags : Hash(String, String)) : Int32
