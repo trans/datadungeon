@@ -14,10 +14,14 @@ module DataDungeon
       getter cached : Bool
       getter raw_request : String
       getter raw_response : String
+      # What generating it cost in USD, when the provider reports it (Runware
+      # does); nil for cache hits and providers that don't say
+      getter cost : Float64?
 
       def initialize(
         @path : String, @url : String, @kind : String, @cached : Bool,
         @raw_request : String = "", @raw_response : String = "",
+        @cost : Float64? = nil,
       )
       end
     end
