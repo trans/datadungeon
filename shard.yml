@@ -1,5 +1,5 @@
 name: data_dungeon
-version: 0.3.5
+version: 0.4.0
 
 authors:
   - Thomas Sawyer <transfire@gmail.com>
@@ -7,6 +7,11 @@ authors:
 dependencies:
   sqlite3:
     github: crystal-lang/crystal-sqlite3
+
+development_dependencies:
+  memo:
+    github: trans/memo
+    branch: main
 
 crystal: '>= 1.19.1'
 

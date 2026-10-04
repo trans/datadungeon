@@ -1,5 +1,8 @@
 # DataDungeon v0.3 — Owning the Write Path
 
+> Historical v0.3 design. See [README.md](README.md) for the current API and
+> storage-key behavior. Applications now supply optional canonical keys.
+
 > **Status: implemented (v0.3.0).** `Storage`/`LocalStorage`, the WebP bytes path,
 > and `DB#store`/`#get`/`#path_for` are in `src/`, covered by `spec/store_spec.cr`
 > and an end-to-end PNG→WebP smoke test (1.2 MB PNG → 70 KB WebP). infocomic
@@ -223,4 +226,3 @@ also removes the backing file via storage. Single-best overwrite no longer orpha
    vs. replace immediately. Recommendation: keep, deprecate gradually; this PR only *adds*
    store/get.
 ```
-

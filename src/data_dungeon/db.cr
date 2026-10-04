@@ -1,11 +1,24 @@
 require "sqlite3"
+require "digest/sha256"
+require "random/secure"
 
 module DataDungeon
   class DB
     TIME_FORMAT = "%F %T"
 
     @db : ::DB::Database
+    @indexer : AssetIndexer? = nil
     getter storage : Storage?
+
+    # Shared connection for extensions that keep their tables in the asset DB.
+    def connection : ::DB::Database
+      @db
+    end
+
+    def attach_indexer(indexer : AssetIndexer) : Nil
+      raise "an asset indexer is already attached" if @indexer
+      @indexer = indexer
+    end
 
     def initialize(path : String, storage : Storage? = nil, cache_root : String? = nil)
       dir = File.dirname(path)
@@ -16,6 +29,7 @@ module DataDungeon
     end
 
     def close : Nil
+      @indexer.try(&.close)
       @db.close
     end
 
@@ -28,7 +42,7 @@ module DataDungeon
         media         TEXT NOT NULL,
         content_type  TEXT NOT NULL,
         file_path     TEXT NOT NULL UNIQUE,
-        canonical_key TEXT NOT NULL,
+        canonical_key TEXT,
         file_hash     TEXT,
         created_at    TEXT NOT NULL,
         last_used_at  TEXT,
@@ -37,6 +51,8 @@ module DataDungeon
         pool          INTEGER DEFAULT 0,
         generator     TEXT,
         generation    TEXT,
+        description   TEXT,
+        generated     INTEGER NOT NULL DEFAULT 0,
         rating        INTEGER,
         flagged       INTEGER DEFAULT 0
       )
@@ -45,6 +61,9 @@ module DataDungeon
     ASSETS_INDEXES = <<-SQL
       CREATE INDEX IF NOT EXISTS idx_assets_lookup
         ON assets(asset_type, canonical_key);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_assets_single_key
+        ON assets(asset_type, canonical_key)
+        WHERE canonical_key IS NOT NULL AND pool = 0;
       CREATE INDEX IF NOT EXISTS idx_assets_type
         ON assets(asset_type);
       CREATE INDEX IF NOT EXISTS idx_assets_generator
@@ -131,6 +150,7 @@ module DataDungeon
 
       # New asset store tables
       @db.exec(ASSETS_SCHEMA)
+      migrate_assets_schema
       ASSETS_INDEXES.split(";").each { |s| @db.exec(s.strip) unless s.strip.empty? }
       @db.exec(ASSET_TAGS_SCHEMA)
       @db.exec(ASSET_TAGS_INDEX)
@@ -140,6 +160,49 @@ module DataDungeon
       @db.exec(TEXT_META_SCHEMA)
     end
 
+    # Older databases required a canonical key and lacked description fields.
+    # Rebuild only that table; its child tables retain their asset_id references.
+    private def migrate_assets_schema : Nil
+      columns = {} of String => Int32
+      @db.query("PRAGMA table_info(assets)") do |rs|
+        rs.each do
+          rs.read(Int32)
+          name = rs.read(String)
+          rs.read(String)
+          columns[name] = rs.read(Int32)
+          rs.read(::DB::Any)
+          rs.read(Int32)
+        end
+      end
+      return if columns["canonical_key"]? == 0 && columns.has_key?("description") && columns.has_key?("generated")
+
+      @db.exec("PRAGMA foreign_keys=OFF")
+      begin
+        @db.transaction do |tx|
+          conn = tx.connection
+          conn.exec(ASSETS_SCHEMA.sub("IF NOT EXISTS assets", "assets_migrated"))
+          description = columns.has_key?("description") ? "description" : "NULL"
+          generated = columns.has_key?("generated") ? "generated" : "CASE WHEN generator IS NULL THEN 0 ELSE 1 END"
+          conn.exec(<<-SQL)
+            INSERT INTO assets_migrated
+            (id, asset_type, media, content_type, file_path, canonical_key, file_hash,
+             created_at, last_used_at, use_count, permanent, pool, generator,
+             generation, description, generated, rating, flagged)
+            SELECT id, asset_type, media, content_type, file_path, canonical_key, file_hash,
+                   created_at, last_used_at, use_count, permanent, pool, generator,
+                   generation, #{description}, #{generated}, rating, flagged
+            FROM assets
+          SQL
+          conn.exec("DROP TABLE assets")
+          conn.exec("ALTER TABLE assets_migrated RENAME TO assets")
+        end
+      ensure
+        @db.exec("PRAGMA foreign_keys=ON")
+      end
+      violations = @db.query_all("PRAGMA foreign_key_check") { |rs| rs.read(::DB::Any) }
+      raise "asset schema migration left invalid references" unless violations.empty?
+    end
+
     # ── Store ──
 
     def store_asset(
@@ -147,13 +210,15 @@ module DataDungeon
       media : String,
       content_type : String,
       file_path : String,
-      canonical_tags : Hash(String, String),
-      extra_tags : Hash(String, String) = {} of String => String,
+      tags : Hash(String, String) = {} of String => String,
+      canonical_key : String? = nil,
       file_hash : String? = nil,
       pool : Bool = false,
       permanent : Bool = false,
       generator : String? = nil,
       generation : String? = nil,
+      description : String? = nil,
+      generated : Bool = false,
       image : ImageMeta? = nil,
       audio : AudioMeta? = nil,
       video : VideoMeta? = nil,
@@ -176,104 +241,114 @@ module DataDungeon
       end
 
       now = Time.utc.to_s(TIME_FORMAT)
-      key = DataDungeon.canonical_key(canonical_tags)
+      old_path : String? = nil
+      asset_id = 0_i64
 
-      # For non-pool assets, replace existing with same canonical key.
-      unless pool
-        existing = @db.query_one?(
-          "SELECT id, file_path FROM assets WHERE asset_type = ? AND canonical_key = ? LIMIT 1",
-          asset_type, key
-        ) { |rs| {rs.read(Int64), rs.read(String)} }
+      @db.transaction do |tx|
+        conn = tx.connection
+        existing = if canonical_key && !pool
+                     conn.query_one?(
+                       "SELECT id, file_path FROM assets WHERE asset_type = ? AND canonical_key = ? AND pool = 0 LIMIT 1",
+                       asset_type, canonical_key
+                     ) { |rs| {rs.read(Int64), rs.read(String)} }
+                   end
+
         if existing
-          old_id, old_path = existing
-          delete_asset_row(old_id)
-          # Unlink the superseded object only when the new write landed at a
-          # *different* key (e.g. an extension change via target_format). A
-          # same-key rewrite already overwrote the object in store.write;
-          # deleting it here would strand the new row's file.
-          @storage.try(&.delete(old_path)) if old_path != file_path
+          asset_id, old_path = existing
+          conn.exec(
+            <<-SQL,
+              UPDATE assets SET media = ?, content_type = ?, file_path = ?, file_hash = ?,
+                last_used_at = ?, permanent = ?, generator = ?, generation = ?,
+                description = ?, generated = ? WHERE id = ?
+            SQL
+            media, content_type, file_path, file_hash, now, permanent ? 1 : 0,
+            generator, generation, description, generated ? 1 : 0, asset_id
+          )
+          conn.exec("DELETE FROM asset_tags WHERE asset_id = ?", asset_id)
+          conn.exec("DELETE FROM image_meta WHERE asset_id = ?", asset_id)
+          conn.exec("DELETE FROM audio_meta WHERE asset_id = ?", asset_id)
+          conn.exec("DELETE FROM video_meta WHERE asset_id = ?", asset_id)
+          conn.exec("DELETE FROM text_meta WHERE asset_id = ?", asset_id)
+        else
+          conn.exec(
+            <<-SQL,
+              INSERT INTO assets
+              (asset_type, media, content_type, file_path, canonical_key, file_hash,
+               created_at, last_used_at, use_count, permanent, pool,
+               generator, generation, description, generated, rating, flagged)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, NULL, 0)
+            SQL
+            asset_type, media, content_type, file_path, canonical_key, file_hash,
+            now, now, permanent ? 1 : 0, pool ? 1 : 0,
+            generator, generation, description, generated ? 1 : 0
+          )
+          asset_id = conn.scalar("SELECT last_insert_rowid()").as(Int64)
         end
-      end
 
-      @db.exec(
-        <<-SQL,
-          INSERT INTO assets
-          (asset_type, media, content_type, file_path, canonical_key, file_hash,
-           created_at, last_used_at, use_count, permanent, pool,
-           generator, generation, rating, flagged)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, NULL, 0)
-        SQL
-        asset_type, media, content_type, file_path, key, file_hash,
-        now, now, permanent ? 1 : 0, pool ? 1 : 0,
-        generator, generation
-      )
+        tags.each do |k, v|
+          conn.exec(
+            "INSERT INTO asset_tags (asset_id, tag_key, tag_value) VALUES (?, ?, ?)",
+            asset_id, k, v
+          )
+        end
 
-      asset_id = @db.scalar("SELECT last_insert_rowid()").as(Int64)
-
-      # Store all tags (canonical + extra)
-      all_tags = canonical_tags.merge(extra_tags)
-      all_tags.each do |k, v|
-        @db.exec(
-          "INSERT INTO asset_tags (asset_id, tag_key, tag_value) VALUES (?, ?, ?)",
-          asset_id, k, v
-        )
-      end
-
-      # Store media-specific metadata
-      if im = image
-        @db.exec(
-          <<-SQL,
+        # Store media-specific metadata
+        if im = image
+          conn.exec(
+            <<-SQL,
             INSERT INTO image_meta
             (asset_id, width, height, usage_class, animated, frame_count,
              duration_ms, compression, quality_floor, max_colors,
              target_format, presentation)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           SQL
-          asset_id, im.width, im.height, im.usage_class,
-          im.animated ? 1 : 0, im.frame_count, im.duration_ms,
-          im.compression, im.quality_floor, im.max_colors,
-          im.target_format, im.presentation
-        )
-      end
+            asset_id, im.width, im.height, im.usage_class,
+            im.animated ? 1 : 0, im.frame_count, im.duration_ms,
+            im.compression, im.quality_floor, im.max_colors,
+            im.target_format, im.presentation
+          )
+        end
 
-      if am = audio
-        @db.exec(
-          <<-SQL,
+        if am = audio
+          conn.exec(
+            <<-SQL,
             INSERT INTO audio_meta
             (asset_id, duration_ms, sample_rate, bitrate, channels,
              transcript_id, compression, target_format)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
           SQL
-          asset_id, am.duration_ms, am.sample_rate, am.bitrate,
-          am.channels, am.transcript_id, am.compression, am.target_format
-        )
-      end
+            asset_id, am.duration_ms, am.sample_rate, am.bitrate,
+            am.channels, am.transcript_id, am.compression, am.target_format
+          )
+        end
 
-      if vm = video
-        @db.exec(
-          <<-SQL,
+        if vm = video
+          conn.exec(
+            <<-SQL,
             INSERT INTO video_meta
             (asset_id, width, height, duration_ms, frame_rate, usage_class,
              has_audio, compression, quality_floor, target_format, presentation)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           SQL
-          asset_id, vm.width, vm.height, vm.duration_ms, vm.frame_rate,
-          vm.usage_class, vm.has_audio ? 1 : 0, vm.compression,
-          vm.quality_floor, vm.target_format, vm.presentation
-        )
-      end
+            asset_id, vm.width, vm.height, vm.duration_ms, vm.frame_rate,
+            vm.usage_class, vm.has_audio ? 1 : 0, vm.compression,
+            vm.quality_floor, vm.target_format, vm.presentation
+          )
+        end
 
-      if tm = text
-        @db.exec(
-          "INSERT INTO text_meta (asset_id, content, language) VALUES (?, ?, ?)",
-          asset_id, tm.content, tm.language
-        )
+        if tm = text
+          conn.exec(
+            "INSERT INTO text_meta (asset_id, content, language) VALUES (?, ?, ?)",
+            asset_id, tm.content, tm.language
+          )
+        end
       end
-
+      @storage.try(&.delete(old_path.not_nil!)) if old_path && old_path != file_path
+      @indexer.try(&.enqueue_asset(asset_id))
       asset_id
     end
 
-    # ── High-level asset management (owns hashing, policy, file write) ──
+    # ── High-level asset management (owns media policy and file write) ──
 
     # Store an asset end to end: apply the media compression policy, hash the
     # resulting bytes, write the file to a storage key DataDungeon derives and
@@ -282,17 +357,19 @@ module DataDungeon
     # Provide the source as exactly one of `source_path` or `bytes`.
     def store(
       asset_type : String,
-      canonical_tags : Hash(String, String),
+      tags : Hash(String, String) = {} of String => String,
       *,
+      canonical_key : String? = nil,
       source_path : String? = nil,
       bytes : Bytes? = nil,
       content_type : String,
       media : String? = nil,
-      extra_tags : Hash(String, String) = {} of String => String,
       pool : Bool = false,
       permanent : Bool = false,
       generator : String? = nil,
       generation : String? = nil,
+      description : String? = nil,
+      generated : Bool = false,
       image : ImageMeta? = nil,
       audio : AudioMeta? = nil,
       video : VideoMeta? = nil,
@@ -313,40 +390,27 @@ module DataDungeon
       end
 
       file_hash = Digest::SHA256.hexdigest(data)
-      key = DataDungeon.canonical_key(canonical_tags)
-      prefix = key[0, 2]
       ext = ext_for(ct)
-      storage_key =
-        if pool
-          File.join(asset_type, prefix, key, "#{file_hash}.#{ext}")
-        else
-          File.join(asset_type, prefix, "#{key}.#{ext}")
-        end
-
-      # Write-skip: single-best re-store of identical bytes is a no-op.
-      unless pool
-        if existing = find_asset(asset_type, canonical_tags)
-          if existing.file_hash == file_hash && store.exists?(existing.file_path)
-            touch_asset(existing.id)
-            return existing
-          end
-        end
-      end
-
-      store.write(storage_key, data)
+      existing = canonical_key && !pool ? find_asset(asset_type, canonical_key) : nil
+      same_object = existing && existing.file_hash == file_hash &&
+                    existing.content_type == ct && store.exists?(existing.file_path)
+      storage_key = same_object ? existing.not_nil!.file_path : File.join(asset_type, "#{Random::Secure.hex(16)}.#{ext}")
+      store.write(storage_key, data) unless same_object
 
       id = store_asset(
         asset_type: asset_type,
         media: m,
         content_type: ct,
         file_path: storage_key,
-        canonical_tags: canonical_tags,
-        extra_tags: extra_tags,
+        tags: tags,
+        canonical_key: canonical_key,
         file_hash: file_hash,
         pool: pool,
         permanent: permanent,
         generator: generator,
         generation: generation,
+        description: description,
+        generated: generated,
         image: image,
         audio: audio,
         video: video,
@@ -359,8 +423,19 @@ module DataDungeon
     # High-level lookup: verifies the backing file still exists (self-heals a
     # stale row to a miss), touches usage, and returns the record. Retires the
     # caller-side File.exists? cache-gate.
-    def get(asset_type : String, canonical_tags : Hash(String, String), touch : Bool = true) : AssetRecord?
-      rec = find_asset(asset_type, canonical_tags)
+    def get(asset_type : String, canonical_key : String, touch : Bool = true) : AssetRecord?
+      rec = find_asset(asset_type, canonical_key)
+      return nil unless rec
+      if store = @storage
+        return nil unless store.exists?(rec.file_path)
+      end
+      touch_asset(rec.id) if touch
+      rec
+    end
+
+    # Assets without a canonical key are addressed by their database ID.
+    def get_by_id(id : Int64, touch : Bool = true) : AssetRecord?
+      rec = find_asset_by_id(id)
       return nil unless rec
       if store = @storage
         return nil unless store.exists?(rec.file_path)
@@ -378,10 +453,21 @@ module DataDungeon
     # any visual medium without narrowing.
     def get_with_meta(
       asset_type : String,
-      canonical_tags : Hash(String, String),
+      canonical_key : String,
       touch : Bool = true,
     ) : {AssetRecord, AssetMeta?}?
-      key = DataDungeon.canonical_key(canonical_tags)
+      lookup_with_meta(
+        "a.asset_type = ? AND a.canonical_key = ? AND a.pool = 0",
+        [asset_type, canonical_key] of ::DB::Any,
+        touch
+      )
+    end
+
+    def get_with_meta_by_id(id : Int64, touch : Bool = true) : {AssetRecord, AssetMeta?}?
+      lookup_with_meta("a.id = ?", [id] of ::DB::Any, touch)
+    end
+
+    private def lookup_with_meta(where_clause : String, args : Array(::DB::Any), touch : Bool) : {AssetRecord, AssetMeta?}?
       pair = @db.query_one?(
         <<-SQL,
           SELECT a.*,
@@ -399,10 +485,12 @@ module DataDungeon
           LEFT JOIN audio_meta am ON am.asset_id = a.id
           LEFT JOIN video_meta vm ON vm.asset_id = a.id
           LEFT JOIN text_meta  tm ON tm.asset_id = a.id
-          WHERE a.asset_type = ? AND a.canonical_key = ?
+          WHERE #{where_clause}
           LIMIT 1
         SQL
-        asset_type, key
+
+
+        args: args
       ) do |rs|
         rec = read_asset_record(rs)
         # Consume every sidecar block in order to keep the cursor aligned,
@@ -443,19 +531,19 @@ module DataDungeon
       return {data, content_type} if policy == "original"
 
       target = meta.target_format || "webp"
-      return {data, content_type} unless target == "webp"   # only WebP output supported today
-      return {data, content_type} if content_type.downcase == "image/webp"  # already target
+      return {data, content_type} unless target == "webp"                  # only WebP output supported today
+      return {data, content_type} if content_type.downcase == "image/webp" # already target
 
       quality = case policy
                 when "compress" then (meta.quality_floor || 80).to_f32
-                else                 (meta.quality_floor || 90).to_f32  # normalize
+                else                 (meta.quality_floor || 90).to_f32 # normalize
                 end
 
       case content_type.downcase
       when "image/png"
         {WebP.png_to_webp_bytes(data, quality), "image/webp"}
       else
-        {data, content_type}   # unsupported input (jpg/etc.) — passthrough for now
+        {data, content_type} # unsupported input (jpg/etc.) — passthrough for now
       end
     end
 
@@ -488,11 +576,10 @@ module DataDungeon
 
     # ── Find ──
 
-    def find_asset(asset_type : String, canonical_tags : Hash(String, String)) : AssetRecord?
-      key = DataDungeon.canonical_key(canonical_tags)
+    def find_asset(asset_type : String, canonical_key : String) : AssetRecord?
       @db.query_one?(
-        "SELECT * FROM assets WHERE asset_type = ? AND canonical_key = ? LIMIT 1",
-        asset_type, key
+        "SELECT * FROM assets WHERE asset_type = ? AND canonical_key = ? AND pool = 0 LIMIT 1",
+        asset_type, canonical_key
       ) { |rs| read_asset_record(rs) }
     end
 
@@ -529,11 +616,10 @@ module DataDungeon
       results
     end
 
-    def asset_exists?(asset_type : String, canonical_tags : Hash(String, String)) : Bool
-      key = DataDungeon.canonical_key(canonical_tags)
+    def asset_exists?(asset_type : String, canonical_key : String) : Bool
       result = @db.scalar(
         "SELECT COUNT(*) FROM assets WHERE asset_type = ? AND canonical_key = ?",
-        asset_type, key
+        asset_type, canonical_key
       )
       result.as(Int64) > 0
     end
@@ -671,6 +757,7 @@ module DataDungeon
     # itself — it may be the same key just rewritten, so the object must not be
     # unlinked here.
     private def delete_asset_row(id : Int64) : Nil
+      @indexer.try(&.delete_asset(id))
       @db.exec("DELETE FROM assets WHERE id = ?", id)
     end
 
@@ -890,7 +977,7 @@ module DataDungeon
         media: rs.read(String),
         content_type: rs.read(String),
         file_path: rs.read(String),
-        canonical_key: rs.read(String),
+        canonical_key: rs.read(String?),
         file_hash: rs.read(String?),
         created_at: rs.read(String),
         last_used_at: rs.read(String?),
@@ -899,6 +986,8 @@ module DataDungeon
         pool: (rs.read(Int32?) || 0) != 0,
         generator: rs.read(String?),
         generation: rs.read(String?),
+        description: rs.read(String?),
+        generated: (rs.read(Int32?) || 0) != 0,
         rating: rs.read(Int32?),
         flagged: (rs.read(Int32?) || 0) != 0,
       )

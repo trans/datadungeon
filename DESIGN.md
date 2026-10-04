@@ -1,5 +1,9 @@
 # DataDungeon Design
 
+> Historical design notes. See [README.md](README.md) and `src/data_dungeon/`
+> for the current API. Canonical keys are now optional and supplied by the
+> application; new object paths no longer derive from them.
+
 ## Purpose
 
 DataDungeon is a **file store** — it caches and deduplicates generated assets

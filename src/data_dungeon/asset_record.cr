@@ -1,20 +1,11 @@
-require "digest/sha256"
-
 module DataDungeon
-  # Compute a canonical key from a sorted hash of tag pairs.
-  def self.canonical_key(tags : Hash(String, String)) : String
-    sorted = tags.to_a.sort_by(&.[0])
-    payload = sorted.map { |k, v| "#{k}=#{v}" }.join("\n")
-    Digest::SHA256.hexdigest(payload)
-  end
-
   struct AssetRecord
     getter id : Int64
     getter asset_type : String
     getter media : String
     getter content_type : String
     getter file_path : String
-    getter canonical_key : String
+    getter canonical_key : String?
     getter file_hash : String?
     getter created_at : String
     getter last_used_at : String?
@@ -23,6 +14,8 @@ module DataDungeon
     getter pool : Bool
     getter generator : String?
     getter generation : String?
+    getter description : String?
+    getter generated : Bool
     getter rating : Int32?
     getter flagged : Bool
 
@@ -32,7 +25,7 @@ module DataDungeon
       @media : String,
       @content_type : String,
       @file_path : String,
-      @canonical_key : String,
+      @canonical_key : String?,
       @file_hash : String?,
       @created_at : String,
       @last_used_at : String? = nil,
@@ -41,6 +34,8 @@ module DataDungeon
       @pool : Bool = false,
       @generator : String? = nil,
       @generation : String? = nil,
+      @description : String? = nil,
+      @generated : Bool = false,
       @rating : Int32? = nil,
       @flagged : Bool = false,
     )
