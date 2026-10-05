@@ -1,6 +1,5 @@
 require "sqlite3"
 require "digest/sha256"
-require "random/secure"
 
 module DataDungeon
   class DB
@@ -9,6 +8,11 @@ module DataDungeon
     @db : ::DB::Database
     @indexer : AssetIndexer? = nil
     getter storage : Storage?
+    # Objects are content addressed, so several rows may share one. Writing an
+    # object and indexing its row, or dropping a row and unlinking its object
+    # once unreferenced, happen under this lock so neither interleaves with the
+    # other inside this process.
+    @object_lock = Mutex.new(:reentrant)
 
     # Shared connection for extensions that keep their tables in the asset DB.
     def connection : ::DB::Database
@@ -41,7 +45,7 @@ module DataDungeon
         asset_type    TEXT NOT NULL,
         media         TEXT NOT NULL,
         content_type  TEXT NOT NULL,
-        file_path     TEXT NOT NULL UNIQUE,
+        file_path     TEXT NOT NULL,
         canonical_key TEXT,
         file_hash     TEXT,
         created_at    TEXT NOT NULL,
@@ -66,6 +70,8 @@ module DataDungeon
         WHERE canonical_key IS NOT NULL AND pool = 0;
       CREATE INDEX IF NOT EXISTS idx_assets_type
         ON assets(asset_type);
+      CREATE INDEX IF NOT EXISTS idx_assets_file_path
+        ON assets(file_path);
       CREATE INDEX IF NOT EXISTS idx_assets_generator
         ON assets(generator)
     SQL
@@ -160,8 +166,9 @@ module DataDungeon
       @db.exec(TEXT_META_SCHEMA)
     end
 
-    # Older databases required a canonical key and lacked description fields.
-    # Rebuild only that table; its child tables retain their asset_id references.
+    # Older databases required a canonical key, lacked description fields, or
+    # required a unique file_path (objects are now shared by content). Rebuild
+    # only that table; its child tables retain their asset_id references.
     private def migrate_assets_schema : Nil
       columns = {} of String => Int32
       @db.query("PRAGMA table_info(assets)") do |rs|
@@ -174,7 +181,8 @@ module DataDungeon
           rs.read(Int32)
         end
       end
-      return if columns["canonical_key"]? == 0 && columns.has_key?("description") && columns.has_key?("generated")
+      return if columns["canonical_key"]? == 0 && columns.has_key?("description") &&
+                columns.has_key?("generated") && !unique_file_path?
 
       @db.exec("PRAGMA foreign_keys=OFF")
       begin
@@ -201,6 +209,28 @@ module DataDungeon
       end
       violations = @db.query_all("PRAGMA foreign_key_check") { |rs| rs.read(::DB::Any) }
       raise "asset schema migration left invalid references" unless violations.empty?
+    end
+
+    # Whether the assets table still carries a UNIQUE constraint on file_path.
+    private def unique_file_path? : Bool
+      constraint_indexes = [] of String
+      @db.query("PRAGMA index_list(assets)") do |rs|
+        rs.each do
+          rs.read(Int32) # seq
+          name = rs.read(String)
+          unique = rs.read(Int32)
+          origin = rs.read(String)
+          rs.read(Int32) # partial
+          constraint_indexes << name if unique == 1 && origin == "u"
+        end
+      end
+      constraint_indexes.any? do |name|
+        @db.query_all(%(PRAGMA index_info("#{name}"))) { |rs|
+          rs.read(Int32)
+          rs.read(Int32)
+          rs.read(String?)
+        }.includes?("file_path")
+      end
     end
 
     # ── Store ──
@@ -244,106 +274,110 @@ module DataDungeon
       old_path : String? = nil
       asset_id = 0_i64
 
-      @db.transaction do |tx|
-        conn = tx.connection
-        existing = if canonical_key && !pool
-                     conn.query_one?(
-                       "SELECT id, file_path FROM assets WHERE asset_type = ? AND canonical_key = ? AND pool = 0 LIMIT 1",
-                       asset_type, canonical_key
-                     ) { |rs| {rs.read(Int64), rs.read(String)} }
-                   end
+      @object_lock.synchronize do
+        @db.transaction do |tx|
+          conn = tx.connection
+          existing = if canonical_key && !pool
+                       conn.query_one?(
+                         "SELECT id, file_path FROM assets WHERE asset_type = ? AND canonical_key = ? AND pool = 0 LIMIT 1",
+                         asset_type, canonical_key
+                       ) { |rs| {rs.read(Int64), rs.read(String)} }
+                     end
 
-        if existing
-          asset_id, old_path = existing
-          conn.exec(
-            <<-SQL,
+          if existing
+            asset_id, old_path = existing
+            conn.exec(
+              <<-SQL,
               UPDATE assets SET media = ?, content_type = ?, file_path = ?, file_hash = ?,
                 last_used_at = ?, permanent = ?, generator = ?, generation = ?,
                 description = ?, generated = ? WHERE id = ?
             SQL
-            media, content_type, file_path, file_hash, now, permanent ? 1 : 0,
-            generator, generation, description, generated ? 1 : 0, asset_id
-          )
-          conn.exec("DELETE FROM asset_tags WHERE asset_id = ?", asset_id)
-          conn.exec("DELETE FROM image_meta WHERE asset_id = ?", asset_id)
-          conn.exec("DELETE FROM audio_meta WHERE asset_id = ?", asset_id)
-          conn.exec("DELETE FROM video_meta WHERE asset_id = ?", asset_id)
-          conn.exec("DELETE FROM text_meta WHERE asset_id = ?", asset_id)
-        else
-          conn.exec(
-            <<-SQL,
+              media, content_type, file_path, file_hash, now, permanent ? 1 : 0,
+              generator, generation, description, generated ? 1 : 0, asset_id
+            )
+            conn.exec("DELETE FROM asset_tags WHERE asset_id = ?", asset_id)
+            conn.exec("DELETE FROM image_meta WHERE asset_id = ?", asset_id)
+            conn.exec("DELETE FROM audio_meta WHERE asset_id = ?", asset_id)
+            conn.exec("DELETE FROM video_meta WHERE asset_id = ?", asset_id)
+            conn.exec("DELETE FROM text_meta WHERE asset_id = ?", asset_id)
+          else
+            conn.exec(
+              <<-SQL,
               INSERT INTO assets
               (asset_type, media, content_type, file_path, canonical_key, file_hash,
                created_at, last_used_at, use_count, permanent, pool,
                generator, generation, description, generated, rating, flagged)
               VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, NULL, 0)
             SQL
-            asset_type, media, content_type, file_path, canonical_key, file_hash,
-            now, now, permanent ? 1 : 0, pool ? 1 : 0,
-            generator, generation, description, generated ? 1 : 0
-          )
-          asset_id = conn.scalar("SELECT last_insert_rowid()").as(Int64)
-        end
+              asset_type, media, content_type, file_path, canonical_key, file_hash,
+              now, now, permanent ? 1 : 0, pool ? 1 : 0,
+              generator, generation, description, generated ? 1 : 0
+            )
+            asset_id = conn.scalar("SELECT last_insert_rowid()").as(Int64)
+          end
 
-        tags.each do |k, v|
-          conn.exec(
-            "INSERT INTO asset_tags (asset_id, tag_key, tag_value) VALUES (?, ?, ?)",
-            asset_id, k, v
-          )
-        end
+          tags.each do |k, v|
+            conn.exec(
+              "INSERT INTO asset_tags (asset_id, tag_key, tag_value) VALUES (?, ?, ?)",
+              asset_id, k, v
+            )
+          end
 
-        # Store media-specific metadata
-        if im = image
-          conn.exec(
-            <<-SQL,
+          # Store media-specific metadata
+          if im = image
+            conn.exec(
+              <<-SQL,
             INSERT INTO image_meta
             (asset_id, width, height, usage_class, animated, frame_count,
              duration_ms, compression, quality_floor, max_colors,
              target_format, presentation)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           SQL
-            asset_id, im.width, im.height, im.usage_class,
-            im.animated ? 1 : 0, im.frame_count, im.duration_ms,
-            im.compression, im.quality_floor, im.max_colors,
-            im.target_format, im.presentation
-          )
-        end
+              asset_id, im.width, im.height, im.usage_class,
+              im.animated ? 1 : 0, im.frame_count, im.duration_ms,
+              im.compression, im.quality_floor, im.max_colors,
+              im.target_format, im.presentation
+            )
+          end
 
-        if am = audio
-          conn.exec(
-            <<-SQL,
+          if am = audio
+            conn.exec(
+              <<-SQL,
             INSERT INTO audio_meta
             (asset_id, duration_ms, sample_rate, bitrate, channels,
              transcript_id, compression, target_format)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
           SQL
-            asset_id, am.duration_ms, am.sample_rate, am.bitrate,
-            am.channels, am.transcript_id, am.compression, am.target_format
-          )
-        end
+              asset_id, am.duration_ms, am.sample_rate, am.bitrate,
+              am.channels, am.transcript_id, am.compression, am.target_format
+            )
+          end
 
-        if vm = video
-          conn.exec(
-            <<-SQL,
+          if vm = video
+            conn.exec(
+              <<-SQL,
             INSERT INTO video_meta
             (asset_id, width, height, duration_ms, frame_rate, usage_class,
              has_audio, compression, quality_floor, target_format, presentation)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           SQL
-            asset_id, vm.width, vm.height, vm.duration_ms, vm.frame_rate,
-            vm.usage_class, vm.has_audio ? 1 : 0, vm.compression,
-            vm.quality_floor, vm.target_format, vm.presentation
-          )
-        end
+              asset_id, vm.width, vm.height, vm.duration_ms, vm.frame_rate,
+              vm.usage_class, vm.has_audio ? 1 : 0, vm.compression,
+              vm.quality_floor, vm.target_format, vm.presentation
+            )
+          end
 
-        if tm = text
-          conn.exec(
-            "INSERT INTO text_meta (asset_id, content, language) VALUES (?, ?, ?)",
-            asset_id, tm.content, tm.language
-          )
+          if tm = text
+            conn.exec(
+              "INSERT INTO text_meta (asset_id, content, language) VALUES (?, ?, ?)",
+              asset_id, tm.content, tm.language
+            )
+          end
+        end
+        if (superseded = old_path) && superseded != file_path
+          release_object(superseded)
         end
       end
-      @storage.try(&.delete(old_path.not_nil!)) if old_path && old_path != file_path
       @indexer.try(&.enqueue_asset(asset_id))
       asset_id
     end
@@ -351,8 +385,9 @@ module DataDungeon
     # ── High-level asset management (owns media policy and file write) ──
 
     # Store an asset end to end: apply the media compression policy, hash the
-    # resulting bytes, write the file to a storage key DataDungeon derives and
-    # owns, then index it. Returns the stored AssetRecord.
+    # resulting bytes, write them to their content-addressed key
+    # (`<first two hex chars>/<sha256>.<ext>`), then index the row. Identical
+    # bytes share one object. Returns the stored AssetRecord.
     #
     # Provide the source as exactly one of `source_path` or `bytes`.
     def store(
@@ -390,32 +425,30 @@ module DataDungeon
       end
 
       file_hash = Digest::SHA256.hexdigest(data)
-      ext = ext_for(ct)
-      existing = canonical_key && !pool ? find_asset(asset_type, canonical_key) : nil
-      same_object = existing && existing.file_hash == file_hash &&
-                    existing.content_type == ct && store.exists?(existing.file_path)
-      storage_key = same_object ? existing.not_nil!.file_path : File.join(asset_type, "#{Random::Secure.hex(16)}.#{ext}")
-      store.write(storage_key, data) unless same_object
+      storage_key = object_key(file_hash, ct)
 
-      id = store_asset(
-        asset_type: asset_type,
-        media: m,
-        content_type: ct,
-        file_path: storage_key,
-        tags: tags,
-        canonical_key: canonical_key,
-        file_hash: file_hash,
-        pool: pool,
-        permanent: permanent,
-        generator: generator,
-        generation: generation,
-        description: description,
-        generated: generated,
-        image: image,
-        audio: audio,
-        video: video,
-        text: text,
-      )
+      id = @object_lock.synchronize do
+        store.write(storage_key, data) unless store.exists?(storage_key)
+        store_asset(
+          asset_type: asset_type,
+          media: m,
+          content_type: ct,
+          file_path: storage_key,
+          tags: tags,
+          canonical_key: canonical_key,
+          file_hash: file_hash,
+          pool: pool,
+          permanent: permanent,
+          generator: generator,
+          generation: generation,
+          description: description,
+          generated: generated,
+          image: image,
+          audio: audio,
+          video: video,
+          text: text,
+        )
+      end
 
       find_asset_by_id(id).not_nil!
     end
@@ -557,6 +590,15 @@ module DataDungeon
       end
     end
 
+    # ── Objects ──
+
+    # Content-addressed storage key: the SHA-256 of the stored bytes, under a
+    # directory named for its first two hex characters, with an extension from
+    # the content type so files served or opened by path keep their type.
+    private def object_key(file_hash : String, content_type : String) : String
+      "#{file_hash[0, 2]}/#{file_hash}.#{ext_for(content_type)}"
+    end
+
     private def ext_for(content_type : String) : String
       case content_type.downcase
       when "image/webp"               then "webp"
@@ -572,6 +614,14 @@ module DataDungeon
       when "application/json"         then "json"
       else                                 "bin"
       end
+    end
+
+    # Unlink an object once no row references it. Callers hold @object_lock.
+    private def release_object(key : String) : Nil
+      store = @storage
+      return unless store
+      referenced = @db.query_one?("SELECT 1 FROM assets WHERE file_path = ? LIMIT 1", key, as: Int64)
+      store.delete(key) unless referenced
     end
 
     # ── Find ──
@@ -739,23 +789,25 @@ module DataDungeon
 
     # ── Delete ──
 
-    # Public delete: removes the row *and* the backing object. DataDungeon owns
-    # the write path, so it owns the unlink too — callers must not reach around
-    # to File.delete the blob (that breaks for non-local backends). The object
-    # key is read before the row is removed; Storage#delete is a no-op if the
-    # object is already gone.
+    # Public delete: removes the row *and*, once no other row shares it, the
+    # backing object. DataDungeon owns the write path, so it owns the unlink
+    # too — callers must not reach around to File.delete the blob (that breaks
+    # for non-local backends and for objects other assets still use). The
+    # object key is read before the row is removed; Storage#delete is a no-op
+    # if the object is already gone.
     def delete_asset(id : Int64) : Nil
-      path = @db.query_one?(
-        "SELECT file_path FROM assets WHERE id = ? LIMIT 1", id
-      ) { |rs| rs.read(String) }
-      delete_asset_row(id)
-      @storage.try(&.delete(path)) if path
+      @object_lock.synchronize do
+        path = @db.query_one?(
+          "SELECT file_path FROM assets WHERE id = ? LIMIT 1", id
+        ) { |rs| rs.read(String) }
+        delete_asset_row(id)
+        release_object(path) if path
+      end
     end
 
-    # Row-only delete (sidecars fall via ON DELETE CASCADE). Used by the
-    # internal replace path in store_asset, which manages the backing object
-    # itself — it may be the same key just rewritten, so the object must not be
-    # unlinked here.
+    # Row-only delete (sidecars fall via ON DELETE CASCADE). Used by
+    # delete_asset, which then releases the object, and by vacuum for rows
+    # whose object is already gone.
     private def delete_asset_row(id : Int64) : Nil
       @indexer.try(&.delete_asset(id))
       @db.exec("DELETE FROM assets WHERE id = ?", id)
@@ -797,7 +849,7 @@ module DataDungeon
       delete_missing_rows : Bool = false,
       delete_orphan_objects : Bool = false,
     ) : ConsistencyReport
-      store = @storage || raise "DataDungeon::DB has no storage backend; construct with cache_root: or storage:"
+      @storage || raise "DataDungeon::DB has no storage backend; construct with cache_root: or storage:"
       report = check_consistency
 
       if delete_missing_rows
@@ -806,7 +858,11 @@ module DataDungeon
       end
 
       if delete_orphan_objects
-        report.orphan_objects.each { |key| store.delete(key) }
+        # Re-check each under the lock: a concurrent store may have just
+        # indexed a row for an object the sweep saw as unowned.
+        @object_lock.synchronize do
+          report.orphan_objects.each { |key| release_object(key) }
+        end
       end
 
       report

@@ -27,10 +27,11 @@ describe DataDungeon::DB do
       bytes: "webp-bytes".to_slice, content_type: "image/webp",
       image: DataDungeon::ImageMeta.new(compression: "original"))
 
+    hash = Digest::SHA256.hexdigest("webp-bytes")
     rec.asset_type.should eq "venue"
-    rec.file_hash.should_not be_nil
-    rec.file_path.starts_with?("venue/").should be_true
-    File.exists?(db.path_for(rec)).should be_true
+    rec.file_hash.should eq hash
+    rec.file_path.should eq "#{hash[0, 2]}/#{hash}.webp" # content addressed
+    File.read(db.path_for(rec)).should eq "webp-bytes"
 
     got = db.get("venue", key_for(tags))
     got.should_not be_nil
@@ -225,8 +226,8 @@ describe DataDungeon::DB do
     FileUtils.rm_rf(dir) if dir
   end
 
-  it "leaves no stray object when a re-store changes the extension" do
-    dir = File.tempname("dd-extchange")
+  it "leaves no stray object when a re-store changes the bytes" do
+    dir = File.tempname("dd-supersede")
     Dir.mkdir_p(dir)
     db = open_db(dir)
     tags = {"venue" => "arcade"}
@@ -241,9 +242,73 @@ describe DataDungeon::DB do
     new_path = db.path_for(new)
     new_path.ends_with?(".webp").should be_true
 
+    new.content_type.should eq "image/webp"
     new_path.should_not eq old_path
     File.exists?(new_path).should be_true
-    File.exists?(old_path).should be_false # old-extension object swept
+    File.exists?(old_path).should be_false # superseded object swept
+    db.check_consistency.clean?.should be_true
+  ensure
+    db.try(&.close)
+    FileUtils.rm_rf(dir) if dir
+  end
+
+  it "shares one object between assets with identical bytes" do
+    dir = File.tempname("dd-shared")
+    Dir.mkdir_p(dir)
+    db = open_db(dir)
+
+    a = db.store("venue", {"venue" => "arcade"}, canonical_key: "arcade",
+      bytes: "same".to_slice, content_type: "image/webp")
+    b = db.store("tile", {"room" => "attic"}, canonical_key: "attic",
+      bytes: "same".to_slice, content_type: "image/webp")
+
+    a.id.should_not eq b.id
+    b.file_path.should eq a.file_path
+    db.storage.not_nil!.list_keys.should eq [a.file_path] # stored once
+
+    db.delete_asset(a.id)
+    File.read(db.path_for(b)).should eq "same" # still referenced by b
+    db.get("tile", "attic", touch: false).not_nil!.id.should eq b.id
+
+    db.delete_asset(b.id)
+    File.exists?(db.path_for(b)).should be_false # last reference gone
+    db.check_consistency.clean?.should be_true
+  ensure
+    db.try(&.close)
+    FileUtils.rm_rf(dir) if dir
+  end
+
+  it "keeps a superseded object that another asset still uses" do
+    dir = File.tempname("dd-shared-restore")
+    Dir.mkdir_p(dir)
+    db = open_db(dir)
+
+    shared = db.store("venue", {"venue" => "arcade"}, canonical_key: "arcade",
+      bytes: "v1".to_slice, content_type: "image/webp")
+    other = db.store("venue", {"venue" => "diner"}, canonical_key: "diner",
+      bytes: "v1".to_slice, content_type: "image/webp")
+    db.store("venue", {"venue" => "arcade"}, canonical_key: "arcade",
+      bytes: "v2".to_slice, content_type: "image/webp")
+
+    File.read(db.path_for(other)).should eq "v1"
+    db.get("venue", "diner", touch: false).not_nil!.file_path.should eq shared.file_path
+    File.read(db.path_for(db.get("venue", "arcade", touch: false).not_nil!)).should eq "v2"
+    db.check_consistency.clean?.should be_true
+  ensure
+    db.try(&.close)
+    FileUtils.rm_rf(dir) if dir
+  end
+
+  it "does not vacuum an object a row references" do
+    dir = File.tempname("dd-fsck-shared")
+    Dir.mkdir_p(dir)
+    db = open_db(dir)
+
+    rec = db.store("venue", {"venue" => "arcade"}, bytes: "a".to_slice, content_type: "image/webp")
+    db.store("tile", {"room" => "attic"}, bytes: "a".to_slice, content_type: "image/webp")
+
+    db.vacuum(delete_orphan_objects: true).orphan_objects.should be_empty
+    File.read(db.path_for(rec)).should eq "a"
   ensure
     db.try(&.close)
     FileUtils.rm_rf(dir) if dir
@@ -375,7 +440,7 @@ describe DataDungeon::DB do
     a.canonical_key.should be_nil
     b.canonical_key.should be_nil
     a.id.should_not eq b.id
-    a.file_path.should_not eq b.file_path
+    a.file_path.should eq b.file_path # independent records, one shared object
     db.get_by_id(a.id, touch: false).not_nil!.id.should eq a.id
     db.get_by_id(b.id, touch: false).not_nil!.id.should eq b.id
     record, meta = db.get_with_meta_by_id(a.id, touch: false).not_nil!
@@ -465,6 +530,32 @@ describe DataDungeon::DB do
     db.load_tags(rec.id).should eq({"race" => "human"})
     db.delete_asset(rec.id)
     db.load_tags(rec.id).should be_empty
+  ensure
+    raw.try(&.close)
+    db.try(&.close)
+    FileUtils.rm_rf(dir) if dir
+  end
+
+  it "drops a unique file_path constraint so old rows can share objects" do
+    dir = File.tempname("dd-unique-path-upgrade")
+    Dir.mkdir_p(dir)
+    path = File.join(dir, "assets.db")
+    raw = ::DB.open("sqlite3://#{path}")
+    raw.exec(DataDungeon::DB::ASSETS_SCHEMA.sub("file_path     TEXT NOT NULL,", "file_path     TEXT NOT NULL UNIQUE,"))
+    raw.exec(DataDungeon::DB::ASSET_TAGS_SCHEMA)
+    raw.exec(<<-SQL)
+      INSERT INTO assets (id, asset_type, media, content_type, file_path, created_at)
+      VALUES (3, 'venue', 'image', 'image/webp', 'venue/0123abcd.webp', '2026-10-01 00:00:00')
+    SQL
+    raw.exec("INSERT INTO asset_tags VALUES (3, 'venue', 'arcade')")
+    raw.close
+
+    db = open_db(dir)
+    old = db.find_asset_by_id(3_i64).not_nil!
+    old.file_path.should eq "venue/0123abcd.webp" # existing objects stay put
+    db.load_tags(3_i64).should eq({"venue" => "arcade"})
+    db.store_asset("venue", "image", "image/webp", old.file_path, {"venue" => "diner"})
+    db.connection.scalar("SELECT COUNT(*) FROM assets WHERE file_path = ?", old.file_path).should eq 2
   ensure
     raw.try(&.close)
     db.try(&.close)

@@ -1,3 +1,5 @@
+require "random/secure"
+
 module DataDungeon
   # Storage backend abstraction. `file_path` on an asset is an opaque *key*;
   # a Storage implementation resolves that key to a real location. This keeps
@@ -32,10 +34,21 @@ module DataDungeon
       File.join(@root, key)
     end
 
+    # Writes to a temporary sibling, then renames it into place, so a crash
+    # never leaves a truncated object at the key. DB#store skips writing a
+    # content-addressed key that already exists, so a partial object there
+    # would otherwise be permanent.
     def write(key : String, bytes : Bytes) : Nil
       path = resolve(key)
       Dir.mkdir_p(File.dirname(path))
-      File.write(path, bytes)
+      tmp = "#{path}.#{Random::Secure.hex(8)}.tmp"
+      begin
+        File.write(tmp, bytes)
+        File.rename(tmp, path)
+      rescue ex
+        File.delete(tmp) if File.exists?(tmp)
+        raise ex
+      end
     end
 
     def read(key : String) : Bytes

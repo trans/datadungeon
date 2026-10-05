@@ -40,10 +40,14 @@ db.find_assets_by_tags("portrait", {"race" => "human"})
 db.path_for(record)
 ```
 
-`DB#store` gives each new object an opaque storage key independent of its
-canonical key. `DB#store_asset` indexes a file whose path the caller already
-owns. Existing SQLite asset tables are upgraded when DataDungeon opens the
-database.
+`DB#store` stores objects by content: each object's storage key is the SHA-256
+of its bytes under a directory named for the first two hex characters, with an
+extension from its content type (`ab/ab12….webp`). Identical bytes are stored
+once and shared by every asset that holds them, and deleting
+or replacing an asset unlinks its object only when no other asset still uses
+it. Existing rows keep the keys they were stored under. `DB#store_asset`
+indexes a file whose path the caller already owns. Existing SQLite asset tables
+are upgraded when DataDungeon opens the database.
 
 Run the specs with `crystal spec`.
 
