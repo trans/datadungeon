@@ -13,10 +13,10 @@ describe DataDungeon::SemanticIndex do
     )
 
     red = db.store("portrait", {"hair_color" => "red", "rating" => "pg"},
-      canonical_key: "red-portrait", bytes: "red-image".to_slice,
+      pool_key: "red-portrait", bytes: "red-image".to_slice,
       content_type: "image/webp", description: "A human adventurer", generated: true)
     blue = db.store("portrait", {"hair_color" => "blue", "rating" => "r"},
-      canonical_key: "blue-portrait", bytes: "blue-image".to_slice,
+      pool_key: "blue-portrait", bytes: "blue-image".to_slice,
       content_type: "image/webp", description: "A human mage")
     audio = db.store("audio", {"hair_color" => "blue"}, bytes: "audio".to_slice,
       content_type: "audio/ogg", description: "A spoken greeting")
@@ -43,7 +43,7 @@ describe DataDungeon::SemanticIndex do
     db.find_asset_by_id(red.id).not_nil!.use_count.should eq 0
 
     updated = db.store("portrait", {"hair_color" => "black"},
-      canonical_key: "red-portrait", bytes: "red-image".to_slice,
+      pool_key: "red-portrait", bytes: "red-image".to_slice,
       content_type: "image/webp", description: "A wandering knight", generated: true)
     updated.id.should eq red.id
     index.process_queue.should eq 1

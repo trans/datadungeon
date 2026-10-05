@@ -5,7 +5,9 @@ module DataDungeon
     getter media : String
     getter content_type : String
     getter file_path : String
-    getter canonical_key : String?
+    # Key of the pool of interchangeable assets this one belongs to. For a
+    # registered type, its traits' values in order: `golden.pg.f.human`.
+    getter pool_key : String?
     getter file_hash : String?
     getter created_at : String
     getter last_used_at : String?
@@ -25,7 +27,7 @@ module DataDungeon
       @media : String,
       @content_type : String,
       @file_path : String,
-      @canonical_key : String?,
+      @pool_key : String?,
       @file_hash : String?,
       @created_at : String,
       @last_used_at : String? = nil,
@@ -39,6 +41,57 @@ module DataDungeon
       @rating : Int32? = nil,
       @flagged : Bool = false,
     )
+    end
+
+    @[Deprecated("Use `pool_key`.")]
+    def canonical_key : String?
+      @pool_key
+    end
+  end
+
+  # How DataDungeon keys one asset type: its traits, most important first,
+  # whose values make up its pool key; the leading traits that form its group;
+  # and whether a pool key holds many interchangeable assets (`pool`) or one
+  # best asset.
+  struct AssetType
+    getter name : String
+    getter pool_traits : Array(String)
+    getter group_traits : Array(String)
+    getter pool : Bool
+    # Suffixes that make some traits' key segments readable (`tan-skin`).
+    getter labels : Hash(String, String)
+
+    def initialize(@name : String, @pool_traits : Array(String), @group_traits : Array(String), @pool : Bool,
+                   @labels : Hash(String, String) = {} of String => String)
+    end
+
+    def trait?(name : String) : Bool
+      @pool_traits.includes?(name)
+    end
+
+    # The pool key of these normalized values.
+    def key(values : Hash(String, String)) : String
+      TraitKey.key(@pool_traits, values, @labels)
+    end
+
+    # The key prefix of these normalized values' first `size` traits.
+    def prefix(values : Hash(String, String), size : Int32) : String
+      TraitKey.prefix(@pool_traits, values, size, @labels)
+    end
+  end
+
+  # Result of `DB#find`: the assets matching every trait that must match
+  # (`pool`), and the rest of their group (`group`).
+  struct Matches
+    getter pool : Array(AssetRecord)
+    getter group : Array(AssetRecord)
+
+    def initialize(@pool : Array(AssetRecord), @group : Array(AssetRecord))
+    end
+
+    # Pool matches first, then the rest of the group.
+    def all : Array(AssetRecord)
+      @pool + @group
     end
   end
 

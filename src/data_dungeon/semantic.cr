@@ -114,6 +114,7 @@ module DataDungeon
       tags : Hash(String, String) = {} of String => String,
     ) : Array(Hit)
       return [] of Hit if limit <= 0
+      tags = @assets.normalize_tags(asset_type, tags) if asset_type
 
       # Most filters (including a popular art style) match many assets. Start
       # with nearest neighbors and check just those IDs in SQLite. A rare

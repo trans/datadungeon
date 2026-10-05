@@ -6,23 +6,46 @@ and resolves stored objects through a `Storage` adapter.
 
 ## Asset identity
 
-An application may supply an opaque `canonical_key` for exact lookup. The
-application decides how to calculate it and which assets need one. DataDungeon
-indexes `(asset_type, canonical_key)` but does not derive the key from tags.
-For a non-pool asset, storing the same type and key updates that asset. Assets
-without a key are always independent. Pool members may share a key.
+Each asset type the application registers names the traits that identify it,
+most important first. Traits are ordinary tags. DataDungeon derives the
+asset's `pool_key` from them: the trait values in that order, joined by dots.
 
-Tags are separate key-value attributes for filtering. `description` is the
-text used to describe an asset; for a generated image, it holds the prompt.
-`generated` records whether the asset was generated. `generator` and
-`generation` retain provider/model information and JSON parameters.
+```
+golden.pg.f.human.tan-skin.red-hair
+```
+
+Assets with the same pool key are interchangeable. In a pool type
+(`pool: true`) many assets share it; otherwise storing under an existing pool
+key replaces that asset. The leading `group_traits` form the type's group: the
+wider set of candidates that exact checks and ranking work within. Because a
+trait's position says which trait it is, a lookup on leading traits is a prefix
+match (`golden.pg.f.`), one index range scan, at any depth.
+
+Keys are canonical: every trait is present, in the registered order, with an
+empty segment for a trait the asset lacks (`golden.pg..human`). Values are
+normalized for matching (Unicode case folding, NFC, and runs of spaces or dots
+turned into `-`), and the stored trait tags are normalized the same way, so a
+value never contains a dot. `labels` add a suffix to traits whose values alone
+would read ambiguously, such as several colours (`tan-skin`, `red-hair`).
+Normalization can't make different words equal, so the application must spell
+each value consistently.
+
+A tag may be marked `custom` when its value isn't one of the application's
+standard choices. Custom values are keyed like any other; `custom_values`
+counts them and `promote` turns one into a standard choice without changing
+any key.
 
 ```crystal
 db = DataDungeon::DB.new("assets.db", cache_root: "asset-files")
+db.register_type("portrait",
+  pool_traits: %w[art_style rating gender race skin hair_color],
+  group_traits: %w[art_style rating gender],
+  labels: {"skin" => "skin", "hair_color" => "hair"},
+  pool: true)
 
-record = db.store(
-  "portrait", {"art_style" => "silver", "race" => "human"},
-  canonical_key: game_portrait_key,
+traits = {"art_style" => "silver", "rating" => "pg", "gender" => "f",
+          "race" => "ape", "skin" => "purple", "hair_color" => "red"}
+record = db.store("portrait", traits, custom: %w[race],
   source_path: "portrait.png",
   content_type: "image/png",
   description: image_prompt,
@@ -31,14 +54,40 @@ record = db.store(
   generation: %({"width":512,"height":512}),
   image: DataDungeon::ImageMeta.new(compression: "normalize", target_format: "webp")
 )
+record.pool_key                                     # "silver.pg.f.ape.purple-skin.red-hair"
 
-db.get("portrait", game_portrait_key)
+db.find_pool("portrait", traits)                    # every trait equal: interchangeable
+db.find_pool("portrait", traits, custom: %w[race])  # every trait equal but race; rank race yourself
+db.find_group("portrait", traits)                   # the group traits equal
+db.find_group("portrait", traits, 4)                # the first four traits equal
+found = db.find("portrait", traits, custom: %w[race])
+found.pool                                          # as find_pool with custom:
+found.group                                         # the rest of the group
+db.custom_values("portrait", "race")                # {"ape" => 1}
+db.promote("portrait", "race", "ape")
 db.get_by_id(record.id)
-db.get_with_meta("portrait", game_portrait_key)
 db.get_with_meta_by_id(record.id)
-db.find_assets_by_tags("portrait", {"race" => "human"})
 db.path_for(record)
 ```
+
+`find_pool` also takes a pool key already in hand, and `find_group` a key
+prefix ending in a dot (`group_key_for` gives one), for any type, registered
+or not. These, and the trait forms without `custom:`, are single index
+lookups. With `custom:`, the traits before the first custom one narrow the
+candidates by prefix and the rest are checked against each candidate's tags.
+
+For a single-best type, `get(asset_type, traits)` and
+`get_with_meta(asset_type, traits)` return the one asset for those traits. The
+registration is stored in the database; registering a type again with a
+different definition re-derives the keys of its assets from their tags. If two
+assets of a single-best type then share a key, the most recently used keeps it.
+
+An unregistered type may still pass an explicit `pool_key` (formerly
+`canonical_key`, still accepted for now), and assets without a key are
+addressed by ID. `description` is the text used to describe an asset; for a
+generated image, it holds the prompt. `generated` records whether the asset
+was generated. `generator` and `generation` retain provider/model information
+and JSON parameters.
 
 `DB#store` stores objects by content: each object's storage key is the SHA-256
 of its bytes under a directory named for the first two hex characters, with an
@@ -91,5 +140,5 @@ previous embedding. `process_queue` saves the USearch file; running `backfill`
 at startup repairs vectors missing after an interrupted process. An asset with
 no description and no selected tags is not indexed. Search returns asset
 records without changing usage or match counters, and its query cache stays
-in memory. The `generated` flag, generator parameters, and canonical key are
+in memory. The `generated` flag, generator parameters, and pool and group keys are
 stored as metadata but are not embedded.

@@ -1,5 +1,6 @@
 require "sqlite3"
 require "digest/sha256"
+require "json"
 
 module DataDungeon
   class DB
@@ -13,6 +14,8 @@ module DataDungeon
     # once unreferenced, happen under this lock so neither interleaves with the
     # other inside this process.
     @object_lock = Mutex.new(:reentrant)
+    # Registered asset types, loaded from asset_types when the DB opens.
+    @types = {} of String => AssetType
 
     # Shared connection for extensions that keep their tables in the asset DB.
     def connection : ::DB::Database
@@ -46,7 +49,7 @@ module DataDungeon
         media         TEXT NOT NULL,
         content_type  TEXT NOT NULL,
         file_path     TEXT NOT NULL,
-        canonical_key TEXT,
+        pool_key      TEXT,
         file_hash     TEXT,
         created_at    TEXT NOT NULL,
         last_used_at  TEXT,
@@ -64,10 +67,10 @@ module DataDungeon
 
     ASSETS_INDEXES = <<-SQL
       CREATE INDEX IF NOT EXISTS idx_assets_lookup
-        ON assets(asset_type, canonical_key);
+        ON assets(asset_type, pool_key);
       CREATE UNIQUE INDEX IF NOT EXISTS idx_assets_single_key
-        ON assets(asset_type, canonical_key)
-        WHERE canonical_key IS NOT NULL AND pool = 0;
+        ON assets(asset_type, pool_key)
+        WHERE pool_key IS NOT NULL AND pool = 0;
       CREATE INDEX IF NOT EXISTS idx_assets_type
         ON assets(asset_type);
       CREATE INDEX IF NOT EXISTS idx_assets_file_path
@@ -81,6 +84,7 @@ module DataDungeon
         asset_id  INTEGER NOT NULL,
         tag_key   TEXT NOT NULL,
         tag_value TEXT NOT NULL,
+        custom    INTEGER NOT NULL DEFAULT 0,
         PRIMARY KEY (asset_id, tag_key),
         FOREIGN KEY (asset_id) REFERENCES assets(id) ON DELETE CASCADE
       )
@@ -89,6 +93,20 @@ module DataDungeon
     ASSET_TAGS_INDEX = <<-SQL
       CREATE INDEX IF NOT EXISTS idx_tags_kv
         ON asset_tags(tag_key, tag_value)
+    SQL
+
+    # One row per registered asset type. Trait lists are JSON arrays in
+    # registration order and labels a JSON object;
+    # key_scheme records the TraitKey format the stored keys were made with.
+    ASSET_TYPES_SCHEMA = <<-SQL
+      CREATE TABLE IF NOT EXISTS asset_types (
+        asset_type   TEXT PRIMARY KEY,
+        pool_traits  TEXT NOT NULL,
+        group_traits TEXT NOT NULL,
+        labels       TEXT NOT NULL DEFAULT '{}',
+        pool         INTEGER NOT NULL,
+        key_scheme   INTEGER NOT NULL
+      )
     SQL
 
     IMAGE_META_SCHEMA = <<-SQL
@@ -159,19 +177,22 @@ module DataDungeon
       migrate_assets_schema
       ASSETS_INDEXES.split(";").each { |s| @db.exec(s.strip) unless s.strip.empty? }
       @db.exec(ASSET_TAGS_SCHEMA)
+      unless table_columns("asset_tags").has_key?("custom")
+        @db.exec("ALTER TABLE asset_tags ADD COLUMN custom INTEGER NOT NULL DEFAULT 0")
+      end
       @db.exec(ASSET_TAGS_INDEX)
+      @db.exec(ASSET_TYPES_SCHEMA)
       @db.exec(IMAGE_META_SCHEMA)
       @db.exec(AUDIO_META_SCHEMA)
       @db.exec(VIDEO_META_SCHEMA)
       @db.exec(TEXT_META_SCHEMA)
+      load_types
     end
 
-    # Older databases required a canonical key, lacked description fields, or
-    # required a unique file_path (objects are now shared by content). Rebuild
-    # only that table; its child tables retain their asset_id references.
-    private def migrate_assets_schema : Nil
+    # Column name => NOT NULL flag for a table.
+    private def table_columns(table : String) : Hash(String, Int32)
       columns = {} of String => Int32
-      @db.query("PRAGMA table_info(assets)") do |rs|
+      @db.query("PRAGMA table_info(#{table})") do |rs|
         rs.each do
           rs.read(Int32)
           name = rs.read(String)
@@ -181,34 +202,50 @@ module DataDungeon
           rs.read(Int32)
         end
       end
-      return if columns["canonical_key"]? == 0 && columns.has_key?("description") &&
+      columns
+    end
+
+    # Older databases called the pool key canonical_key (and once required
+    # it), lacked the group key or description fields, or required a unique
+    # file_path (objects are now shared by content). Rebuild only that table;
+    # its child tables retain their asset_id references.
+    private def migrate_assets_schema : Nil
+      columns = table_columns("assets")
+      return if columns["pool_key"]? == 0 && columns.has_key?("description") &&
                 columns.has_key?("generated") && !unique_file_path?
 
-      @db.exec("PRAGMA foreign_keys=OFF")
-      begin
-        @db.transaction do |tx|
-          conn = tx.connection
-          conn.exec(ASSETS_SCHEMA.sub("IF NOT EXISTS assets", "assets_migrated"))
-          description = columns.has_key?("description") ? "description" : "NULL"
-          generated = columns.has_key?("generated") ? "generated" : "CASE WHEN generator IS NULL THEN 0 ELSE 1 END"
-          conn.exec(<<-SQL)
-            INSERT INTO assets_migrated
-            (id, asset_type, media, content_type, file_path, canonical_key, file_hash,
-             created_at, last_used_at, use_count, permanent, pool, generator,
-             generation, description, generated, rating, flagged)
-            SELECT id, asset_type, media, content_type, file_path, canonical_key, file_hash,
-                   created_at, last_used_at, use_count, permanent, pool, generator,
-                   generation, #{description}, #{generated}, rating, flagged
-            FROM assets
-          SQL
-          conn.exec("DROP TABLE assets")
-          conn.exec("ALTER TABLE assets_migrated RENAME TO assets")
+      pool_key = columns.has_key?("pool_key") ? "pool_key" : (columns.has_key?("canonical_key") ? "canonical_key" : "NULL")
+      description = columns.has_key?("description") ? "description" : "NULL"
+      generated = columns.has_key?("generated") ? "generated" : "CASE WHEN generator IS NULL THEN 0 ELSE 1 END"
+
+      # foreign_keys is per connection, and dropping the old table with it on
+      # would cascade-delete every tag and sidecar row. Keep the pragma and the
+      # rebuild on one connection.
+      @db.using_connection do |conn|
+        conn.exec("PRAGMA foreign_keys=OFF")
+        begin
+          conn.transaction do |tx|
+            tc = tx.connection
+            tc.exec(ASSETS_SCHEMA.sub("IF NOT EXISTS assets", "assets_migrated"))
+            tc.exec(<<-SQL)
+              INSERT INTO assets_migrated
+              (id, asset_type, media, content_type, file_path, pool_key, file_hash,
+               created_at, last_used_at, use_count, permanent, pool, generator,
+               generation, description, generated, rating, flagged)
+              SELECT id, asset_type, media, content_type, file_path, #{pool_key}, file_hash,
+                     created_at, last_used_at, use_count, permanent, pool, generator,
+                     generation, #{description}, #{generated}, rating, flagged
+              FROM assets
+            SQL
+            tc.exec("DROP TABLE assets")
+            tc.exec("ALTER TABLE assets_migrated RENAME TO assets")
+          end
+        ensure
+          conn.exec("PRAGMA foreign_keys=ON")
         end
-      ensure
-        @db.exec("PRAGMA foreign_keys=ON")
+        violations = conn.query_all("PRAGMA foreign_key_check") { |rs| rs.read(::DB::Any) }
+        raise "asset schema migration left invalid references" unless violations.empty?
       end
-      violations = @db.query_all("PRAGMA foreign_key_check") { |rs| rs.read(::DB::Any) }
-      raise "asset schema migration left invalid references" unless violations.empty?
     end
 
     # Whether the assets table still carries a UNIQUE constraint on file_path.
@@ -235,15 +272,21 @@ module DataDungeon
 
     # ── Store ──
 
+    # Index a file whose path the caller owns. For a registered type,
+    # DataDungeon normalizes the trait tags and derives pool_key
+    # from them, so `pool_key` and `pool` must not be given. An unregistered
+    # type may pass an explicit `pool_key`. `custom` names the tags whose
+    # values are not among the application's standard choices; they are keyed
+    # like any other value and can later be promoted.
     def store_asset(
       asset_type : String,
       media : String,
       content_type : String,
       file_path : String,
       tags : Hash(String, String) = {} of String => String,
-      canonical_key : String? = nil,
+      pool_key : String? = nil,
       file_hash : String? = nil,
-      pool : Bool = false,
+      pool : Bool? = nil,
       permanent : Bool = false,
       generator : String? = nil,
       generation : String? = nil,
@@ -253,21 +296,16 @@ module DataDungeon
       audio : AudioMeta? = nil,
       video : VideoMeta? = nil,
       text : TextMeta? = nil,
+      custom : Array(String) = [] of String,
+      canonical_key : String? = nil, # deprecated: use pool_key
     ) : Int64
-      # Invariant: the sidecar payload must match the media column that
-      # get_with_meta later dispatches on. Only the struct matching `media`
-      # may be non-nil; a mismatch would land a row in the wrong sidecar
-      # table and read back as a silent nil. Fail loud at the write instead.
-      offenders = [] of String
-      offenders << "image" if image && media != "image"
-      offenders << "audio" if audio && media != "audio"
-      offenders << "video" if video && media != "video"
-      offenders << "text" if text && media != "text"
-      unless offenders.empty?
-        raise ArgumentError.new(
-          "media is #{media.inspect} but got #{offenders.join(", ")} metadata; " \
-          "the sidecar struct must match the media kind"
-        )
+      pool_key ||= canonical_key
+      validate_store(asset_type, media, tags, pool_key, pool, custom, image, audio, video, text)
+      pooled = pool || false
+      if type = @types[asset_type]?
+        tags = normalize_traits(type, tags)
+        pool_key = type.key(tags)
+        pooled = type.pool
       end
 
       now = Time.utc.to_s(TIME_FORMAT)
@@ -277,10 +315,10 @@ module DataDungeon
       @object_lock.synchronize do
         @db.transaction do |tx|
           conn = tx.connection
-          existing = if canonical_key && !pool
+          existing = if pool_key && !pooled
                        conn.query_one?(
-                         "SELECT id, file_path FROM assets WHERE asset_type = ? AND canonical_key = ? AND pool = 0 LIMIT 1",
-                         asset_type, canonical_key
+                         "SELECT id, file_path FROM assets WHERE asset_type = ? AND pool_key = ? AND pool = 0 LIMIT 1",
+                         asset_type, pool_key
                        ) { |rs| {rs.read(Int64), rs.read(String)} }
                      end
 
@@ -304,13 +342,13 @@ module DataDungeon
             conn.exec(
               <<-SQL,
               INSERT INTO assets
-              (asset_type, media, content_type, file_path, canonical_key, file_hash,
+              (asset_type, media, content_type, file_path, pool_key, file_hash,
                created_at, last_used_at, use_count, permanent, pool,
                generator, generation, description, generated, rating, flagged)
               VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, NULL, 0)
             SQL
-              asset_type, media, content_type, file_path, canonical_key, file_hash,
-              now, now, permanent ? 1 : 0, pool ? 1 : 0,
+              asset_type, media, content_type, file_path, pool_key, file_hash,
+              now, now, permanent ? 1 : 0, pooled ? 1 : 0,
               generator, generation, description, generated ? 1 : 0
             )
             asset_id = conn.scalar("SELECT last_insert_rowid()").as(Int64)
@@ -318,8 +356,8 @@ module DataDungeon
 
           tags.each do |k, v|
             conn.exec(
-              "INSERT INTO asset_tags (asset_id, tag_key, tag_value) VALUES (?, ?, ?)",
-              asset_id, k, v
+              "INSERT INTO asset_tags (asset_id, tag_key, tag_value, custom) VALUES (?, ?, ?, ?)",
+              asset_id, k, v, custom.includes?(k) ? 1 : 0
             )
           end
 
@@ -382,6 +420,40 @@ module DataDungeon
       asset_id
     end
 
+    private def validate_store(
+      asset_type : String, media : String, tags : Hash(String, String),
+      pool_key : String?, pool : Bool?, custom : Array(String),
+      image : ImageMeta?, audio : AudioMeta?, video : VideoMeta?, text : TextMeta?,
+    ) : Nil
+      if @types.has_key?(asset_type)
+        if pool_key
+          raise ArgumentError.new("#{asset_type} is registered: DataDungeon derives its pool_key from its traits")
+        end
+        unless pool.nil?
+          raise ArgumentError.new("#{asset_type} is registered: whether it pools comes from its registration")
+        end
+      end
+      unless (unknown = custom - tags.keys).empty?
+        raise ArgumentError.new("custom names #{unknown.join(", ")}, which have no tag")
+      end
+
+      # Invariant: the sidecar payload must match the media column that
+      # get_with_meta later dispatches on. Only the struct matching `media`
+      # may be non-nil; a mismatch would land a row in the wrong sidecar
+      # table and read back as a silent nil. Fail loud at the write instead.
+      offenders = [] of String
+      offenders << "image" if image && media != "image"
+      offenders << "audio" if audio && media != "audio"
+      offenders << "video" if video && media != "video"
+      offenders << "text" if text && media != "text"
+      unless offenders.empty?
+        raise ArgumentError.new(
+          "media is #{media.inspect} but got #{offenders.join(", ")} metadata; " \
+          "the sidecar struct must match the media kind"
+        )
+      end
+    end
+
     # ── High-level asset management (owns media policy and file write) ──
 
     # Store an asset end to end: apply the media compression policy, hash the
@@ -394,12 +466,12 @@ module DataDungeon
       asset_type : String,
       tags : Hash(String, String) = {} of String => String,
       *,
-      canonical_key : String? = nil,
+      pool_key : String? = nil,
       source_path : String? = nil,
       bytes : Bytes? = nil,
       content_type : String,
       media : String? = nil,
-      pool : Bool = false,
+      pool : Bool? = nil,
       permanent : Bool = false,
       generator : String? = nil,
       generation : String? = nil,
@@ -409,15 +481,20 @@ module DataDungeon
       audio : AudioMeta? = nil,
       video : VideoMeta? = nil,
       text : TextMeta? = nil,
+      custom : Array(String) = [] of String,
+      canonical_key : String? = nil, # deprecated: use pool_key
     ) : AssetRecord
       store = @storage || raise "DataDungeon::DB has no storage backend; construct with cache_root: or storage:"
       unless source_path.nil? ^ bytes.nil?
         raise ArgumentError.new("provide exactly one of source_path / bytes")
       end
-
-      data = bytes || File.open(source_path.not_nil!, "rb", &.getb_to_end)
+      pool_key ||= canonical_key
       ct = content_type
       m = media || infer_media(ct)
+      # Reject bad arguments before writing, so a refused store leaves no object.
+      validate_store(asset_type, m, tags, pool_key, pool, custom, image, audio, video, text)
+
+      data = bytes || File.open(source_path.not_nil!, "rb", &.getb_to_end)
 
       # Apply the compression policy (may change bytes and content type).
       if m == "image" && (im = image)
@@ -435,9 +512,10 @@ module DataDungeon
           content_type: ct,
           file_path: storage_key,
           tags: tags,
-          canonical_key: canonical_key,
+          pool_key: pool_key,
           file_hash: file_hash,
           pool: pool,
+          custom: custom,
           permanent: permanent,
           generator: generator,
           generation: generation,
@@ -455,9 +533,10 @@ module DataDungeon
 
     # High-level lookup: verifies the backing file still exists (self-heals a
     # stale row to a miss), touches usage, and returns the record. Retires the
-    # caller-side File.exists? cache-gate.
-    def get(asset_type : String, canonical_key : String, touch : Bool = true) : AssetRecord?
-      rec = find_asset(asset_type, canonical_key)
+    # caller-side File.exists? cache-gate. Single-best assets only; a pool's
+    # members come from find_pool.
+    def get(asset_type : String, pool_key : String, touch : Bool = true) : AssetRecord?
+      rec = find_asset(asset_type, pool_key)
       return nil unless rec
       if store = @storage
         return nil unless store.exists?(rec.file_path)
@@ -466,7 +545,12 @@ module DataDungeon
       rec
     end
 
-    # Assets without a canonical key are addressed by their database ID.
+    # `get` for a registered type, by its traits.
+    def get(asset_type : String, traits : Hash(String, String), touch : Bool = true) : AssetRecord?
+      get(asset_type, pool_key_for(asset_type, traits), touch)
+    end
+
+    # Assets without a pool key are addressed by their database ID.
     def get_by_id(id : Int64, touch : Bool = true) : AssetRecord?
       rec = find_asset_by_id(id)
       return nil unless rec
@@ -486,14 +570,23 @@ module DataDungeon
     # any visual medium without narrowing.
     def get_with_meta(
       asset_type : String,
-      canonical_key : String,
+      pool_key : String,
       touch : Bool = true,
     ) : {AssetRecord, AssetMeta?}?
       lookup_with_meta(
-        "a.asset_type = ? AND a.canonical_key = ? AND a.pool = 0",
-        [asset_type, canonical_key] of ::DB::Any,
+        "a.asset_type = ? AND a.pool_key = ? AND a.pool = 0",
+        [asset_type, pool_key] of ::DB::Any,
         touch
       )
+    end
+
+    # `get_with_meta` for a registered type, by its traits.
+    def get_with_meta(
+      asset_type : String,
+      traits : Hash(String, String),
+      touch : Bool = true,
+    ) : {AssetRecord, AssetMeta?}?
+      get_with_meta(asset_type, pool_key_for(asset_type, traits), touch)
     end
 
     def get_with_meta_by_id(id : Int64, touch : Bool = true) : {AssetRecord, AssetMeta?}?
@@ -626,10 +719,10 @@ module DataDungeon
 
     # ── Find ──
 
-    def find_asset(asset_type : String, canonical_key : String) : AssetRecord?
+    def find_asset(asset_type : String, pool_key : String) : AssetRecord?
       @db.query_one?(
-        "SELECT * FROM assets WHERE asset_type = ? AND canonical_key = ? AND pool = 0 LIMIT 1",
-        asset_type, canonical_key
+        "SELECT * FROM assets WHERE asset_type = ? AND pool_key = ? AND pool = 0 LIMIT 1",
+        asset_type, pool_key
       ) { |rs| read_asset_record(rs) }
     end
 
@@ -640,6 +733,7 @@ module DataDungeon
     end
 
     def find_assets_by_tags(asset_type : String, filter_tags : Hash(String, String)) : Array(AssetRecord)
+      filter_tags = normalize_tags(asset_type, filter_tags)
       return [] of AssetRecord if filter_tags.empty?
 
       conditions = filter_tags.map { |_, _| "(t.tag_key = ? AND t.tag_value = ?)" }.join(" OR ")
@@ -666,12 +760,351 @@ module DataDungeon
       results
     end
 
-    def asset_exists?(asset_type : String, canonical_key : String) : Bool
+    def asset_exists?(asset_type : String, pool_key : String) : Bool
       result = @db.scalar(
-        "SELECT COUNT(*) FROM assets WHERE asset_type = ? AND canonical_key = ?",
-        asset_type, canonical_key
+        "SELECT COUNT(*) FROM assets WHERE asset_type = ? AND pool_key = ?",
+        asset_type, pool_key
       )
       result.as(Int64) > 0
+    end
+
+    # ── Registry ──
+
+    TRAIT_NAME = /\A[a-z][a-z0-9_]*\z/
+    LABEL      = /\A[a-z0-9]+(?:-[a-z0-9]+)*\z/
+
+    # Declare how an asset type is keyed. From then on DataDungeon derives each
+    # asset's pool_key from its `pool_traits` tags, so applications stop
+    # building keys. List the traits most important first: the key is their
+    # normalized values in that order (see TraitKey), so a lookup on leading
+    # traits is a prefix match. `group_traits` names the leading traits that
+    # make up the type's group, and `labels` suffixes for traits whose values
+    # alone would read ambiguously in a key (`{"skin" => "skin"}` gives
+    # `tan-skin`). Trait tags are stored normalized, as the key holds them.
+    # With `pool: true` many interchangeable assets share a pool key;
+    # otherwise storing under a pool key replaces the asset there.
+    #
+    # The registration is stored in the database. Registering a type again
+    # with the same definition changes nothing; a different definition,
+    # including a new order, re-derives the keys of its assets from their tags.
+    def register_type(
+      asset_type : String,
+      *,
+      pool_traits : Array(String),
+      group_traits : Array(String) = [] of String,
+      pool : Bool = false,
+      labels : Hash(String, String) = {} of String => String,
+    ) : AssetType
+      definition = AssetType.new(asset_type, pool_traits, group_traits, pool, labels)
+      validate_type(definition)
+      changed = [] of Int64
+      @object_lock.synchronize do
+        unless stored_type(asset_type) == {definition, TraitKey::SCHEME}
+          @db.transaction do |tx|
+            conn = tx.connection
+            conn.exec(
+              <<-SQL,
+              INSERT INTO asset_types
+              (asset_type, pool_traits, group_traits, labels, pool, key_scheme)
+              VALUES (?, ?, ?, ?, ?, ?)
+              ON CONFLICT(asset_type) DO UPDATE SET pool_traits = excluded.pool_traits,
+                group_traits = excluded.group_traits, labels = excluded.labels,
+                pool = excluded.pool, key_scheme = excluded.key_scheme
+            SQL
+              asset_type, definition.pool_traits.to_json, definition.group_traits.to_json,
+              definition.labels.to_json, pool ? 1 : 0, TraitKey::SCHEME
+            )
+            changed = rekey(conn, definition)
+          end
+        end
+        @types[asset_type] = definition
+      end
+      changed.each { |id| @indexer.try(&.enqueue_asset(id)) }
+      definition
+    end
+
+    # The registration of an asset type, or nil when it has none.
+    def registration(asset_type : String) : AssetType?
+      @types[asset_type]?
+    end
+
+    # The pool key a registered type gives these traits. Traits left out are
+    # absent (an empty segment); names that aren't the type's traits raise.
+    def pool_key_for(asset_type : String, traits : Hash(String, String)) : String
+      type = registered(asset_type)
+      type.key(query_traits(type, traits))
+    end
+
+    # The key prefix shared by assets whose first `size` traits (by default,
+    # the group traits) equal these. Later traits are ignored.
+    def group_key_for(asset_type : String, traits : Hash(String, String), size : Int32? = nil) : String
+      type = registered(asset_type)
+      type.prefix(query_traits(type, traits), leading_size(type, size))
+    end
+
+    # Trait values normalized as a registered type stores them (blank trait
+    # values dropped); other tags, and any tags of an unregistered type, as given.
+    def normalize_tags(asset_type : String, tags : Hash(String, String)) : Hash(String, String)
+      (type = @types[asset_type]?) ? normalize_traits(type, tags) : tags
+    end
+
+    # Assets whose traits all equal these: a pool's members, or the one asset
+    # of a single-best type. Traits named in `custom` may differ, leaving the
+    # caller to rank them (e.g. semantically); every other trait matches
+    # exactly, and a trait absent from `traits` must be absent on the asset.
+    # Without `custom` this is one key lookup. With it, the traits before the
+    # first custom one narrow the candidates by key prefix, and the rest are
+    # checked against each candidate's tags, so it's fastest when the custom
+    # traits come late in the type's order.
+    def find_pool(
+      asset_type : String,
+      traits : Hash(String, String),
+      custom : Array(String) = [] of String,
+    ) : Array(AssetRecord)
+      type = registered(asset_type)
+      values = query_traits(type, traits)
+      return find_pool(asset_type, type.key(values)) if custom.empty?
+      unless (unknown = custom - type.pool_traits).empty?
+        raise ArgumentError.new("#{unknown.join(", ")} are not traits of #{asset_type}")
+      end
+
+      lead = custom.min_of { |trait| type.pool_traits.index!(trait) }
+      clauses = ["a.asset_type = ?"]
+      args = [asset_type] of ::DB::Any
+      key_prefix(clauses, args, type.prefix(values, lead))
+      (type.pool_traits[lead..] - custom).each do |trait|
+        if value = values[trait]?
+          clauses << "EXISTS (SELECT 1 FROM asset_tags t WHERE t.asset_id = a.id AND t.tag_key = ? AND t.tag_value = ?)"
+          args << trait << value
+        else
+          clauses << "NOT EXISTS (SELECT 1 FROM asset_tags t WHERE t.asset_id = a.id AND t.tag_key = ?)"
+          args << trait
+        end
+      end
+      query_assets(clauses.join(" AND "), args)
+    end
+
+    # Every asset with this pool key, registered type or not: a pool's
+    # members, or the one asset of a single-best key.
+    def find_pool(asset_type : String, pool_key : String) : Array(AssetRecord)
+      query_assets("a.asset_type = ? AND a.pool_key = ?", [asset_type, pool_key] of ::DB::Any)
+    end
+
+    # Every asset whose first `size` traits (by default, the group traits)
+    # equal these: one key-prefix range lookup. Later traits are ignored.
+    def find_group(asset_type : String, traits : Hash(String, String), size : Int32? = nil) : Array(AssetRecord)
+      type = registered(asset_type)
+      size = leading_size(type, size)
+      values = query_traits(type, traits)
+      return find_pool(asset_type, type.key(values)) if size == type.pool_traits.size
+      find_group(asset_type, type.prefix(values, size))
+    end
+
+    # Every asset whose pool key starts with this prefix, which must end at a
+    # separator (as group_key_for's do); "" is the whole type.
+    def find_group(asset_type : String, prefix : String) : Array(AssetRecord)
+      unless prefix.empty? || prefix.ends_with?(TraitKey::SEPARATOR)
+        raise ArgumentError.new("a key prefix must end with #{TraitKey::SEPARATOR.inspect}")
+      end
+      clauses = ["a.asset_type = ?"]
+      args = [asset_type] of ::DB::Any
+      key_prefix(clauses, args, prefix)
+      query_assets(clauses.join(" AND "), args)
+    end
+
+    # Both lookups at once: `pool` as find_pool (with `custom`), and `group`
+    # the rest of the group, for ranking or as a fallback. A type without
+    # group traits has an empty `group`.
+    def find(
+      asset_type : String,
+      traits : Hash(String, String),
+      custom : Array(String) = [] of String,
+    ) : Matches
+      pool = find_pool(asset_type, traits, custom)
+      return Matches.new(pool, [] of AssetRecord) if registered(asset_type).group_traits.empty?
+      in_pool = pool.map(&.id).to_set
+      Matches.new(pool, find_group(asset_type, traits).reject { |rec| in_pool.includes?(rec.id) })
+    end
+
+    # A prefix as an index range: keys from `prefix` up to, not including,
+    # the prefix with its final separator raised by one ('.' to '/').
+    private def key_prefix(clauses : Array(String), args : Array(::DB::Any), prefix : String) : Nil
+      return if prefix.empty?
+      clauses << "a.pool_key >= ? AND a.pool_key < ?"
+      args << prefix << prefix.rchop + TraitKey::SEPARATOR.succ
+    end
+
+    private def leading_size(type : AssetType, size : Int32?) : Int32
+      unless size
+        raise ArgumentError.new("#{type.name} has no group traits") if type.group_traits.empty?
+        return type.group_traits.size
+      end
+      unless 0 <= size <= type.pool_traits.size
+        raise ArgumentError.new("#{type.name} has #{type.pool_traits.size} traits, not #{size}")
+      end
+      size
+    end
+
+    private def query_assets(where : String, args : Array(::DB::Any)) : Array(AssetRecord)
+      results = [] of AssetRecord
+      @db.query("SELECT a.* FROM assets a WHERE #{where} ORDER BY a.id", args: args) do |rs|
+        rs.each { results << read_asset_record(rs) }
+      end
+      results
+    end
+
+    # How often each custom value of a trait occurs among assets of a type,
+    # most frequent first: candidates for becoming standard choices.
+    def custom_values(asset_type : String, trait : String) : Hash(String, Int32)
+      counts = {} of String => Int32
+      @db.query(<<-SQL, asset_type, trait) do |rs|
+        SELECT t.tag_value, COUNT(*) FROM asset_tags t JOIN assets a ON a.id = t.asset_id
+        WHERE a.asset_type = ? AND t.tag_key = ? AND t.custom = 1
+        GROUP BY t.tag_value ORDER BY COUNT(*) DESC, t.tag_value
+      SQL
+        rs.each { counts[rs.read(String)] = rs.read(Int64).to_i32 }
+      end
+      counts
+    end
+
+    # The tags of an asset whose values are custom.
+    def custom_traits(asset_id : Int64) : Array(String)
+      @db.query_all(
+        "SELECT tag_key FROM asset_tags WHERE asset_id = ? AND custom = 1 ORDER BY tag_key",
+        asset_id, as: String
+      )
+    end
+
+    # Treat a custom value as a standard choice from now on. Keys include
+    # custom values like any other, so no key changes. Returns the number of
+    # tags updated.
+    def promote(asset_type : String, trait : String, value : String) : Int64
+      if (type = @types[asset_type]?) && type.trait?(trait)
+        value = TraitKey.normalize(value) || value
+      end
+      @db.exec(<<-SQL, trait, value, asset_type).rows_affected
+        UPDATE asset_tags SET custom = 0
+        WHERE tag_key = ? AND tag_value = ? AND custom = 1
+          AND asset_id IN (SELECT id FROM assets WHERE asset_type = ?)
+      SQL
+    end
+
+    private def registered(asset_type : String) : AssetType
+      @types[asset_type]? || raise ArgumentError.new("#{asset_type} is not a registered asset type")
+    end
+
+    private def validate_type(type : AssetType) : Nil
+      name = type.name
+      raise ArgumentError.new("#{name}: pool_traits must not be empty") if type.pool_traits.empty?
+      (type.pool_traits + type.group_traits).each do |trait|
+        unless trait.matches?(TRAIT_NAME)
+          raise ArgumentError.new("#{name}: trait #{trait.inspect} must be lowercase letters, digits and underscores")
+        end
+      end
+      if type.pool_traits.uniq.size != type.pool_traits.size || type.group_traits.uniq.size != type.group_traits.size
+        raise ArgumentError.new("#{name}: a trait is listed twice")
+      end
+      unless type.pool_traits[0, type.group_traits.size] == type.group_traits
+        raise ArgumentError.new("#{name}: group traits must be the first pool traits, in the same order")
+      end
+      type.labels.each do |trait, label|
+        raise ArgumentError.new("#{name}: #{trait} is labelled but is not a pool trait") unless type.trait?(trait)
+        unless label.matches?(LABEL)
+          raise ArgumentError.new("#{name}: label #{label.inspect} must be lowercase words joined by '-'")
+        end
+      end
+    end
+
+    # Normalized lookup values; raises on names that aren't the type's traits.
+    private def query_traits(type : AssetType, traits : Hash(String, String)) : Hash(String, String)
+      unless (unknown = traits.keys - type.pool_traits).empty?
+        raise ArgumentError.new("#{unknown.join(", ")} are not traits of #{type.name}")
+      end
+      normalize_traits(type, traits)
+    end
+
+    private def normalize_traits(type : AssetType, tags : Hash(String, String)) : Hash(String, String)
+      normalized = {} of String => String
+      tags.each do |key, value|
+        if !type.trait?(key)
+          normalized[key] = value
+        elsif normal = TraitKey.normalize(value)
+          normalized[key] = normal
+        end
+      end
+      normalized
+    end
+
+    private def stored_type(asset_type : String) : {AssetType, Int32}?
+      @db.query_one?(
+        "SELECT asset_type, pool_traits, group_traits, labels, pool, key_scheme FROM asset_types WHERE asset_type = ?",
+        asset_type
+      ) { |rs| read_type(rs) }
+    end
+
+    private def read_type(rs) : {AssetType, Int32}
+      name = rs.read(String)
+      pool_traits = Array(String).from_json(rs.read(String))
+      group_traits = Array(String).from_json(rs.read(String))
+      labels = Hash(String, String).from_json(rs.read(String))
+      pool = rs.read(Int32) != 0
+      {AssetType.new(name, pool_traits, group_traits, pool, labels), rs.read(Int32)}
+    end
+
+    # Registrations made with an older key encoding are re-keyed on open.
+    private def load_types : Nil
+      rows = @db.query_all(
+        "SELECT asset_type, pool_traits, group_traits, labels, pool, key_scheme FROM asset_types"
+      ) { |rs| read_type(rs) }
+      rows.each do |type, scheme|
+        unless scheme == TraitKey::SCHEME
+          @db.transaction do |tx|
+            rekey(tx.connection, type)
+            tx.connection.exec("UPDATE asset_types SET key_scheme = ? WHERE asset_type = ?", TraitKey::SCHEME, type.name)
+          end
+        end
+        @types[type.name] = type
+      end
+    end
+
+    # Re-derive both keys of every asset of a type from its tags, normalizing
+    # the stored trait values on the way. In a single-best type, assets that
+    # now share a pool key can't all keep it: the most recently used keeps it,
+    # and the others keep their rows and tags but no pool key. Returns the
+    # assets whose tags changed.
+    private def rekey(conn, type : AssetType) : Array(Int64)
+      ids = conn.query_all(
+        "SELECT id FROM assets WHERE asset_type = ? ORDER BY last_used_at DESC, id DESC",
+        type.name, as: Int64
+      )
+      conn.exec(
+        "UPDATE assets SET pool_key = NULL, pool = ? WHERE asset_type = ?",
+        type.pool ? 1 : 0, type.name
+      )
+      claimed = Set(String).new
+      changed = [] of Int64
+      ids.each_slice(500) do |batch|
+        stored = tags_batch(conn, batch)
+        batch.each do |id|
+          tags = stored[id]? || {} of String => String
+          normalized = normalize_traits(type, tags)
+          tags.each do |key, value|
+            next unless type.trait?(key)
+            normal = normalized[key]?
+            next if normal == value
+            if normal
+              conn.exec("UPDATE asset_tags SET tag_value = ? WHERE asset_id = ? AND tag_key = ?", normal, id, key)
+            else
+              conn.exec("DELETE FROM asset_tags WHERE asset_id = ? AND tag_key = ?", id, key)
+            end
+            changed << id unless changed.last? == id
+          end
+          pool_key = type.key(normalized)
+          pool_key = nil unless type.pool || claimed.add?(pool_key)
+          conn.exec("UPDATE assets SET pool_key = ? WHERE id = ?", pool_key, id)
+        end
+      end
+      changed
     end
 
     # ── Touch ──
@@ -695,12 +1128,17 @@ module DataDungeon
     end
 
     def load_tags_batch(asset_ids : Array(Int64)) : Hash(Int64, Hash(String, String))
+      tags_batch(@db, asset_ids)
+    end
+
+    # `db` is the database or, inside a transaction, its connection.
+    private def tags_batch(db, asset_ids : Array(Int64)) : Hash(Int64, Hash(String, String))
       result = {} of Int64 => Hash(String, String)
       return result if asset_ids.empty?
 
       placeholders = asset_ids.map { "?" }.join(", ")
       params = asset_ids.map(&.as(::DB::Any))
-      @db.query(
+      db.query(
         "SELECT asset_id, tag_key, tag_value FROM asset_tags WHERE asset_id IN (#{placeholders})",
         args: params
       ) do |rs|
@@ -871,6 +1309,7 @@ module DataDungeon
     # ── Pool helpers ──
 
     def count_pool_assets(asset_type : String, filter_tags : Hash(String, String)) : Int32
+      filter_tags = normalize_tags(asset_type, filter_tags)
       return @db.scalar("SELECT COUNT(*) FROM assets WHERE asset_type = ?", asset_type).as(Int64).to_i32 if filter_tags.empty?
 
       conditions = filter_tags.map { |_, _| "(t.tag_key = ? AND t.tag_value = ?)" }.join(" OR ")
@@ -896,6 +1335,7 @@ module DataDungeon
     end
 
     def random_pool_text(asset_type : String, filter_tags : Hash(String, String)) : String?
+      filter_tags = normalize_tags(asset_type, filter_tags)
       if filter_tags.empty?
         return @db.query_one?(
           <<-SQL,
@@ -1033,7 +1473,7 @@ module DataDungeon
         media: rs.read(String),
         content_type: rs.read(String),
         file_path: rs.read(String),
-        canonical_key: rs.read(String?),
+        pool_key: rs.read(String?),
         file_hash: rs.read(String?),
         created_at: rs.read(String),
         last_used_at: rs.read(String?),

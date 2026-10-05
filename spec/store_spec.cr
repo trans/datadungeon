@@ -23,7 +23,7 @@ describe DataDungeon::DB do
     db = open_db(dir)
     tags = {"venue" => "arcade", "style" => "silver"}
 
-    rec = db.store("venue", tags, canonical_key: key_for(tags),
+    rec = db.store("venue", tags, pool_key: key_for(tags),
       bytes: "webp-bytes".to_slice, content_type: "image/webp",
       image: DataDungeon::ImageMeta.new(compression: "original"))
 
@@ -49,9 +49,9 @@ describe DataDungeon::DB do
     tags = {"venue" => "arcade"}
     payload = "same-bytes".to_slice
 
-    a = db.store("venue", tags, canonical_key: key_for(tags), bytes: payload, content_type: "image/webp",
+    a = db.store("venue", tags, pool_key: key_for(tags), bytes: payload, content_type: "image/webp",
       image: DataDungeon::ImageMeta.new(compression: "original"))
-    b = db.store("venue", tags, canonical_key: key_for(tags), bytes: payload, content_type: "image/webp",
+    b = db.store("venue", tags, pool_key: key_for(tags), bytes: payload, content_type: "image/webp",
       image: DataDungeon::ImageMeta.new(compression: "original"))
 
     b.id.should eq a.id # write-skip returned the existing record
@@ -67,9 +67,9 @@ describe DataDungeon::DB do
     db = open_db(dir)
     tags = {"venue" => "arcade"}
 
-    a = db.store("venue", tags, canonical_key: key_for(tags), bytes: "v1".to_slice, content_type: "image/webp",
+    a = db.store("venue", tags, pool_key: key_for(tags), bytes: "v1".to_slice, content_type: "image/webp",
       image: DataDungeon::ImageMeta.new(compression: "original"))
-    b = db.store("venue", tags, canonical_key: key_for(tags), bytes: "v2".to_slice, content_type: "image/webp",
+    b = db.store("venue", tags, pool_key: key_for(tags), bytes: "v2".to_slice, content_type: "image/webp",
       image: DataDungeon::ImageMeta.new(compression: "original"))
 
     b.id.should eq a.id
@@ -86,7 +86,7 @@ describe DataDungeon::DB do
     db = open_db(dir)
     tags = {"venue" => "arcade"}
 
-    rec = db.store("venue", tags, canonical_key: key_for(tags), bytes: "bytes".to_slice, content_type: "image/webp",
+    rec = db.store("venue", tags, pool_key: key_for(tags), bytes: "bytes".to_slice, content_type: "image/webp",
       image: DataDungeon::ImageMeta.new(compression: "original"))
     File.delete(db.path_for(rec))
 
@@ -104,7 +104,7 @@ describe DataDungeon::DB do
     tags = {"venue" => "arcade"}
     pins = {"water" => 0.62}.to_json
 
-    stored = db.store("venue", tags, canonical_key: key_for(tags), bytes: "webp".to_slice, content_type: "image/webp",
+    stored = db.store("venue", tags, pool_key: key_for(tags), bytes: "webp".to_slice, content_type: "image/webp",
       image: DataDungeon::ImageMeta.new(compression: "original", usage_class: "bg", presentation: pins))
 
     pair = db.get_with_meta("venue", key_for(tags))
@@ -129,7 +129,7 @@ describe DataDungeon::DB do
 
     # audio asset → AudioMeta (presentation is nil for non-visual media)
     atags = {"line" => "greeting"}
-    db.store("banter", atags, canonical_key: key_for(atags), bytes: "ogg".to_slice, content_type: "audio/ogg",
+    db.store("banter", atags, pool_key: key_for(atags), bytes: "ogg".to_slice, content_type: "audio/ogg",
       audio: DataDungeon::AudioMeta.new(duration_ms: 1200, bitrate: 128))
     _, ameta = db.get_with_meta("banter", key_for(atags)).not_nil!
     ameta.should be_a DataDungeon::AudioMeta
@@ -138,7 +138,7 @@ describe DataDungeon::DB do
 
     # text asset → TextMeta
     ttags = {"quest" => "zork"}
-    db.store("decree", ttags, canonical_key: key_for(ttags), bytes: "top hats".to_slice, content_type: "text/plain",
+    db.store("decree", ttags, pool_key: key_for(ttags), bytes: "top hats".to_slice, content_type: "text/plain",
       text: DataDungeon::TextMeta.new(content: "top hats", language: "en"))
     _, tmeta = db.get_with_meta("decree", key_for(ttags)).not_nil!
     tmeta.should be_a DataDungeon::TextMeta
@@ -154,7 +154,7 @@ describe DataDungeon::DB do
     db = open_db(dir)
     tags = {"venue" => "arcade"}
 
-    rec = db.store("venue", tags, canonical_key: key_for(tags), bytes: "webp".to_slice, content_type: "image/webp",
+    rec = db.store("venue", tags, pool_key: key_for(tags), bytes: "webp".to_slice, content_type: "image/webp",
       image: DataDungeon::ImageMeta.new(compression: "original"))
     db.get("venue", key_for(tags), touch: false)
     db.get_with_meta("venue", key_for(tags), touch: false)
@@ -171,9 +171,9 @@ describe DataDungeon::DB do
     db = open_db(dir)
     tags = {"quest" => "zork"}
 
-    a = db.store("banter", tags, canonical_key: key_for(tags), pool: true, bytes: "candidate-A".to_slice,
+    a = db.store("banter", tags, pool_key: key_for(tags), pool: true, bytes: "candidate-A".to_slice,
       content_type: "image/webp", image: DataDungeon::ImageMeta.new(compression: "original"))
-    b = db.store("banter", tags, canonical_key: key_for(tags), pool: true, bytes: "candidate-B".to_slice,
+    b = db.store("banter", tags, pool_key: key_for(tags), pool: true, bytes: "candidate-B".to_slice,
       content_type: "image/webp", image: DataDungeon::ImageMeta.new(compression: "original"))
 
     a.id.should_not eq b.id
@@ -192,7 +192,7 @@ describe DataDungeon::DB do
     db = open_db(dir)
     tags = {"venue" => "arcade"}
 
-    rec = db.store("venue", tags, canonical_key: key_for(tags), bytes: "bytes".to_slice,
+    rec = db.store("venue", tags, pool_key: key_for(tags), bytes: "bytes".to_slice,
       content_type: "image/webp", image: DataDungeon::ImageMeta.new(compression: "original"))
     path = db.path_for(rec)
     File.exists?(path).should be_true
@@ -211,9 +211,9 @@ describe DataDungeon::DB do
     db = open_db(dir)
     tags = {"venue" => "arcade"}
 
-    db.store("venue", tags, canonical_key: key_for(tags), bytes: "old-bytes".to_slice,
+    db.store("venue", tags, pool_key: key_for(tags), bytes: "old-bytes".to_slice,
       content_type: "image/webp", image: DataDungeon::ImageMeta.new(compression: "original"))
-    rec = db.store("venue", tags, canonical_key: key_for(tags), bytes: "new-bytes".to_slice,
+    rec = db.store("venue", tags, pool_key: key_for(tags), bytes: "new-bytes".to_slice,
       content_type: "image/webp", image: DataDungeon::ImageMeta.new(compression: "original"))
 
     # Updating the exact lookup key must leave the new object readable.
@@ -232,12 +232,12 @@ describe DataDungeon::DB do
     db = open_db(dir)
     tags = {"venue" => "arcade"}
 
-    old = db.store("venue", tags, canonical_key: key_for(tags), bytes: "png-bytes".to_slice,
+    old = db.store("venue", tags, pool_key: key_for(tags), bytes: "png-bytes".to_slice,
       content_type: "image/png", image: DataDungeon::ImageMeta.new(compression: "original"))
     old_path = db.path_for(old)
     old_path.ends_with?(".png").should be_true
 
-    new = db.store("venue", tags, canonical_key: key_for(tags), bytes: "webp-bytes".to_slice,
+    new = db.store("venue", tags, pool_key: key_for(tags), bytes: "webp-bytes".to_slice,
       content_type: "image/webp", image: DataDungeon::ImageMeta.new(compression: "original"))
     new_path = db.path_for(new)
     new_path.ends_with?(".webp").should be_true
@@ -257,9 +257,9 @@ describe DataDungeon::DB do
     Dir.mkdir_p(dir)
     db = open_db(dir)
 
-    a = db.store("venue", {"venue" => "arcade"}, canonical_key: "arcade",
+    a = db.store("venue", {"venue" => "arcade"}, pool_key: "arcade",
       bytes: "same".to_slice, content_type: "image/webp")
-    b = db.store("tile", {"room" => "attic"}, canonical_key: "attic",
+    b = db.store("tile", {"room" => "attic"}, pool_key: "attic",
       bytes: "same".to_slice, content_type: "image/webp")
 
     a.id.should_not eq b.id
@@ -283,11 +283,11 @@ describe DataDungeon::DB do
     Dir.mkdir_p(dir)
     db = open_db(dir)
 
-    shared = db.store("venue", {"venue" => "arcade"}, canonical_key: "arcade",
+    shared = db.store("venue", {"venue" => "arcade"}, pool_key: "arcade",
       bytes: "v1".to_slice, content_type: "image/webp")
-    other = db.store("venue", {"venue" => "diner"}, canonical_key: "diner",
+    other = db.store("venue", {"venue" => "diner"}, pool_key: "diner",
       bytes: "v1".to_slice, content_type: "image/webp")
-    db.store("venue", {"venue" => "arcade"}, canonical_key: "arcade",
+    db.store("venue", {"venue" => "arcade"}, pool_key: "arcade",
       bytes: "v2".to_slice, content_type: "image/webp")
 
     File.read(db.path_for(other)).should eq "v1"
@@ -320,7 +320,7 @@ describe DataDungeon::DB do
     db = open_db(dir)
     tags = {"venue" => "arcade"}
 
-    rec = db.store("venue", tags, canonical_key: key_for(tags), bytes: "bytes".to_slice,
+    rec = db.store("venue", tags, pool_key: key_for(tags), bytes: "bytes".to_slice,
       content_type: "image/webp", image: DataDungeon::ImageMeta.new(compression: "original"))
     File.delete(db.path_for(rec)) # object vanishes out from under DD
 
@@ -356,7 +356,7 @@ describe DataDungeon::DB do
     db = open_db(dir)
     tags = {"venue" => "arcade"}
 
-    rec = db.store("venue", tags, canonical_key: key_for(tags), bytes: "a".to_slice,
+    rec = db.store("venue", tags, pool_key: key_for(tags), bytes: "a".to_slice,
       content_type: "image/webp", image: DataDungeon::ImageMeta.new(compression: "original"))
     File.delete(db.path_for(rec)) # object vanishes, row remains
 
@@ -418,7 +418,7 @@ describe DataDungeon::DB do
     tags = {"venue" => "arcade"}
 
     expect_raises(ArgumentError, /media is "image".*audio/) do
-      db.store("venue", tags, canonical_key: key_for(tags),
+      db.store("venue", tags, pool_key: key_for(tags),
         bytes: "bytes".to_slice, content_type: "image/webp",
         media: "image", audio: DataDungeon::AudioMeta.new)
     end
@@ -427,7 +427,7 @@ describe DataDungeon::DB do
     FileUtils.rm_rf(dir) if dir
   end
 
-  it "stores independent assets without a canonical key" do
+  it "stores independent assets without a pool key" do
     dir = File.tempname("dd-unkeyed")
     Dir.mkdir_p(dir)
     db = open_db(dir)
@@ -437,8 +437,8 @@ describe DataDungeon::DB do
     b = db.store("venue", {"style" => "silver"}, bytes: "same".to_slice,
       content_type: "image/webp", image: DataDungeon::ImageMeta.new)
 
-    a.canonical_key.should be_nil
-    b.canonical_key.should be_nil
+    a.pool_key.should be_nil
+    b.pool_key.should be_nil
     a.id.should_not eq b.id
     a.file_path.should eq b.file_path # independent records, one shared object
     db.get_by_id(a.id, touch: false).not_nil!.id.should eq a.id
@@ -451,15 +451,15 @@ describe DataDungeon::DB do
     FileUtils.rm_rf(dir) if dir
   end
 
-  it "uses the caller's canonical key independently of tags" do
+  it "uses an unregistered type's explicit pool key independently of tags" do
     dir = File.tempname("dd-opaque-key")
     Dir.mkdir_p(dir)
     db = open_db(dir)
     tags = {"race" => "human"}
 
-    first = db.store("portrait", tags, canonical_key: "character-a",
+    first = db.store("portrait", tags, pool_key: "character-a",
       bytes: "a".to_slice, content_type: "image/webp")
-    second = db.store("portrait", tags, canonical_key: "character-b",
+    second = db.store("portrait", tags, pool_key: "character-b",
       bytes: "b".to_slice, content_type: "image/webp")
 
     first.id.should_not eq second.id
@@ -477,7 +477,7 @@ describe DataDungeon::DB do
     Dir.mkdir_p(dir)
     db = open_db(dir)
 
-    first = db.store("portrait", {"hair_color" => "red"}, canonical_key: "portrait-1",
+    first = db.store("portrait", {"hair_color" => "red"}, pool_key: "portrait-1",
       bytes: "same".to_slice, content_type: "image/webp",
       description: "A red-haired adventurer", generated: true,
       generator: "arcana", generation: %({"width":512}),
@@ -485,7 +485,7 @@ describe DataDungeon::DB do
     first.generated.should be_true
     first.description.should eq "A red-haired adventurer"
     first.file_path.includes?("portrait-1").should be_false
-    second = db.store("portrait", {"hair_color" => "brown"}, canonical_key: "portrait-1",
+    second = db.store("portrait", {"hair_color" => "brown"}, pool_key: "portrait-1",
       bytes: "same".to_slice, content_type: "image/webp",
       description: "A brown-haired adventurer", generated: false,
       image: DataDungeon::ImageMeta.new(usage_class: "icon"))
@@ -507,11 +507,14 @@ describe DataDungeon::DB do
     Dir.mkdir_p(dir)
     path = File.join(dir, "assets.db")
     raw = ::DB.open("sqlite3://#{path}")
+    # The 0.3 layout: a required canonical_key, no description,
+    # generated flag or custom tag flag.
     old_schema = DataDungeon::DB::ASSETS_SCHEMA
-      .sub("canonical_key TEXT,", "canonical_key TEXT NOT NULL,")
+      .sub("pool_key      TEXT,", "canonical_key TEXT NOT NULL,")
       .lines.reject { |line| line.includes?("description") || line.includes?("generated") }.join
     raw.exec(old_schema)
-    raw.exec(DataDungeon::DB::ASSET_TAGS_SCHEMA)
+    raw.exec(DataDungeon::DB::ASSET_TAGS_SCHEMA.lines.reject(&.includes?("custom")).join)
+    raw.exec(DataDungeon::DB::IMAGE_META_SCHEMA)
     raw.exec(<<-SQL)
       INSERT INTO assets
       (id, asset_type, media, content_type, file_path, canonical_key,
@@ -520,14 +523,17 @@ describe DataDungeon::DB do
               'old-key', '2026-01-01 00:00:00', 'arcana')
     SQL
     raw.exec("INSERT INTO asset_tags VALUES (7, 'race', 'human')")
+    raw.exec("INSERT INTO image_meta (asset_id, width) VALUES (7, 512)")
     raw.close
 
     db = open_db(dir)
     rec = db.find_asset_by_id(7_i64).not_nil!
-    rec.canonical_key.should eq "old-key"
+    rec.pool_key.should eq "old-key"
     rec.generated.should be_true
     rec.description.should be_nil
     db.load_tags(rec.id).should eq({"race" => "human"})
+    db.custom_traits(rec.id).should be_empty
+    db.load_image_meta(rec.id).not_nil!.width.should eq 512 # the rebuild cascaded nothing
     db.delete_asset(rec.id)
     db.load_tags(rec.id).should be_empty
   ensure
@@ -547,7 +553,7 @@ describe DataDungeon::DB do
       INSERT INTO assets (id, asset_type, media, content_type, file_path, created_at)
       VALUES (3, 'venue', 'image', 'image/webp', 'venue/0123abcd.webp', '2026-10-01 00:00:00')
     SQL
-    raw.exec("INSERT INTO asset_tags VALUES (3, 'venue', 'arcade')")
+    raw.exec("INSERT INTO asset_tags (asset_id, tag_key, tag_value) VALUES (3, 'venue', 'arcade')")
     raw.close
 
     db = open_db(dir)
