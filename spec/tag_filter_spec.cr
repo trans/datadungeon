@@ -39,13 +39,14 @@ describe "DataDungeon::DB tag filters" do
     end
   end
 
-  it "cascades deletes on every pooled connection" do
+  it "applies connection settings to every pooled connection" do
     with_db("dd-tags-fk") do |db|
       rec = put(db, "tile", {"room" => "attic"}, "a")
       db.connection.using_connection do |first|
         first.scalar("PRAGMA foreign_keys").should eq 1
         db.connection.using_connection do |second| # a second connection, while the first is held
           second.scalar("PRAGMA foreign_keys").should eq 1
+          second.scalar("PRAGMA busy_timeout").should eq 5000
           second.exec("DELETE FROM assets WHERE id = ?", rec.id)
         end
       end

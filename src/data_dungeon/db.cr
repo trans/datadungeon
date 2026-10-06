@@ -30,9 +30,11 @@ module DataDungeon
     def initialize(path : String, storage : Storage? = nil, cache_root : String? = nil)
       dir = File.dirname(path)
       Dir.mkdir_p(dir) unless Dir.exists?(dir)
-      # Pragmas in the URI apply to every pooled connection, so deletes cascade
-      # to tags and sidecars whichever connection runs them.
-      @db = ::DB.open("sqlite3://#{path}?foreign_keys=on")
+      # Pragmas in the URI apply to every pooled connection: deletes cascade to
+      # tags and sidecars whichever connection runs them, and a write that
+      # meets another connection's open transaction waits for it (up to 5 s)
+      # rather than failing at once with "database is locked".
+      @db = ::DB.open("sqlite3://#{path}?foreign_keys=on&busy_timeout=5000")
       @storage = storage || (cache_root ? LocalStorage.new(cache_root) : nil)
       setup_schema
     end
