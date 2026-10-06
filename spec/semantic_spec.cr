@@ -31,6 +31,7 @@ describe DataDungeon::SemanticIndex do
 
     found = index.search("adventurer", asset_type: "portrait", tags: {"hair_color" => "red"}, min_score: 0.0)
     found.map(&.asset.id).should eq [red.id]
+    index.search("adventurer", asset_type: "portrait").size.should eq 2 # no cutoff by default
     index.search("mage", asset_type: "portrait", tags: {"hair_color" => "blue"}, min_score: 0.0)
       .map(&.asset.id).should eq [blue.id]
     index.search("mage", asset_type: "portrait", tags: {"hair_color" => "red' OR 1=1 --"}, min_score: 0.0)
@@ -105,6 +106,35 @@ describe DataDungeon::SemanticIndex do
     index.search("a traveler", asset_type: "portrait", tags: {"group" => "rare"}, min_score: 0.0)
       .map(&.asset.id).should eq [rare]
     db.connection.scalar("SELECT SUM(match_count) FROM memo_chunks").as(Int64).should eq 0
+  ensure
+    db.try(&.close)
+    FileUtils.rm_rf(dir) if dir
+  end
+
+  it "ranks only one pool, or one key prefix, of a registered type" do
+    dir = File.tempname("dd-semantic-pool")
+    Dir.mkdir_p(dir)
+    db = DataDungeon::DB.new(File.join(dir, "assets.db"), cache_root: File.join(dir, "store"))
+    db.register_type("picture", pool_traits: %w[portrait rating state], pool: true)
+    index = DataDungeon::SemanticIndex.new(db, service: "mock", chunking_max_tokens: 50)
+    picture = ->(portrait : String, state : String, scene : String) do
+      db.store("picture", {"portrait" => portrait, "rating" => "pg", "state" => state},
+        bytes: scene.to_slice, content_type: "image/webp", description: scene)
+    end
+    fights = picture.call("1", "troll-alive", "the hero fights a troll")
+    flees = picture.call("1", "troll-alive", "the hero runs from a troll")
+    stands = picture.call("1", "troll-dead", "the hero stands over a troll")
+    picture.call("2", "troll-alive", "another hero fights a troll")
+    index.process_queue.should eq 4
+
+    pool = db.pool_key_for("picture", {"portrait" => "1", "rating" => "pg", "state" => "troll-alive"})
+    index.search("troll", pool_key: pool).map(&.asset.id).sort.should eq [fights.id, flees.id]
+    portrait_one = db.group_key_for("picture", {"portrait" => "1"}, 1)
+    index.search("troll", key_prefix: portrait_one).map(&.asset.id).sort
+      .should eq [fights.id, flees.id, stands.id]
+    index.search("troll", key_prefix: portrait_one, asset_type: "picture", tags: {"state" => "troll-dead"})
+      .map(&.asset.id).should eq [stands.id]
+    expect_raises(ArgumentError, /must end with/) { index.search("troll", key_prefix: "picture.1") }
   ensure
     db.try(&.close)
     FileUtils.rm_rf(dir) if dir

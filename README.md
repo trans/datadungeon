@@ -135,7 +135,25 @@ hits.each { |hit| puts "#{hit.asset.id}: #{hit.score}" }
 db.close
 ```
 
+Hits come best first, each with its score, up to `limit`. There is no score
+cutoff unless you pass `min_score:`. Scores aren't comparable across
+embedding models or query lengths, so choose a threshold per decision: offering
+a player choices may need none, while reusing an asset outright needs one
+tested against real queries.
+
 Search can also filter `media: "image"`, `"audio"`, `"text"`, or `"video"`.
+
+For a registered type, `pool_key:` ranks only one pool's assets and
+`key_prefix:` only those whose leading traits match, such as every picture of
+one portrait:
+
+```crystal
+pictures = semantic.search("the hero fights the troll",
+  key_prefix: db.group_key_for("picture", {"portrait" => portrait_id}, 1))
+```
+
+Those lookups start from the key index, so their cost follows the size of the
+pool rather than of the catalogue, and Memo ranks that set exactly.
 
 Once attached, storing an asset queues it for embedding; deleting an asset
 removes its Memo entry. Changes to the description or selected tags are
