@@ -36,22 +36,22 @@ private def store_portrait(db : DataDungeon::DB, traits : Hash(String, String), 
 end
 
 describe DataDungeon::TraitKey do
-  it "joins trait values in order, with an empty segment for an absent trait" do
+  it "starts with the type, then the trait values in order, with an empty segment for an absent trait" do
     traits = %w[art_style rating gender race]
     values = {"art_style" => "golden", "rating" => "pg", "gender" => "f", "race" => "human"}
-    DataDungeon::TraitKey.key(traits, values).should eq "golden.pg.f.human"
-    DataDungeon::TraitKey.key(traits, values.reject("rating")).should eq "golden..f.human"
-    DataDungeon::TraitKey.prefix(traits, values, 2).should eq "golden.pg."
-    DataDungeon::TraitKey.prefix(traits, values, 0).should eq ""
+    DataDungeon::TraitKey.key("portrait", traits, values).should eq "portrait.golden.pg.f.human"
+    DataDungeon::TraitKey.key("portrait", traits, values.reject("rating")).should eq "portrait.golden..f.human"
+    DataDungeon::TraitKey.prefix("portrait", traits, values, 2).should eq "portrait.golden.pg."
+    DataDungeon::TraitKey.prefix("portrait", traits, values, 0).should eq "portrait."
   end
 
   it "suffixes labelled traits so their values read unambiguously" do
     traits = %w[race skin hair_length hair_texture hair_color]
     values = {"race" => "human", "skin" => "tan", "hair_length" => "long", "hair_texture" => "straight", "hair_color" => "black"}
     labels = {"skin" => "skin", "hair_length" => "hair", "hair_texture" => "hair", "hair_color" => "hair"}
-    DataDungeon::TraitKey.key(traits, values, labels).should eq "human.tan-skin.long-hair.straight-hair.black-hair"
-    DataDungeon::TraitKey.key(traits, values.reject("hair_texture"), labels).should eq "human.tan-skin.long-hair..black-hair"
-    DataDungeon::TraitKey.prefix(traits, values, 3, labels).should eq "human.tan-skin.long-hair."
+    DataDungeon::TraitKey.key("hero", traits, values, labels).should eq "hero.human.tan-skin.long-hair.straight-hair.black-hair"
+    DataDungeon::TraitKey.key("hero", traits, values.reject("hair_texture"), labels).should eq "hero.human.tan-skin.long-hair..black-hair"
+    DataDungeon::TraitKey.prefix("hero", traits, values, 3, labels).should eq "hero.human.tan-skin.long-hair."
   end
 
   it "normalizes values for matching, never leaving a separator in them" do
@@ -70,6 +70,7 @@ describe "DataDungeon::DB type registry" do
       expect_raises(ArgumentError, /must not be empty/) { db.register_type("t", pool_traits: [] of String) }
       expect_raises(ArgumentError, /lowercase/) { db.register_type("t", pool_traits: %w[Hair]) }
       expect_raises(ArgumentError, /twice/) { db.register_type("t", pool_traits: %w[race race]) }
+      expect_raises(ArgumentError, /asset type/) { db.register_type("hero.shot", pool_traits: %w[race]) }
       expect_raises(ArgumentError, /first pool traits/) do
         db.register_type("t", pool_traits: %w[race rating], group_traits: %w[rating])
       end
@@ -84,14 +85,14 @@ describe "DataDungeon::DB type registry" do
       register_portraits(db)
       rec = store_portrait(db, portrait(art_style: "Golden", race: " Human ").merge({"note" => "Keep As Is"}), "a")
 
-      rec.pool_key.should eq "golden.pg.f.human.red-hair." # facial_hair absent
+      rec.pool_key.should eq "portrait.golden.pg.f.human.red-hair." # facial_hair absent
       rec.pool_key.should eq db.pool_key_for("portrait", portrait)
-      db.group_key_for("portrait", portrait).should eq "golden.pg.f."
-      db.group_key_for("portrait", portrait, 4).should eq "golden.pg.f.human."
+      db.group_key_for("portrait", portrait).should eq "portrait.golden.pg.f."
+      db.group_key_for("portrait", portrait, 4).should eq "portrait.golden.pg.f.human."
       rec.pool.should be_true
       db.load_tags(rec.id).should eq portrait.merge({"note" => "Keep As Is"}) # traits normalized, other tags not
 
-      db.pool_key_for("portrait", portrait(facial_hair: "Braided Beard")).should eq "golden.pg.f.human.red-hair.braided-beard"
+      db.pool_key_for("portrait", portrait(facial_hair: "Braided Beard")).should eq "portrait.golden.pg.f.human.red-hair.braided-beard"
       expect_raises(ArgumentError, /not traits/) { db.pool_key_for("portrait", portrait.merge({"note" => "x"})) }
     end
   end
@@ -119,7 +120,7 @@ describe "DataDungeon::DB type registry" do
 
       a.id.should_not eq b.id
       db.find_pool("portrait", portrait).map(&.id).should eq [a.id, b.id]
-      db.find_pool("portrait", a.pool_key.not_nil!).map(&.id).should eq [a.id, b.id]
+      db.find_pool(a.pool_key.not_nil!).map(&.id).should eq [a.id, b.id] # the key alone
       db.find_pool("portrait", portrait(hair_color: "blue")).map(&.id).should eq [other.id]
     end
   end
@@ -134,9 +135,24 @@ describe "DataDungeon::DB type registry" do
 
       db.find_group("portrait", portrait).map(&.id).should eq [human.id, elf.id]
       db.find_group("portrait", portrait, 4).map(&.id).should eq [human.id]
-      db.find_group("portrait", "golden.pg.f.").map(&.id).should eq [human.id, elf.id]
+      db.find_group("portrait.golden.pg.f.").map(&.id).should eq [human.id, elf.id]
       db.find_group("portrait", portrait, 0).size.should eq 4 # the whole type
-      expect_raises(ArgumentError, /must end with/) { db.find_group("portrait", "golden.pg.f") }
+      expect_raises(ArgumentError, /must end with/) { db.find_group("portrait.golden.pg.f") }
+    end
+  end
+
+  it "keeps types apart by the key alone" do
+    with_db("dd-reg-types") do |db|
+      db.register_type("portrait", pool_traits: %w[art_style rating], pool: true)
+      db.register_type("tile", pool_traits: %w[art_style rating], pool: true)
+      traits = {"art_style" => "golden", "rating" => "pg"}
+      portrait = db.store("portrait", traits, bytes: "a".to_slice, content_type: "image/webp")
+      tile = db.store("tile", traits, bytes: "b".to_slice, content_type: "image/webp")
+
+      portrait.pool_key.should eq "portrait.golden.pg"
+      tile.pool_key.should eq "tile.golden.pg"
+      db.find_pool("portrait.golden.pg").map(&.id).should eq [portrait.id]
+      db.find_group("tile.golden.").map(&.id).should eq [tile.id]
     end
   end
 
@@ -152,6 +168,8 @@ describe "DataDungeon::DB type registry" do
       got = db.get("voice", tags, touch: false).not_nil!
       File.read(db.path_for(got)).should eq "v2"
       db.get_with_meta("voice", tags, touch: false).not_nil![0].id.should eq first.id
+      db.get(first.pool_key.not_nil!, touch: false).not_nil!.id.should eq first.id # the key alone
+      db.get_with_meta(first.pool_key.not_nil!, touch: false).not_nil![0].id.should eq first.id
     end
   end
 
@@ -164,9 +182,9 @@ describe "DataDungeon::DB type registry" do
       curly = db.store("hero", hero.merge({"hair_texture" => "curly"}), bytes: "b".to_slice, content_type: "image/webp")
       db.store("hero", hero.merge({"hair_length" => "longer"}), bytes: "c".to_slice, content_type: "image/webp")
 
-      long.pool_key.should eq "human.long-hair.straight-hair.black-hair"
+      long.pool_key.should eq "hero.human.long-hair.straight-hair.black-hair"
       db.find_group("hero", hero, 2).map(&.id).should eq [long.id, curly.id] # "long" never matches "longer"
-      db.find_group("hero", "human.long-hair.").map(&.id).should eq [long.id, curly.id]
+      db.find_group("hero.human.long-hair.").map(&.id).should eq [long.id, curly.id]
       db.find_pool("hero", hero, custom: %w[hair_texture]).map(&.id).should eq [long.id, curly.id]
     end
   end
@@ -242,7 +260,7 @@ describe "DataDungeon::DB type registry" do
 
       register_portraits(db)
       rekeyed = db.find_asset_by_id(old.id).not_nil!
-      rekeyed.pool_key.should eq "golden.pg.f.human.red-hair."
+      rekeyed.pool_key.should eq "portrait.golden.pg.f.human.red-hair."
       rekeyed.pool.should be_true
       db.load_tags(old.id)["art_style"].should eq "golden"
 
@@ -253,11 +271,11 @@ describe "DataDungeon::DB type registry" do
       # A new label is a new definition.
       db.register_type("portrait", pool_traits: PORTRAIT_TRAITS, group_traits: PORTRAIT_GROUP, pool: true,
         labels: {"hair_color" => "hair-color"})
-      db.find_asset_by_id(old.id).not_nil!.pool_key.should eq "golden.pg.f.human.red-hair-color."
+      db.find_asset_by_id(old.id).not_nil!.pool_key.should eq "portrait.golden.pg.f.human.red-hair-color."
 
       # Fewer traits in another order: keys follow the new definition.
       db.register_type("portrait", pool_traits: %w[race art_style rating], group_traits: %w[race], pool: true)
-      db.find_asset_by_id(old.id).not_nil!.pool_key.should eq "human.golden.pg"
+      db.find_asset_by_id(old.id).not_nil!.pool_key.should eq "portrait.human.golden.pg"
     end
   end
 

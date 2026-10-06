@@ -6,7 +6,8 @@ module DataDungeon
     getter content_type : String
     getter file_path : String
     # Key of the pool of interchangeable assets this one belongs to. For a
-    # registered type, its traits' values in order: `golden.pg.f.human`.
+    # registered type, its type and traits' values in order:
+    # `portrait.golden.pg.f.human`.
     getter pool_key : String?
     getter file_hash : String?
     getter created_at : String
@@ -71,12 +72,12 @@ module DataDungeon
 
     # The pool key of these normalized values.
     def key(values : Hash(String, String)) : String
-      TraitKey.key(@pool_traits, values, @labels)
+      TraitKey.key(@name, @pool_traits, values, @labels)
     end
 
     # The key prefix of these normalized values' first `size` traits.
     def prefix(values : Hash(String, String), size : Int32) : String
-      TraitKey.prefix(@pool_traits, values, size, @labels)
+      TraitKey.prefix(@name, @pool_traits, values, size, @labels)
     end
   end
 

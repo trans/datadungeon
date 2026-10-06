@@ -8,10 +8,11 @@ and resolves stored objects through a `Storage` adapter.
 
 Each asset type the application registers names the traits that identify it,
 most important first. Traits are ordinary tags. DataDungeon derives the
-asset's `pool_key` from them: the trait values in that order, joined by dots.
+asset's `pool_key` from them: the asset type, then the trait values in that
+order, joined by dots. The key alone names its pool.
 
 ```
-golden.pg.f.human.tan-skin.red-hair
+portrait.golden.pg.f.human.tan-skin.red-hair
 ```
 
 Assets with the same pool key are interchangeable. In a pool type
@@ -19,10 +20,10 @@ Assets with the same pool key are interchangeable. In a pool type
 key replaces that asset. The leading `group_traits` form the type's group: the
 wider set of candidates that exact checks and ranking work within. Because a
 trait's position says which trait it is, a lookup on leading traits is a prefix
-match (`golden.pg.f.`), one index range scan, at any depth.
+match (`portrait.golden.pg.f.`), one index range scan, at any depth.
 
 Keys are canonical: every trait is present, in the registered order, with an
-empty segment for a trait the asset lacks (`golden.pg..human`). Values are
+empty segment for a trait the asset lacks (`portrait.golden.pg..human`). Values are
 normalized for matching (Unicode case folding, NFC, and runs of spaces or dots
 turned into `-`), and the stored trait tags are normalized the same way, so a
 value never contains a dot. `labels` add a suffix to traits whose values alone
@@ -54,12 +55,14 @@ record = db.store("portrait", traits, custom: %w[race],
   generation: %({"width":512,"height":512}),
   image: DataDungeon::ImageMeta.new(compression: "normalize", target_format: "webp")
 )
-record.pool_key                                     # "silver.pg.f.ape.purple-skin.red-hair"
+record.pool_key                                     # "portrait.silver.pg.f.ape.purple-skin.red-hair"
 
 db.find_pool("portrait", traits)                    # every trait equal: interchangeable
 db.find_pool("portrait", traits, custom: %w[race])  # every trait equal but race; rank race yourself
 db.find_group("portrait", traits)                   # the group traits equal
 db.find_group("portrait", traits, 4)                # the first four traits equal
+db.find_pool(record.pool_key.not_nil!)              # by the key alone
+db.find_group("portrait.silver.pg.")                # by a key prefix alone
 found = db.find("portrait", traits, custom: %w[race])
 found.pool                                          # as find_pool with custom:
 found.group                                         # the rest of the group
@@ -70,10 +73,11 @@ db.get_with_meta_by_id(record.id)
 db.path_for(record)
 ```
 
-`find_pool` also takes a pool key already in hand, and `find_group` a key
-prefix ending in a dot (`group_key_for` gives one), for any type, registered
-or not. These, and the trait forms without `custom:`, are single index
-lookups. With `custom:`, the traits before the first custom one narrow the
+A key already in hand is enough: `find_pool(key)`, `get(key)` and
+`get_with_meta(key)` take one, and `find_group(prefix)` a key prefix ending in
+a dot (`group_key_for` gives one). These, and the trait forms without
+`custom:`, are single index lookups. Asset type names are lowercase letters and
+digits joined by `_` or `-`, so they never contain a dot. With `custom:`, the traits before the first custom one narrow the
 candidates by prefix and the rest are checked against each candidate's tags.
 
 For a single-best type, `get(asset_type, traits)` and

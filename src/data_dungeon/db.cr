@@ -68,8 +68,8 @@ module DataDungeon
     SQL
 
     ASSETS_INDEXES = <<-SQL
-      CREATE INDEX IF NOT EXISTS idx_assets_lookup
-        ON assets(asset_type, pool_key);
+      CREATE INDEX IF NOT EXISTS idx_assets_pool_key
+        ON assets(pool_key);
       CREATE UNIQUE INDEX IF NOT EXISTS idx_assets_single_key
         ON assets(asset_type, pool_key)
         WHERE pool_key IS NOT NULL AND pool = 0;
@@ -179,6 +179,7 @@ module DataDungeon
       @db.exec(ASSETS_SCHEMA)
       migrate_assets_schema
       ASSETS_INDEXES.split(";").each { |s| @db.exec(s.strip) unless s.strip.empty? }
+      @db.exec("DROP INDEX IF EXISTS idx_assets_lookup") # keys now name their type
       @db.exec(ASSET_TAGS_SCHEMA)
       unless table_columns("asset_tags").has_key?("custom")
         @db.exec("ALTER TABLE asset_tags ADD COLUMN custom INTEGER NOT NULL DEFAULT 0")
@@ -565,7 +566,20 @@ module DataDungeon
 
     # `get` for a registered type, by its traits.
     def get(asset_type : String, traits : Hash(String, String), touch : Bool = true) : AssetRecord?
-      get(asset_type, pool_key_for(asset_type, traits), touch)
+      get(pool_key_for(asset_type, traits), touch)
+    end
+
+    # `get` by a registered type's key alone; the key names its type.
+    def get(pool_key : String, touch : Bool = true) : AssetRecord?
+      rec = @db.query_one?(
+        "SELECT * FROM assets WHERE pool_key = ? AND pool = 0 LIMIT 1", pool_key
+      ) { |rs| read_asset_record(rs) }
+      return nil unless rec
+      if store = @storage
+        return nil unless store.exists?(rec.file_path)
+      end
+      touch_asset(rec.id) if touch
+      rec
     end
 
     # Assets without a pool key are addressed by their database ID.
@@ -604,7 +618,12 @@ module DataDungeon
       traits : Hash(String, String),
       touch : Bool = true,
     ) : {AssetRecord, AssetMeta?}?
-      get_with_meta(asset_type, pool_key_for(asset_type, traits), touch)
+      get_with_meta(pool_key_for(asset_type, traits), touch)
+    end
+
+    # `get_with_meta` by a registered type's key alone.
+    def get_with_meta(pool_key : String, touch : Bool = true) : {AssetRecord, AssetMeta?}?
+      lookup_with_meta("a.pool_key = ? AND a.pool = 0", [pool_key] of ::DB::Any, touch)
     end
 
     def get_with_meta_by_id(id : Int64, touch : Bool = true) : {AssetRecord, AssetMeta?}?
@@ -774,6 +793,7 @@ module DataDungeon
     # ── Registry ──
 
     TRAIT_NAME = /\A[a-z][a-z0-9_]*\z/
+    TYPE_NAME  = /\A[a-z0-9]+(?:[_-][a-z0-9]+)*\z/
     LABEL      = /\A[a-z0-9]+(?:-[a-z0-9]+)*\z/
 
     # Declare how an asset type is keyed. From then on DataDungeon derives each
@@ -866,14 +886,14 @@ module DataDungeon
     ) : Array(AssetRecord)
       type = registered(asset_type)
       values = query_traits(type, traits)
-      return find_pool(asset_type, type.key(values)) if custom.empty?
+      return find_pool(type.key(values)) if custom.empty?
       unless (unknown = custom - type.pool_traits).empty?
         raise ArgumentError.new("#{unknown.join(", ")} are not traits of #{asset_type}")
       end
 
       lead = custom.min_of { |trait| type.pool_traits.index!(trait) }
-      clauses = ["a.asset_type = ?"]
-      args = [asset_type] of ::DB::Any
+      clauses = [] of String
+      args = [] of ::DB::Any
       key_prefix(clauses, args, type.prefix(values, lead))
       (type.pool_traits[lead..] - custom).each do |trait|
         if value = values[trait]?
@@ -887,10 +907,16 @@ module DataDungeon
       query_assets(clauses.join(" AND "), args)
     end
 
-    # Every asset with this pool key, registered type or not: a pool's
-    # members, or the one asset of a single-best key.
+    # Every asset with this key: a pool's members, or the one asset of a
+    # single-best key. A registered type's key names its type, so the key
+    # alone is enough.
+    def find_pool(pool_key : String) : Array(AssetRecord)
+      query_assets("a.pool_key = ?", [pool_key] of ::DB::Any)
+    end
+
+    # Every asset of an unregistered type with this explicitly given key.
     def find_pool(asset_type : String, pool_key : String) : Array(AssetRecord)
-      query_assets("a.asset_type = ? AND a.pool_key = ?", [asset_type, pool_key] of ::DB::Any)
+      query_assets("+a.asset_type = ? AND a.pool_key = ?", [asset_type, pool_key] of ::DB::Any)
     end
 
     # Every asset whose first `size` traits (by default, the group traits)
@@ -899,18 +925,18 @@ module DataDungeon
       type = registered(asset_type)
       size = leading_size(type, size)
       values = query_traits(type, traits)
-      return find_pool(asset_type, type.key(values)) if size == type.pool_traits.size
-      find_group(asset_type, type.prefix(values, size))
+      return find_pool(type.key(values)) if size == type.pool_traits.size
+      find_group(type.prefix(values, size))
     end
 
-    # Every asset whose pool key starts with this prefix, which must end at a
-    # separator (as group_key_for's do); "" is the whole type.
-    def find_group(asset_type : String, prefix : String) : Array(AssetRecord)
-      unless prefix.empty? || prefix.ends_with?(TraitKey::SEPARATOR)
+    # Every asset whose key starts with this prefix, which must end at a
+    # separator (as group_key_for's do); `portrait.` is the whole type.
+    def find_group(prefix : String) : Array(AssetRecord)
+      unless prefix.ends_with?(TraitKey::SEPARATOR)
         raise ArgumentError.new("a key prefix must end with #{TraitKey::SEPARATOR.inspect}")
       end
-      clauses = ["a.asset_type = ?"]
-      args = [asset_type] of ::DB::Any
+      clauses = [] of String
+      args = [] of ::DB::Any
       key_prefix(clauses, args, prefix)
       query_assets(clauses.join(" AND "), args)
     end
@@ -932,7 +958,6 @@ module DataDungeon
     # A prefix as an index range: keys from `prefix` up to, not including,
     # the prefix with its final separator raised by one ('.' to '/').
     private def key_prefix(clauses : Array(String), args : Array(::DB::Any), prefix : String) : Nil
-      return if prefix.empty?
       clauses << "a.pool_key >= ? AND a.pool_key < ?"
       args << prefix << prefix.rchop + TraitKey::SEPARATOR.succ
     end
@@ -997,6 +1022,9 @@ module DataDungeon
 
     private def validate_type(type : AssetType) : Nil
       name = type.name
+      unless name.matches?(TYPE_NAME)
+        raise ArgumentError.new("asset type #{name.inspect} must be lowercase letters and digits, joined by '_' or '-'")
+      end
       raise ArgumentError.new("#{name}: pool_traits must not be empty") if type.pool_traits.empty?
       (type.pool_traits + type.group_traits).each do |trait|
         unless trait.matches?(TRAIT_NAME)
@@ -1360,9 +1388,7 @@ module DataDungeon
 
       if leading = key_prefix_for_filter(asset_type, filter)
         key, covered = leading
-        from = "assets a"
-        clauses << "a.asset_type = ?"
-        args << asset_type
+        from = "assets a" # the key names the type
         if key.ends_with?(TraitKey::SEPARATOR)
           key_prefix(clauses, args, key)
         else # every trait given: the whole key
