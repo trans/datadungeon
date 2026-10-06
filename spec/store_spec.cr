@@ -513,7 +513,7 @@ describe DataDungeon::DB do
       .sub("pool_key      TEXT,", "canonical_key TEXT NOT NULL,")
       .lines.reject { |line| line.includes?("description") || line.includes?("generated") }.join
     raw.exec(old_schema)
-    raw.exec(DataDungeon::DB::ASSET_TAGS_SCHEMA.lines.reject(&.includes?("custom")).join)
+    raw.exec(DataDungeon::DB::ASSET_TAGS_SCHEMA.lines.reject { |line| line.includes?("custom") || line.includes?("asset_type") }.join)
     raw.exec(DataDungeon::DB::IMAGE_META_SCHEMA)
     raw.exec(<<-SQL)
       INSERT INTO assets
@@ -533,7 +533,8 @@ describe DataDungeon::DB do
     rec.description.should be_nil
     db.load_tags(rec.id).should eq({"race" => "human"})
     db.custom_traits(rec.id).should be_empty
-    db.load_image_meta(rec.id).not_nil!.width.should eq 512 # the rebuild cascaded nothing
+    db.connection.scalar("SELECT asset_type FROM asset_tags WHERE asset_id = 7").should eq "portrait" # backfilled
+    db.load_image_meta(rec.id).not_nil!.width.should eq 512                                           # the rebuild cascaded nothing
     db.delete_asset(rec.id)
     db.load_tags(rec.id).should be_empty
   ensure
@@ -553,7 +554,7 @@ describe DataDungeon::DB do
       INSERT INTO assets (id, asset_type, media, content_type, file_path, created_at)
       VALUES (3, 'venue', 'image', 'image/webp', 'venue/0123abcd.webp', '2026-10-01 00:00:00')
     SQL
-    raw.exec("INSERT INTO asset_tags (asset_id, tag_key, tag_value) VALUES (3, 'venue', 'arcade')")
+    raw.exec("INSERT INTO asset_tags (asset_id, asset_type, tag_key, tag_value) VALUES (3, 'venue', 'venue', 'arcade')")
     raw.close
 
     db = open_db(dir)

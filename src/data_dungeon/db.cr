@@ -30,7 +30,9 @@ module DataDungeon
     def initialize(path : String, storage : Storage? = nil, cache_root : String? = nil)
       dir = File.dirname(path)
       Dir.mkdir_p(dir) unless Dir.exists?(dir)
-      @db = ::DB.open("sqlite3://#{path}")
+      # Pragmas in the URI apply to every pooled connection, so deletes cascade
+      # to tags and sidecars whichever connection runs them.
+      @db = ::DB.open("sqlite3://#{path}?foreign_keys=on")
       @storage = storage || (cache_root ? LocalStorage.new(cache_root) : nil)
       setup_schema
     end
@@ -85,14 +87,16 @@ module DataDungeon
         tag_key   TEXT NOT NULL,
         tag_value TEXT NOT NULL,
         custom    INTEGER NOT NULL DEFAULT 0,
+        asset_type TEXT NOT NULL,
         PRIMARY KEY (asset_id, tag_key),
         FOREIGN KEY (asset_id) REFERENCES assets(id) ON DELETE CASCADE
       )
     SQL
 
+    # Tag ranges are per type, so a lookup never walks other types' tags.
     ASSET_TAGS_INDEX = <<-SQL
-      CREATE INDEX IF NOT EXISTS idx_tags_kv
-        ON asset_tags(tag_key, tag_value)
+      CREATE INDEX IF NOT EXISTS idx_tags_type_kv
+        ON asset_tags(asset_type, tag_key, tag_value)
     SQL
 
     # One row per registered asset type. Trait lists are JSON arrays in
@@ -170,7 +174,6 @@ module DataDungeon
 
     private def setup_schema : Nil
       @db.exec("PRAGMA journal_mode=WAL")
-      @db.exec("PRAGMA foreign_keys=ON")
 
       # New asset store tables
       @db.exec(ASSETS_SCHEMA)
@@ -180,7 +183,9 @@ module DataDungeon
       unless table_columns("asset_tags").has_key?("custom")
         @db.exec("ALTER TABLE asset_tags ADD COLUMN custom INTEGER NOT NULL DEFAULT 0")
       end
+      migrate_tag_types
       @db.exec(ASSET_TAGS_INDEX)
+      @db.exec("DROP INDEX IF EXISTS idx_tags_kv") # superseded by idx_tags_type_kv
       @db.exec(ASSET_TYPES_SCHEMA)
       @db.exec(IMAGE_META_SCHEMA)
       @db.exec(AUDIO_META_SCHEMA)
@@ -203,6 +208,19 @@ module DataDungeon
         end
       end
       columns
+    end
+
+    # Older tag tables lacked asset_type. Copy it from each tag's asset, after
+    # dropping tags whose asset is gone (unreachable; a delete made on a
+    # connection without foreign keys could leave them).
+    private def migrate_tag_types : Nil
+      return if table_columns("asset_tags").has_key?("asset_type")
+      @db.transaction do |tx|
+        conn = tx.connection
+        conn.exec("DELETE FROM asset_tags WHERE asset_id NOT IN (SELECT id FROM assets)")
+        conn.exec("ALTER TABLE asset_tags ADD COLUMN asset_type TEXT NOT NULL DEFAULT ''")
+        conn.exec("UPDATE asset_tags SET asset_type = (SELECT a.asset_type FROM assets a WHERE a.id = asset_tags.asset_id)")
+      end
     end
 
     # Older databases called the pool key canonical_key (and once required
@@ -356,8 +374,8 @@ module DataDungeon
 
           tags.each do |k, v|
             conn.exec(
-              "INSERT INTO asset_tags (asset_id, tag_key, tag_value, custom) VALUES (?, ?, ?, ?)",
-              asset_id, k, v, custom.includes?(k) ? 1 : 0
+              "INSERT INTO asset_tags (asset_id, asset_type, tag_key, tag_value, custom) VALUES (?, ?, ?, ?, ?)",
+              asset_id, asset_type, k, v, custom.includes?(k) ? 1 : 0
             )
           end
 
@@ -732,29 +750,14 @@ module DataDungeon
       ) { |rs| read_asset_record(rs) }
     end
 
+    # Assets of a type carrying every one of these tags (and possibly others).
     def find_assets_by_tags(asset_type : String, filter_tags : Hash(String, String)) : Array(AssetRecord)
       filter_tags = normalize_tags(asset_type, filter_tags)
       return [] of AssetRecord if filter_tags.empty?
-
-      conditions = filter_tags.map { |_, _| "(t.tag_key = ? AND t.tag_value = ?)" }.join(" OR ")
-      sql = <<-SQL
-        SELECT a.* FROM assets a
-        JOIN asset_tags t ON t.asset_id = a.id
-        WHERE a.asset_type = ? AND (#{conditions})
-        GROUP BY a.id
-        HAVING COUNT(*) = ?
-      SQL
-
-      params = [] of ::DB::Any
-      params << asset_type
-      filter_tags.each do |k, v|
-        params << k
-        params << v
-      end
-      params << filter_tags.size.to_i64
+      from, where, args = tag_filter(asset_type, filter_tags) || return [] of AssetRecord
 
       results = [] of AssetRecord
-      @db.query(sql, args: params) do |rs|
+      @db.query("SELECT a.* FROM #{from} WHERE #{where} ORDER BY a.id", args: args) do |rs|
         rs.each { results << read_asset_record(rs) }
       end
       results
@@ -958,9 +961,9 @@ module DataDungeon
     def custom_values(asset_type : String, trait : String) : Hash(String, Int32)
       counts = {} of String => Int32
       @db.query(<<-SQL, asset_type, trait) do |rs|
-        SELECT t.tag_value, COUNT(*) FROM asset_tags t JOIN assets a ON a.id = t.asset_id
-        WHERE a.asset_type = ? AND t.tag_key = ? AND t.custom = 1
-        GROUP BY t.tag_value ORDER BY COUNT(*) DESC, t.tag_value
+        SELECT tag_value, COUNT(*) FROM asset_tags
+        WHERE asset_type = ? AND tag_key = ? AND custom = 1
+        GROUP BY tag_value ORDER BY COUNT(*) DESC, tag_value
       SQL
         rs.each { counts[rs.read(String)] = rs.read(Int64).to_i32 }
       end
@@ -982,10 +985,9 @@ module DataDungeon
       if (type = @types[asset_type]?) && type.trait?(trait)
         value = TraitKey.normalize(value) || value
       end
-      @db.exec(<<-SQL, trait, value, asset_type).rows_affected
+      @db.exec(<<-SQL, asset_type, trait, value).rows_affected
         UPDATE asset_tags SET custom = 0
-        WHERE tag_key = ? AND tag_value = ? AND custom = 1
-          AND asset_id IN (SELECT id FROM assets WHERE asset_type = ?)
+        WHERE asset_type = ? AND tag_key = ? AND tag_value = ? AND custom = 1
       SQL
     end
 
@@ -1311,27 +1313,9 @@ module DataDungeon
     def count_pool_assets(asset_type : String, filter_tags : Hash(String, String)) : Int32
       filter_tags = normalize_tags(asset_type, filter_tags)
       return @db.scalar("SELECT COUNT(*) FROM assets WHERE asset_type = ?", asset_type).as(Int64).to_i32 if filter_tags.empty?
+      from, where, args = tag_filter(asset_type, filter_tags) || return 0
 
-      conditions = filter_tags.map { |_, _| "(t.tag_key = ? AND t.tag_value = ?)" }.join(" OR ")
-      sql = <<-SQL
-        SELECT COUNT(*) FROM (
-          SELECT a.id FROM assets a
-          JOIN asset_tags t ON t.asset_id = a.id
-          WHERE a.asset_type = ? AND (#{conditions})
-          GROUP BY a.id
-          HAVING COUNT(*) = ?
-        )
-      SQL
-
-      params = [] of ::DB::Any
-      params << asset_type
-      filter_tags.each do |k, v|
-        params << k
-        params << v
-      end
-      params << filter_tags.size.to_i64
-
-      @db.scalar(sql, args: params).as(Int64).to_i32
+      @db.scalar("SELECT COUNT(*) FROM #{from} WHERE #{where}", args: args).as(Int64).to_i32
     end
 
     def random_pool_text(asset_type : String, filter_tags : Hash(String, String)) : String?
@@ -1347,27 +1331,98 @@ module DataDungeon
           asset_type
         ) { |rs| rs.read(String) }
       end
+      from, where, args = tag_filter(asset_type, filter_tags) || return nil
 
-      conditions = filter_tags.map { |_, _| "(t.tag_key = ? AND t.tag_value = ?)" }.join(" OR ")
-      sql = <<-SQL
-        SELECT tm.content FROM assets a
-        JOIN asset_tags t ON t.asset_id = a.id
-        JOIN text_meta tm ON tm.asset_id = a.id
-        WHERE a.asset_type = ? AND (#{conditions})
-        GROUP BY a.id
-        HAVING COUNT(DISTINCT t.tag_key) = ?
-        ORDER BY RANDOM() LIMIT 1
-      SQL
+      @db.query_one?(
+        "SELECT tm.content FROM #{from} JOIN text_meta tm ON tm.asset_id = a.id WHERE #{where} ORDER BY RANDOM() LIMIT 1",
+        args: args
+      ) { |rs| rs.read(String) }
+    end
 
-      params = [] of ::DB::Any
-      params << asset_type
-      filter_tags.each do |k, v|
-        params << k
-        params << v
+    # How many index entries to count per filter tag when choosing the rarest
+    # one to start from; beyond this a tag is simply common.
+    RAREST_PROBE = 1000
+
+    # FROM and WHERE (alias `a`) for "assets of this type carrying every one
+    # of these normalized tags", or nil when some tag matches nothing. Rather
+    # than collect every tag row matching any of the tags, it starts from the
+    # narrowest index range it can find and checks each remaining tag on each
+    # candidate by primary key:
+    #
+    # - a registered type whose leading traits are all in the filter starts
+    #   from its pool-key prefix, unless some of its assets have no key;
+    # - otherwise it starts from the tag with the fewest matches.
+    private def tag_filter(asset_type : String, filter : Hash(String, String)) : {String, String, Array(::DB::Any)}?
+      clauses = [] of String
+      args = [] of ::DB::Any
+      checks = filter
+      id = "a.id"
+
+      if leading = key_prefix_for_filter(asset_type, filter)
+        key, covered = leading
+        from = "assets a"
+        clauses << "a.asset_type = ?"
+        args << asset_type
+        if key.ends_with?(TraitKey::SEPARATOR)
+          key_prefix(clauses, args, key)
+        else # every trait given: the whole key
+          clauses << "a.pool_key = ?"
+          args << key
+        end
+        checks = filter.reject(covered) # the key already matches these
+      else
+        counts = tag_counts(asset_type, filter, RAREST_PROBE)
+        # Every tag is common: count them fully to find the rarest.
+        counts = tag_counts(asset_type, filter, nil) if counts.all? { |count| count[2] == RAREST_PROBE }
+        anchor_key, anchor_value, count = counts.min_by(&.[2])
+        return nil if count == 0
+        # CROSS JOIN keeps SQLite from reordering: the anchor tag's range drives.
+        from = "asset_tags x CROSS JOIN assets a"
+        clauses << "x.asset_type = ? AND x.tag_key = ? AND x.tag_value = ? AND a.id = x.asset_id"
+        args << asset_type << anchor_key << anchor_value
+        checks = filter.reject(anchor_key)
+        id = "x.asset_id" # checked from the tag row, before reading the asset
       end
-      params << filter_tags.size.to_i64
 
-      @db.query_one?(sql, args: params) { |rs| rs.read(String) }
+      checks.each do |key, value|
+        clauses << "EXISTS (SELECT 1 FROM asset_tags t WHERE t.asset_id = #{id} AND t.tag_key = ? AND t.tag_value = ?)"
+        args << key << value
+      end
+      {from, clauses.join(" AND "), args}
+    end
+
+    # Each tag's number of matches among the type's assets, counted up to `cap`.
+    private def tag_counts(asset_type : String, filter : Hash(String, String), cap : Int32?) : Array({String, String, Int64})
+      filter.map do |key, value|
+        count = if cap
+                  @db.scalar(
+                    "SELECT COUNT(*) FROM (SELECT 1 FROM asset_tags WHERE asset_type = ? AND tag_key = ? AND tag_value = ? LIMIT ?)",
+                    asset_type, key, value, cap
+                  ).as(Int64)
+                else
+                  @db.scalar(
+                    "SELECT COUNT(*) FROM asset_tags WHERE asset_type = ? AND tag_key = ? AND tag_value = ?",
+                    asset_type, key, value
+                  ).as(Int64)
+                end
+        {key, value, count}
+      end
+    end
+
+    # The pool-key prefix covering a filter's leading traits (the whole key
+    # when it gives them all), and those traits, when the type is registered,
+    # the filter includes at least its first trait, and every one of its
+    # assets has a key (a key-less asset would be missed by a range).
+    private def key_prefix_for_filter(asset_type : String, filter : Hash(String, String)) : {String, Array(String)}?
+      type = @types[asset_type]? || return nil
+      lead = type.pool_traits.take_while { |trait| filter.has_key?(trait) }.size
+      return nil if lead == 0
+      return nil if @db.query_one?(
+                      "SELECT 1 FROM assets WHERE asset_type = ? AND pool_key IS NULL LIMIT 1",
+                      asset_type, as: Int64
+                    )
+      key = lead == type.pool_traits.size ? type.key(filter) : type.prefix(filter, lead)
+      {key, type.pool_traits[0, lead]}
     end
 
     # ── Eviction helpers ──
