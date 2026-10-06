@@ -99,9 +99,11 @@ module DataDungeon
     end
 
     # Run from a single background worker; Memo owns retries and the queue.
+    # Saving through Memo checkpoints its journal, so a restart replays only
+    # what came after.
     def process_queue : Int32
       processed = @memo.process_queue
-      Memo::USearchIndex.save(@memo.usearch_index, @memo.index_path) if processed > 0
+      @memo.save_index if processed > 0
       processed
     end
 

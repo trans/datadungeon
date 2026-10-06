@@ -140,8 +140,11 @@ Search can also filter `media: "image"`, `"audio"`, `"text"`, or `"video"`.
 Once attached, storing an asset queues it for embedding; deleting an asset
 removes its Memo entry. Changes to the description or selected tags are
 re-embedded by the worker. Until that worker runs, search may still use the
-previous embedding. `process_queue` saves the USearch file; running `backfill`
-at startup repairs vectors missing after an interrupted process. An asset with
+previous embedding. `process_queue` saves the index through Memo, which also keeps every
+vector in the database: after a crash or a lost index file, Memo replays or
+rebuilds the index when it opens, without embedding anything again. `backfill`
+queues assets that were never embedded, such as those stored before the index
+was attached; it is safe to repeat. An asset with
 no description and no selected tags is not indexed. Search returns asset
 records without changing usage or match counters, and its query cache stays
 in memory. The `generated` flag, generator parameters, and pool and group keys are

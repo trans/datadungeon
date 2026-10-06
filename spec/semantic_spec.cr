@@ -110,7 +110,7 @@ describe DataDungeon::SemanticIndex do
     FileUtils.rm_rf(dir) if dir
   end
 
-  it "saves processed vectors and repairs an index file lost before restart" do
+  it "saves processed vectors and recovers an index file lost before restart" do
     dir = File.tempname("dd-semantic-repair")
     Dir.mkdir_p(dir)
     db = DataDungeon::DB.new(File.join(dir, "assets.db"))
@@ -125,11 +125,13 @@ describe DataDungeon::SemanticIndex do
     db.close
     closed = true
 
+    # Memo keeps each vector in the database and rebuilds a missing index
+    # file from them on open, so nothing needs embedding again.
     File.delete(path)
     reopened = DataDungeon::DB.new(File.join(dir, "assets.db"))
     repair = DataDungeon::SemanticIndex.new(reopened, service: "mock", chunking_max_tokens: 50)
-    repair.backfill.should eq 1
-    repair.process_queue.should eq 1
+    repair.memo.index_recovery.rebuilt.should eq 1
+    repair.backfill.should eq 0
     repair.search("castle", asset_type: "scene", min_score: 0.0)
       .map(&.asset.id).should eq [asset]
   ensure
