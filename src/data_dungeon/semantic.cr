@@ -4,6 +4,11 @@ require "memo"
 module DataDungeon
   # Optional Memo index for descriptions and selected descriptive tags.
   #
+  # Every asset gets one embedding of its description plus the selected tags.
+  # A registered type can also declare facets (DB#register_type), each a group
+  # of tags embedded on its own as Memo source type `<asset_type>.<facet>`, so
+  # a search can rank one part of an asset without the rest diluting it.
+  #
   # Stored assets enqueue work; call process_queue from one worker to embed it.
   # Search does not touch DataDungeon usage counters or Memo's search counters.
   class SemanticIndex < AssetIndexer
@@ -12,9 +17,17 @@ module DataDungeon
     struct Hit
       getter asset : AssetRecord
       getter score : Float64
+      # For search_facets: each facet's score; `score` is the lowest.
+      getter facet_scores : Hash(String, Float64)
 
-      def initialize(@asset : AssetRecord, @score : Float64)
+      def initialize(@asset : AssetRecord, @score : Float64,
+                     @facet_scores : Hash(String, Float64) = {} of String => Float64)
       end
+    end
+
+    # The Memo source type holding one facet of a type's assets.
+    def self.facet_source(asset_type : String, facet : String) : String
+      "#{asset_type}.#{facet}"
     end
 
     getter memo : Memo::Service
@@ -73,22 +86,37 @@ module DataDungeon
       index_asset(id)
     end
 
-    # Returns true when the asset was queued for embedding.
+    # Queues the asset's embedding and each facet's whose text changed, and
+    # drops sources it no longer has (a facet removed, or one left with no
+    # text). Returns true when anything was queued.
     def index_asset(id : Int64) : Bool
       asset = @assets.find_asset_by_id(id)
-      return false unless asset
-
-      text = embedding_text(asset.description, @assets.load_tags(id))
-      if text.empty?
+      unless asset
         delete_asset(id)
         return false
       end
 
-      if source_id = Memo::SourceRegistry.get_internal(@assets.connection, SOURCE_TYPE, id)
+      tags = @assets.load_tags(id)
+      texts = {SOURCE_TYPE => embedding_text(asset.description, tags)}
+      @assets.registration(asset.asset_type).try &.facets.each do |facet, keys|
+        texts[SemanticIndex.facet_source(asset.asset_type, facet)] = facet_text(keys, asset.description, tags)
+      end
+      (sources_of(id) - texts.keys).each { |source_type| delete_source(source_type, id) }
+
+      queued = false
+      texts.each { |source_type, text| queued = index_source(source_type, id, text) || queued }
+      queued
+    end
+
+    private def index_source(source_type : String, id : Int64, text : String) : Bool
+      if text.empty?
+        delete_source(source_type, id)
+        return false
+      end
+      if source_id = Memo::SourceRegistry.get_internal(@assets.connection, source_type, id)
         return false if @memo.get_source_text(source_id) == text && vectors_present?(source_id)
       end
-
-      @memo.enqueue(source_type: SOURCE_TYPE, source_id: id, text: text)
+      @memo.enqueue(source_type: source_type, source_id: id, text: text)
       true
     end
 
@@ -128,6 +156,8 @@ module DataDungeon
     # the caller's decision (offering choices vs. reusing an asset outright).
     # `pool_key` ranks only one pool's assets; `key_prefix` (ending in ".",
     # e.g. from DB#group_key_for) only those whose leading traits match.
+    # `facet` ranks one of a registered type's facets instead of the whole
+    # asset's embedding, and needs `asset_type`.
     def search(
       query : String,
       limit : Int32 = 10,
@@ -137,11 +167,13 @@ module DataDungeon
       tags : Hash(String, String) = {} of String => String,
       pool_key : String? = nil,
       key_prefix : String? = nil,
+      facet : String? = nil,
     ) : Array(Hit)
       return [] of Hit if limit <= 0
       if (prefix = key_prefix) && !prefix.ends_with?(TraitKey::SEPARATOR)
         raise ArgumentError.new("a key prefix must end with #{TraitKey::SEPARATOR.inspect}")
       end
+      source = source_for(asset_type, facet)
       tags = @assets.normalize_tags(asset_type, tags) if asset_type
       filter = Filter.new(asset_type, media, tags, pool_key, key_prefix)
       floor = min_score || -1.0 # cosine similarity is never below -1
@@ -154,11 +186,13 @@ module DataDungeon
         candidate_limit = Math.max(limit * 4, 40)
         max_candidates = Math.max(limit * 32, 512)
         loop do
+          # A facet's vectors are a fraction of the index, so name its source
+          # type; the asset's own embedding keeps the unfiltered first try.
           candidates = @memo.search(
             query: query, limit: candidate_limit, min_score: floor,
-            include_text: false
+            source_type: facet ? source : nil, include_text: false
           )
-          hits = hits_for(candidates, limit, filter)
+          hits = hits_for(candidates, limit, filter, source)
           return hits if hits.size >= limit
           return hits if candidates.size < candidate_limit
           break if candidate_limit >= max_candidates
@@ -166,29 +200,69 @@ module DataDungeon
         end
       end
 
-      where, args = asset_filter(filter)
+      where, args = asset_filter(filter, source)
       candidates = @memo.search(
         query: query,
         limit: Math.min(limit * 4, 1000),
         min_score: floor,
-        source_type: SOURCE_TYPE,
+        source_type: source,
         sql_where: where,
         sql_where_args: args,
         include_text: false,
       )
 
-      hits_for(candidates, limit, filter)
+      hits_for(candidates, limit, filter, source)
     end
 
-    private def hits_for(candidates : Array(Memo::Search::Result), limit : Int32, filter : Filter) : Array(Hit)
+    # Ranks assets of a registered type on several facets at once, each with
+    # its own query (`{"hair" => "long red braids", "body" => "hulking"}`). An
+    # asset must have every facet named, and scores its weakest one: a close
+    # match on one part doesn't make up for a poor match on another. Each
+    # facet is searched to a depth of `depth` assets, so combine within a
+    # scope (`pool_key`, `key_prefix`, tags) small enough to be ranked whole.
+    def search_facets(
+      queries : Hash(String, String),
+      asset_type : String,
+      limit : Int32 = 10,
+      min_score : Float64? = nil,
+      media : String? = nil,
+      tags : Hash(String, String) = {} of String => String,
+      pool_key : String? = nil,
+      key_prefix : String? = nil,
+      depth : Int32 = 500,
+    ) : Array(Hit)
+      raise ArgumentError.new("search_facets needs at least one facet query") if queries.empty?
+      by_facet = queries.map do |facet, query|
+        hits = search(query, limit: depth, asset_type: asset_type, media: media, tags: tags,
+          pool_key: pool_key, key_prefix: key_prefix, facet: facet)
+        {facet, hits.to_h { |hit| {hit.asset.id, hit} }}
+      end
+      common = by_facet.map { |_, hits| hits.keys.to_set }.reduce { |shared, ids| shared & ids }
+      combined = common.map do |id|
+        scores = by_facet.to_h { |facet, hits| {facet, hits[id].score} }
+        Hit.new(by_facet.first[1][id].asset, scores.values.min, scores)
+      end
+      combined.select! { |hit| hit.score >= min_score } if min_score
+      combined.sort_by { |hit| {-hit.score, hit.asset.id} }.first(limit)
+    end
+
+    private def source_for(asset_type : String?, facet : String?) : String
+      return SOURCE_TYPE unless facet
+      type = asset_type.try { |name| @assets.registration(name) }
+      raise ArgumentError.new("a facet search needs a registered asset_type") unless type
+      raise ArgumentError.new("#{type.name} has no facet #{facet}") unless type.facets.has_key?(facet)
+      SemanticIndex.facet_source(type.name, facet)
+    end
+
+    private def hits_for(candidates : Array(Memo::Search::Result), limit : Int32, filter : Filter, source : String) : Array(Hit)
       ids = candidates.compact_map do |candidate|
-        candidate.source_type == SOURCE_TYPE ? candidate.source_id.as?(Int64) : nil
+        candidate.source_type == source ? candidate.source_id.as?(Int64) : nil
       end.uniq
       valid_ids = filter.any? ? matching_ids(ids, filter) : ids.to_set
       seen = Set(Int64).new
       hits = [] of Hit
       candidates.each do |candidate|
-        next unless candidate.source_type == SOURCE_TYPE
+        next unless candidate.source_type == source
         id = candidate.source_id.as?(Int64)
         next unless id && valid_ids.includes?(id) && seen.add?(id)
         asset = @assets.get_by_id(id, touch: false)
@@ -212,11 +286,25 @@ module DataDungeon
       matches
     end
 
+    # Removes the asset's embedding and all of its facets'.
     def delete_asset(id : Int64) : Nil
-      if source_id = Memo::SourceRegistry.get_internal(@assets.connection, SOURCE_TYPE, id)
+      sources_of(id).each { |source_type| delete_source(source_type, id) }
+    end
+
+    private def delete_source(source_type : String, id : Int64) : Nil
+      if source_id = Memo::SourceRegistry.get_internal(@assets.connection, source_type, id)
         @assets.connection.exec("DELETE FROM memo_embed_queue WHERE source_id = ?", source_id)
-        @memo.delete(id, SOURCE_TYPE)
+        @memo.delete(id, source_type)
       end
+    end
+
+    # The Memo source types this index holds for an asset: its own embedding
+    # and its facets' (`<asset_type>.<facet>`).
+    private def sources_of(id : Int64) : Array(String)
+      @assets.connection.query_all(
+        "SELECT source_type FROM memo_sources WHERE external_int = ? AND (source_type = ? OR source_type LIKE '%.%')",
+        id, SOURCE_TYPE, as: String
+      )
     end
 
     def close : Nil
@@ -252,7 +340,18 @@ module DataDungeon
       lines.join("\n")
     end
 
-    private def asset_filter(filter : Filter) : {String?, Array(::DB::Any)}
+    # A facet's text: its tags in the order the facet lists them, as
+    # "name: value" lines; "description" stands for the asset's description.
+    private def facet_text(keys : Array(String), description : String?, tags : Hash(String, String)) : String
+      lines = keys.compact_map do |key|
+        value = key == "description" ? description : tags[key]?
+        next unless value && !value.strip.empty?
+        key == "description" ? value.strip : "#{key.tr("_", " ")}: #{value.strip}"
+      end
+      lines.join("\n")
+    end
+
+    private def asset_filter(filter : Filter, source : String) : {String?, Array(::DB::Any)}
       return {nil, [] of ::DB::Any} unless filter.any?
 
       clauses = [] of String
@@ -262,7 +361,7 @@ module DataDungeon
                 # Start from the key index: those assets, then their Memo
                 # sources (CROSS JOIN keeps that order), so the cost follows
                 # the pool's size rather than the catalogue's.
-                args << SOURCE_TYPE
+                args << source
                 "c.source_id IN (SELECT ms.id FROM assets a CROSS JOIN memo_sources ms " \
                 "WHERE #{clauses.join(" AND ")} AND ms.source_type = ? AND ms.external_int = a.id)"
               else

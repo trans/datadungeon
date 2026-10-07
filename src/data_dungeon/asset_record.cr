@@ -63,10 +63,15 @@ module DataDungeon
     getter labels : Hash(String, String)
     # Traits whose value is a set (`lantern,sword`), matched as a whole.
     getter sets : Array(String)
+    # Named groups of tags embedded separately for semantic search, e.g.
+    # `{"hair" => %w[hair_length hair_color]}`; "description" names the
+    # asset's description.
+    getter facets : Hash(String, Array(String))
 
     def initialize(@name : String, @pool_traits : Array(String), @group_traits : Array(String), @pool : Bool,
                    @labels : Hash(String, String) = {} of String => String,
-                   @sets : Array(String) = [] of String)
+                   @sets : Array(String) = [] of String,
+                   @facets : Hash(String, Array(String)) = {} of String => Array(String))
     end
 
     def trait?(name : String) : Bool

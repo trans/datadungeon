@@ -150,6 +150,29 @@ hits.each { |hit| puts "#{hit.asset.id}: #{hit.score}" }
 db.close
 ```
 
+A registered type can declare **facets**: named groups of tags embedded
+separately from the asset's own embedding, so a search can rank one part of
+an asset without the rest diluting it. Each facet is its own Memo source type
+(`<asset_type>.<facet>`) in the same store; `description` names the asset's
+description.
+
+```crystal
+db.register_type("listing", pool_traits: %w[city rooms],
+  facets: {"location" => %w[neighborhood view], "interior" => %w[style finishes description]})
+
+semantic.search("sunny loft with exposed brick", asset_type: "listing", facet: "interior")
+semantic.search_facets({"location" => "quiet street near a park",
+                        "interior" => "sunny loft with exposed brick"},
+  asset_type: "listing", key_prefix: db.group_key_for("listing", {"city" => "oslo"}, 1))
+```
+
+`search_facets` keeps only assets that have every facet named, and scores
+each by its weakest facet, so a close match on one part doesn't make up for a
+poor match on another (`hit.facet_scores` has each). It ranks each facet to a
+depth of 500 assets by default, so combine within a scope (a pool key, key
+prefix or tags) small enough to be ranked whole. Changing a type's facets takes
+effect for existing assets at the next `backfill`.
+
 Hits come best first, each with its score, up to `limit`. There is no score
 cutoff unless you pass `min_score:`. Scores aren't comparable across
 embedding models or query lengths, so choose a threshold per decision: offering

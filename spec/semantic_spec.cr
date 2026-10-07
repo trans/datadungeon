@@ -140,6 +140,71 @@ describe DataDungeon::SemanticIndex do
     FileUtils.rm_rf(dir) if dir
   end
 
+  it "embeds a registered type's facets separately and ranks them alone or together" do
+    dir = File.tempname("dd-semantic-facets")
+    Dir.mkdir_p(dir)
+    db = DataDungeon::DB.new(File.join(dir, "assets.db"), cache_root: File.join(dir, "store"))
+    db.register_type("hero", pool_traits: %w[race hair_color], pool: true,
+      facets: {"identity" => %w[race skin], "hair" => %w[hair_color customization]})
+    index = DataDungeon::SemanticIndex.new(db, service: "mock", chunking_max_tokens: 50)
+    hero = ->(tags : Hash(String, String), bytes : String) do
+      db.store("hero", tags, bytes: bytes.to_slice, content_type: "image/webp", description: "a hero")
+    end
+    ape = hero.call({"race" => "ape", "skin" => "purple", "hair_color" => "red", "customization" => "braided"}, "a")
+    elf = hero.call({"race" => "elf", "skin" => "pale", "hair_color" => "black"}, "b")
+    bald = hero.call({"race" => "human"}, "c") # nothing for the hair facet
+    index.process_queue.should eq 8            # 3 asset embeddings, 3 identities, 2 hair
+
+    text = ->(source_type : String, id : Int64) do
+      db.connection.query_one?(
+        "SELECT t.content FROM memo_texts t JOIN memo_sources s ON s.id = t.source_id WHERE s.source_type = ? AND s.external_int = ?",
+        source_type, id, as: String)
+    end
+    text.call("hero.identity", ape.id).should eq "race: ape\nskin: purple"
+    text.call("hero.hair", ape.id).should eq "hair color: red\ncustomization: braided"
+    text.call("hero.hair", bald.id).should be_nil
+
+    # One facet: the matching text ranks first; assets without the facet never appear.
+    top = index.search("race: elf\nskin: pale", asset_type: "hero", facet: "identity").first
+    top.asset.id.should eq elf.id
+    top.score.should be_close(1.0, 0.01)
+    index.search("hair color: red", asset_type: "hero", facet: "hair").map(&.asset.id).sort.should eq [ape.id, elf.id]
+
+    # Together: every facet must be present, and the weakest one scores.
+    queries = {"identity" => "race: elf\nskin: pale", "hair" => "hair color: black"}
+    found = index.search_facets(queries, asset_type: "hero")
+    found.map(&.asset.id).sort.should eq [ape.id, elf.id]
+    found.first.asset.id.should eq elf.id
+    found.each do |hit|
+      hit.facet_scores.keys.sort.should eq %w[hair identity]
+      hit.score.should eq hit.facet_scores.values.min
+    end
+
+    expect_raises(ArgumentError, /registered asset_type/) { index.search("x", facet: "hair") }
+    expect_raises(ArgumentError, /no facet/) { index.search("x", asset_type: "hero", facet: "body") }
+
+    # Deleting an asset removes its embedding and every facet's.
+    chunks = ->(id : Int64) do
+      db.connection.scalar(
+        "SELECT COUNT(*) FROM memo_chunks c JOIN memo_sources s ON s.id = c.source_id WHERE s.external_int = ?", id)
+    end
+    chunks.call(ape.id).should eq 3
+    db.delete_asset(ape.id)
+    chunks.call(ape.id).should eq 0
+    %w[asset hero.identity hero.hair].each { |source_type| text.call(source_type, ape.id).should be_nil }
+
+    # Dropping a facet removes its sources at the next backfill.
+    db.register_type("hero", pool_traits: %w[race hair_color], pool: true,
+      facets: {"identity" => %w[race skin]})
+    index.backfill
+    text.call("hero.hair", elf.id).should be_nil
+    text.call("hero.identity", elf.id).should eq "race: elf\nskin: pale"
+    expect_raises(ArgumentError, /no facet/) { index.search("x", asset_type: "hero", facet: "hair") }
+  ensure
+    db.try(&.close)
+    FileUtils.rm_rf(dir) if dir
+  end
+
   it "saves processed vectors and recovers an index file lost before restart" do
     dir = File.tempname("dd-semantic-repair")
     Dir.mkdir_p(dir)

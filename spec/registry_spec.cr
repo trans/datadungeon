@@ -225,6 +225,22 @@ describe "DataDungeon::DB type registry" do
     end
   end
 
+  it "validates facets and keeps them across reopening" do
+    with_db("dd-reg-facets") do |db, dir|
+      expect_raises(ArgumentError, /lowercase words/) { db.register_type("t", pool_traits: %w[race], facets: {"Hair" => %w[race]}) }
+      expect_raises(ArgumentError, /names no tags/) { db.register_type("t", pool_traits: %w[race], facets: {"hair" => [] of String}) }
+      expect_raises(ArgumentError, /twice/) { db.register_type("t", pool_traits: %w[race], facets: {"hair" => %w[race race]}) }
+      db.register_type("hero", pool_traits: %w[race], facets: {"identity" => %w[race skin description]})
+      db.close
+      reopened = open_db(dir)
+      begin
+        reopened.registration("hero").not_nil!.facets.should eq({"identity" => %w[race skin description]})
+      ensure
+        reopened.close
+      end
+    end
+  end
+
   it "upgrades a registry table that predates sets" do
     dir = File.tempname("dd-reg-sets-upgrade")
     Dir.mkdir_p(dir)
