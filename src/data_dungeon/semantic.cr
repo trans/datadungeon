@@ -335,7 +335,7 @@ module DataDungeon
         next unless @semantic_tag_keys.includes?(key)
         value = tags[key].strip
         next if value.empty?
-        lines << "#{key.tr("_", " ")}: #{value}"
+        lines << "#{key.tr("_-", "  ")}: #{value}"
       end
       lines.join("\n")
     end
@@ -346,7 +346,7 @@ module DataDungeon
       lines = keys.compact_map do |key|
         value = key == "description" ? description : tags[key]?
         next unless value && !value.strip.empty?
-        key == "description" ? value.strip : "#{key.tr("_", " ")}: #{value.strip}"
+        key == "description" ? value.strip : "#{key.tr("_-", "  ")}: #{value.strip}"
       end
       lines.join("\n")
     end

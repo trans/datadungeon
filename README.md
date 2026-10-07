@@ -54,13 +54,13 @@ any key.
 ```crystal
 db = DataDungeon::DB.new("assets.db", cache_root: "asset-files")
 db.register_type("portrait",
-  pool_traits: %w[art_style rating gender race skin hair_color],
-  group_traits: %w[art_style rating gender],
-  labels: {"skin" => "skin", "hair_color" => "hair"},
+  pool_traits: %w[art-style rating gender race skin hair-color],
+  group_traits: %w[art-style rating gender],
+  labels: {"skin" => "skin", "hair-color" => "hair"},
   pool: true)
 
-traits = {"art_style" => "silver", "rating" => "pg", "gender" => "f",
-          "race" => "ape", "skin" => "purple", "hair_color" => "red"}
+traits = {"art-style" => "silver", "rating" => "pg", "gender" => "f",
+          "race" => "ape", "skin" => "purple", "hair-color" => "red"}
 record = db.store("portrait", traits, custom: %w[race],
   source_path: "portrait.png",
   content_type: "image/png",
@@ -91,9 +91,17 @@ db.path_for(record)
 A key already in hand is enough: `find_pool(key)`, `get(key)` and
 `get_with_meta(key)` take one, and `find_group(prefix)` a key prefix ending in
 a dot (`group_key_for` gives one). These, and the trait forms without
-`custom:`, are single index lookups. Asset type names are lowercase letters and
-digits joined by `_` or `-`, so they never contain a dot. With `custom:`, the traits before the first custom one narrow the
-candidates by prefix and the rest are checked against each candidate's tags.
+`custom:`, are single index lookups. Asset type and trait names are lowercase
+letters and digits joined by `-` or `_` (a trait name starts with a letter),
+so they never contain a dot. With `custom:`, the traits before the first
+custom one narrow the candidates by prefix and the rest are checked against
+each candidate's tags.
+
+`rename_tag(type, from, to)` renames a tag on all of a type's assets and in
+its registration; keys hold values, not names, so they normally stay the same.
+`rename_type(from, to)` moves a type's assets and registration to a new name,
+re-deriving their keys; if `to` already has assets, they join it under its
+registration.
 
 For a single-best type, `get(asset_type, traits)` and
 `get_with_meta(asset_type, traits)` return the one asset for those traits. The
@@ -188,13 +196,13 @@ semantic = DataDungeon::SemanticIndex.new(
   model: "text-embedding-3-small",
   dimensions: 1536,
   max_tokens: 8191,
-  semantic_tag_keys: %w[race gender hair_color hair_texture outfit]
+  semantic_tag_keys: %w[race gender hair-color hair-texture outfit]
 )
 
 semantic.backfill       # queue pre-existing assets; safe to repeat
 semantic.process_queue # run from one worker, off the request path
 hits = semantic.search("curly-haired adventurer",
-  asset_type: "portrait", tags: {"art_style" => "silver"})
+  asset_type: "portrait", tags: {"art-style" => "silver"})
 hits.each { |hit| puts "#{hit.asset.id}: #{hit.score}" }
 db.close
 ```

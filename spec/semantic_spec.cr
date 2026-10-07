@@ -62,6 +62,27 @@ describe DataDungeon::SemanticIndex do
     FileUtils.rm_rf(dir) if dir
   end
 
+  it "embeds a dashed tag name like an underscored one, so renaming it re-embeds nothing" do
+    dir = File.tempname("dd-semantic-dash")
+    Dir.mkdir_p(dir)
+    db = DataDungeon::DB.new(File.join(dir, "assets.db"), cache_root: File.join(dir, "store"))
+    index = DataDungeon::SemanticIndex.new(db, service: "mock", chunking_max_tokens: 50,
+      semantic_tag_keys: ["hair_color", "hair-color"])
+    rec = db.store("portrait", {"hair_color" => "red"}, pool_key: "p", bytes: "p".to_slice,
+      content_type: "image/webp", description: "A human adventurer")
+    index.process_queue.should eq 1
+
+    db.rename_tag("portrait", "hair_color", "hair-color").should eq 1
+    index.process_queue.should eq 0
+    db.connection.query_one(
+      "SELECT t.content FROM memo_texts t JOIN memo_sources s ON s.id = t.source_id WHERE s.source_type = 'asset' AND s.external_int = ?",
+      rec.id, as: String
+    ).should eq "A human adventurer\nhair color: red"
+  ensure
+    db.try(&.close)
+    FileUtils.rm_rf(dir) if dir
+  end
+
   it "backfills assets stored before the index is attached and removes queued deletes" do
     dir = File.tempname("dd-semantic-backfill")
     Dir.mkdir_p(dir)

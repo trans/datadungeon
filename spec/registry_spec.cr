@@ -84,6 +84,8 @@ describe "DataDungeon::DB type registry" do
     with_db("dd-reg-invalid") do |db|
       expect_raises(ArgumentError, /must not be empty/) { db.register_type("t", pool_traits: [] of String) }
       expect_raises(ArgumentError, /lowercase/) { db.register_type("t", pool_traits: %w[Hair]) }
+      expect_raises(ArgumentError, /lowercase/) { db.register_type("t", pool_traits: %w[hair-]) }
+      expect_raises(ArgumentError, /lowercase/) { db.register_type("t", pool_traits: %w[hair--color]) }
       expect_raises(ArgumentError, /twice/) { db.register_type("t", pool_traits: %w[race race]) }
       expect_raises(ArgumentError, /asset type/) { db.register_type("hero.shot", pool_traits: %w[race]) }
       expect_raises(ArgumentError, /first pool traits/) do
@@ -428,6 +430,127 @@ describe "DataDungeon::DB type registry" do
       rec = store_portrait(db, portrait, "a")
       db.find_assets_by_tags("portrait", {"race" => "HUMAN"}).map(&.id).should eq [rec.id]
       db.count_pool_assets("portrait", {"art_style" => " Golden"}).should eq 1
+    end
+  end
+
+  it "takes dashes in trait names, keyed and embedded like underscores" do
+    with_db("dd-reg-dashes") do |db|
+      db.register_type("portrait", pool_traits: %w[art-style hair_color], labels: {"hair_color" => "hair"},
+        facets: {"look" => %w[art-style]})
+      rec = db.store("portrait", {"art-style" => "Golden", "hair_color" => "red"}, bytes: "a".to_slice,
+        content_type: "image/webp")
+      rec.pool_key.should eq "portrait.golden.red-hair"
+      db.load_tags(rec.id)["art-style"].should eq "golden"
+    end
+  end
+
+  it "renames a tag on a type's assets and in its registration, keeping keys" do
+    with_db("dd-reg-rename-tag") do |db, dir|
+      register_portraits(db)
+      a = store_portrait(db, portrait, "a")
+      b = store_portrait(db, portrait(hair_color: "black"), "b")
+      db.store("venue", {"art_style" => "golden"}, bytes: "v".to_slice, content_type: "image/webp")
+
+      db.rename_tag("portrait", "hair_color", "hair-color").should eq 2
+      db.rename_tag("portrait", "art_style", "art-style").should eq 2
+
+      type = db.registration("portrait").not_nil!
+      type.pool_traits.should eq %w[art-style rating gender race hair-color facial_hair]
+      type.group_traits.should eq %w[art-style rating gender]
+      type.labels.should eq({"hair-color" => "hair"})
+      db.find_asset_by_id(a.id).not_nil!.pool_key.should eq a.pool_key
+      db.load_tags(b.id)["hair-color"].should eq "black"
+      dashed = portrait(hair_color: "black").transform_keys(&.tr("_", "-"))
+      db.find_pool("portrait", dashed).map(&.id).should eq [b.id]
+      db.find_assets_by_tags("venue", {"art_style" => "golden"}).size.should eq 1 # other types untouched
+      db.close
+
+      reopened = open_db(dir)
+      begin
+        reopened.registration("portrait").not_nil!.pool_traits.first.should eq "art-style"
+        reopened.find_pool("portrait", dashed).map(&.id).should eq [b.id]
+      ensure
+        reopened.close
+      end
+    end
+  end
+
+  it "fixes keys when a type is registered under the new trait name before the rename" do
+    with_db("dd-reg-rename-late") do |db|
+      db.register_type("backdrop", pool_traits: %w[art_style rating], pool: true)
+      rec = db.store("backdrop", {"art_style" => "golden", "rating" => "pg"}, bytes: "b".to_slice,
+        content_type: "image/webp")
+      db.register_type("backdrop", pool_traits: %w[art-style rating], pool: true)
+      db.find_asset_by_id(rec.id).not_nil!.pool_key.should eq "backdrop..pg" # its tag isn't art-style yet
+
+      db.rename_tag("backdrop", "art_style", "art-style").should eq 1
+      db.find_asset_by_id(rec.id).not_nil!.pool_key.should eq "backdrop.golden.pg"
+    end
+  end
+
+  it "refuses a tag rename onto a tag an asset already has, changing nothing" do
+    with_db("dd-reg-rename-clash") do |db|
+      rec = db.store("venue", {"style" => "golden", "art-style" => "silver"}, bytes: "v".to_slice,
+        content_type: "image/webp")
+      expect_raises(ArgumentError, /already have a art-style tag/) { db.rename_tag("venue", "style", "art-style") }
+      db.load_tags(rec.id).should eq({"style" => "golden", "art-style" => "silver"})
+    end
+  end
+
+  it "renames a type, re-deriving its keys under the new name" do
+    with_db("dd-reg-rename-type") do |db, dir|
+      db.register_type("banter_script", pool_traits: %w[character line])
+      rec = db.store("banter_script", {"character" => "wizard", "line" => "1"}, bytes: "w".to_slice,
+        content_type: "text/plain")
+
+      db.rename_type("banter_script", "banter-script").should eq 1
+      db.registration("banter_script").should be_nil
+      moved = db.get("banter-script", {"character" => "wizard", "line" => "1"}, touch: false).not_nil!
+      moved.id.should eq rec.id
+      moved.pool_key.should eq "banter-script.wizard.1"
+      db.find_assets_by_tags("banter-script", {"character" => "wizard"}).map(&.id).should eq [rec.id]
+      db.close
+
+      reopened = open_db(dir)
+      begin
+        reopened.registration("banter-script").not_nil!.pool_traits.should eq %w[character line]
+        reopened.registration("banter_script").should be_nil
+      ensure
+        reopened.close
+      end
+    end
+  end
+
+  it "merges a renamed type into an existing one, under that one's registration" do
+    with_db("dd-reg-merge-type") do |db|
+      db.register_type("backdrop", pool_traits: %w[art-style rating], pool: true)
+      db.register_type("room", pool_traits: %w[game room art-style rating], pool: true)
+      seed = db.store("backdrop", {"art-style" => "golden", "rating" => "pg"}, bytes: "s".to_slice,
+        content_type: "image/webp")
+      room = db.store("room", {"game" => "zork1", "room" => "west-of-house", "art-style" => "golden",
+                               "rating" => "pg"}, bytes: "r".to_slice, content_type: "image/webp")
+      db.store("background", {"art-style" => "golden", "rating" => "pg"}, pool_key: "old-key",
+        bytes: "b".to_slice, content_type: "image/webp")
+
+      db.rename_type("room", "backdrop").should eq 1
+      db.rename_type("background", "backdrop").should eq 1
+      db.registration("room").should be_nil
+      db.registration("backdrop").not_nil!.pool_traits.should eq %w[art-style rating]
+      pool = db.find_pool("backdrop", {"art-style" => "golden", "rating" => "pg"})
+      pool.size.should eq 3
+      pool.map(&.pool_key).uniq.should eq ["backdrop.golden.pg"]
+      db.load_tags(room.id)["room"].should eq "west-of-house" # extra tags stay
+      pool.map(&.id).should contain seed.id
+    end
+  end
+
+  it "renames an unregistered type, keeping its explicit keys" do
+    with_db("dd-reg-rename-plain") do |db|
+      rec = db.store("hero_shot", {"style" => "golden"}, pool_key: "k1", bytes: "h".to_slice,
+        content_type: "image/webp")
+      db.rename_type("hero_shot", "heroshot").should eq 1
+      db.get("heroshot", "k1", touch: false).not_nil!.id.should eq rec.id
+      expect_raises(ArgumentError, /asset type/) { db.rename_type("heroshot", "hero.shot") }
     end
   end
 end

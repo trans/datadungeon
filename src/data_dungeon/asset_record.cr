@@ -64,7 +64,7 @@ module DataDungeon
     # Traits whose value is a set (`lantern,sword`), matched as a whole.
     getter sets : Array(String)
     # Named groups of tags embedded separately for semantic search, e.g.
-    # `{"hair" => %w[hair_length hair_color]}`; "description" names the
+    # `{"hair" => %w[hair-length hair-color]}`; "description" names the
     # asset's description.
     getter facets : Hash(String, Array(String))
 
@@ -80,6 +80,19 @@ module DataDungeon
 
     def set?(name : String) : Bool
       @sets.includes?(name)
+    end
+
+    # This registration under another type name.
+    def renamed(name : String) : AssetType
+      AssetType.new(name, @pool_traits, @group_traits, @pool, @labels, @sets, @facets)
+    end
+
+    # This registration with a trait or facet tag renamed wherever it appears.
+    def with_tag_renamed(from : String, to : String) : AssetType
+      swap = ->(name : String) { name == from ? to : name }
+      AssetType.new(@name, @pool_traits.map(&swap), @group_traits.map(&swap), @pool,
+        @labels.to_h { |trait, label| {swap.call(trait), label} }, @sets.map(&swap),
+        @facets.transform_values(&.map(&swap)))
     end
 
     # The pool key of these normalized values.

@@ -899,7 +899,7 @@ module DataDungeon
 
     # ── Registry ──
 
-    TRAIT_NAME = /\A[a-z][a-z0-9_]*\z/
+    TRAIT_NAME = /\A[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*\z/
     TYPE_NAME  = /\A[a-z0-9]+(?:[_-][a-z0-9]+)*\z/
     LABEL      = /\A[a-z0-9]+(?:-[a-z0-9]+)*\z/
 
@@ -938,20 +938,7 @@ module DataDungeon
       @object_lock.synchronize do
         unless stored_type(asset_type) == {definition, TraitKey::SCHEME}
           write_transaction do |conn|
-            conn.exec(
-              <<-SQL,
-              INSERT INTO asset_types
-              (asset_type, pool_traits, group_traits, labels, sets, facets, pool, key_scheme)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-              ON CONFLICT(asset_type) DO UPDATE SET pool_traits = excluded.pool_traits,
-                group_traits = excluded.group_traits, labels = excluded.labels,
-                sets = excluded.sets, facets = excluded.facets,
-                pool = excluded.pool, key_scheme = excluded.key_scheme
-            SQL
-              asset_type, definition.pool_traits.to_json, definition.group_traits.to_json,
-              definition.labels.to_json, definition.sets.to_json, definition.facets.to_json,
-              pool ? 1 : 0, TraitKey::SCHEME
-            )
+            save_type(conn, definition)
             changed = rekey(conn, definition)
           end
         end
@@ -964,6 +951,70 @@ module DataDungeon
     # The registration of an asset type, or nil when it has none.
     def registration(asset_type : String) : AssetType?
       @types[asset_type]?
+    end
+
+    # Rename an asset type: its assets, their tags and its registration move
+    # to `to`. If `to` already has assets, these join them, under `to`'s
+    # registration if it has one. A registered type's keys begin with its
+    # name, so they're derived again. Returns the number of assets moved.
+    def rename_type(from : String, to : String) : Int32
+      return 0 if from == to
+      unless to.matches?(TYPE_NAME)
+        raise ArgumentError.new("asset type #{to.inspect} must be lowercase letters and digits, joined by '_' or '-'")
+      end
+      moved = [] of Int64
+      rekeyed = [] of Int64
+      @object_lock.synchronize do
+        target = @types[to]? || @types[from]?.try { |type| type.renamed(to) }
+        write_transaction do |conn|
+          moved = conn.query_all("SELECT id FROM assets WHERE asset_type = ?", from, as: Int64)
+          conn.exec("UPDATE assets SET asset_type = ? WHERE asset_type = ?", to, from)
+          conn.exec("UPDATE asset_tags SET asset_type = ? WHERE asset_type = ?", to, from)
+          conn.exec("DELETE FROM asset_types WHERE asset_type = ?", from)
+          if target
+            save_type(conn, target)
+            rekeyed = rekey(conn, target)
+          end
+        end
+        @types.delete(from)
+        @types[to] = target if target
+      end
+      (moved + rekeyed).uniq!.each { |id| @indexer.try(&.enqueue_asset(id)) }
+      moved.size
+    end
+
+    # Rename a tag on every asset of a type, and in the type's registration
+    # if it names it (a trait or a facet's tag). A registered type's keys are
+    # derived again: they hold trait values, not names, so they normally stay
+    # the same, but a type registered under the new name first gets its keys
+    # right. Raises if an asset already has a tag named `to`. Returns the
+    # number of assets whose tag was renamed.
+    def rename_tag(asset_type : String, from : String, to : String) : Int32
+      return 0 if from == to
+      renamed = [] of Int64
+      rekeyed = [] of Int64
+      @object_lock.synchronize do
+        type = @types[asset_type]?
+        updated = type.try(&.with_tag_renamed(from, to))
+        updated.try { |definition| validate_type(definition) }
+        write_transaction do |conn|
+          clashes = conn.scalar(<<-SQL, asset_type, from, to).as(Int64)
+            SELECT COUNT(*) FROM asset_tags a JOIN asset_tags b ON b.asset_id = a.asset_id
+            WHERE a.asset_type = ? AND a.tag_key = ? AND b.tag_key = ?
+          SQL
+          raise ArgumentError.new("#{clashes} #{asset_type} assets already have a #{to} tag") if clashes > 0
+          renamed = conn.query_all("SELECT asset_id FROM asset_tags WHERE asset_type = ? AND tag_key = ?",
+            asset_type, from, as: Int64)
+          conn.exec("UPDATE asset_tags SET tag_key = ? WHERE asset_type = ? AND tag_key = ?", to, asset_type, from)
+          if updated
+            save_type(conn, updated) if updated != type
+            rekeyed = rekey(conn, updated)
+          end
+        end
+        @types[asset_type] = updated if updated
+      end
+      (renamed + rekeyed).uniq!.each { |id| @indexer.try(&.enqueue_asset(id)) }
+      renamed.size
     end
 
     # The pool key a registered type gives these traits. Traits left out are
@@ -1143,7 +1194,7 @@ module DataDungeon
       raise ArgumentError.new("#{name}: pool_traits must not be empty") if type.pool_traits.empty?
       (type.pool_traits + type.group_traits).each do |trait|
         unless trait.matches?(TRAIT_NAME)
-          raise ArgumentError.new("#{name}: trait #{trait.inspect} must be lowercase letters, digits and underscores")
+          raise ArgumentError.new("#{name}: trait #{trait.inspect} must be lowercase letters and digits, joined by '_' or '-'")
         end
       end
       if type.pool_traits.uniq.size != type.pool_traits.size || type.group_traits.uniq.size != type.group_traits.size
@@ -1171,7 +1222,7 @@ module DataDungeon
         raise ArgumentError.new("#{name}: facet #{facet} lists a tag twice") if tags.uniq.size != tags.size
         tags.each do |tag|
           unless tag.matches?(TRAIT_NAME)
-            raise ArgumentError.new("#{name}: facet #{facet} tag #{tag.inspect} must be lowercase letters, digits and underscores")
+            raise ArgumentError.new("#{name}: facet #{facet} tag #{tag.inspect} must be lowercase letters and digits, joined by '_' or '-'")
           end
         end
       end
@@ -1195,6 +1246,23 @@ module DataDungeon
         end
       end
       normalized
+    end
+
+    private def save_type(conn, type : AssetType) : Nil
+      conn.exec(
+        <<-SQL,
+        INSERT INTO asset_types
+        (asset_type, pool_traits, group_traits, labels, sets, facets, pool, key_scheme)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(asset_type) DO UPDATE SET pool_traits = excluded.pool_traits,
+          group_traits = excluded.group_traits, labels = excluded.labels,
+          sets = excluded.sets, facets = excluded.facets,
+          pool = excluded.pool, key_scheme = excluded.key_scheme
+      SQL
+        type.name, type.pool_traits.to_json, type.group_traits.to_json,
+        type.labels.to_json, type.sets.to_json, type.facets.to_json,
+        type.pool ? 1 : 0, TraitKey::SCHEME
+      )
     end
 
     private def stored_type(asset_type : String) : {AssetType, Int32}?
