@@ -117,6 +117,19 @@ it. Existing rows keep the keys they were stored under. `DB#store_asset`
 indexes a file whose path the caller already owns. Existing SQLite asset tables
 are upgraded when DataDungeon opens the database.
 
+To move such files into the store, `DB#outside_store` lists the rows recorded
+by an absolute path, and `DB#adopt(record)` copies one row's file to its
+content-addressed key and points the row at it, keeping its id, tags and
+metadata. The original file stays where it is, for the application to remove.
+
+```crystal
+db.outside_store.each do |old|
+  moved = db.adopt(old)   # old.file_path → moved.file_path (ab/ab12….webp)
+rescue File::NotFoundError
+  # the file is gone; the row is left as it is
+end
+```
+
 ## Storage
 
 `cache_root:` stores objects on local disk (`LocalStorage`). For an

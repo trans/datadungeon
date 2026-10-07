@@ -592,6 +592,43 @@ module DataDungeon
       find_asset_by_id(id).not_nil!
     end
 
+    # The rows that index a file outside the store: those `store_asset`
+    # recorded by an absolute path the caller owns. `adopt` moves them in.
+    def outside_store : Array(AssetRecord)
+      query_assets("a.file_path LIKE '/%'", [] of ::DB::Any)
+    end
+
+    # Move a row from `outside_store` into the store: copy its file's bytes
+    # to their content-addressed key, as `store` would, and point the row at
+    # that object. The row keeps its id, type, tags and metadata, and the
+    # original file is left where it is. A row already in the store comes
+    # back unchanged. Raises File::NotFoundError if the file is gone.
+    def adopt(rec : AssetRecord) : AssetRecord
+      store = @storage || raise "DataDungeon::DB has no storage backend; construct with cache_root: or storage:"
+      return rec unless Path[rec.file_path].absolute?
+
+      data = File.open(rec.file_path, "rb", &.getb_to_end)
+      file_hash = Digest::SHA256.hexdigest(data)
+      storage_key = object_key(file_hash, rec.content_type)
+
+      @object_lock.synchronize do
+        wrote = !store.exists?(storage_key)
+        store.write(storage_key, data, rec.content_type) if wrote
+        begin
+          updated = write_transaction do |conn|
+            conn.exec("UPDATE assets SET file_path = ?, file_hash = ? WHERE id = ?",
+              storage_key, file_hash, rec.id).rows_affected
+          end
+          raise ArgumentError.new("No asset #{rec.id}") if updated == 0
+        rescue ex
+          release_object(storage_key) if wrote # no row will own it
+          raise ex
+        end
+      end
+
+      find_asset_by_id(rec.id).not_nil!
+    end
+
     # High-level lookup: verifies the backing file still exists (self-heals a
     # stale row to a miss), touches usage, and returns the record. Retires the
     # caller-side File.exists? cache-gate. Single-best assets only; a pool's
@@ -779,14 +816,18 @@ module DataDungeon
       "#{file_hash[0, 2]}/#{file_hash}.#{ext_for(content_type)}"
     end
 
+    # The extension for a content type, ignoring parameters such as
+    # `; charset=utf-8`
     private def ext_for(content_type : String) : String
-      case content_type.downcase
+      case content_type.split(';').first.strip.downcase
       when "image/webp"               then "webp"
       when "image/png"                then "png"
       when "image/jpeg", "image/jpg"  then "jpg"
       when "image/gif"                then "gif"
+      when "image/svg+xml"            then "svg"
       when "audio/mpeg", "audio/mp3"  then "mp3"
       when "audio/ogg"                then "ogg"
+      when "audio/opus"               then "opus"
       when "audio/wav", "audio/x-wav" then "wav"
       when "video/webm"               then "webm"
       when "video/mp4"                then "mp4"

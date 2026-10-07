@@ -569,4 +569,78 @@ describe DataDungeon::DB do
     db.try(&.close)
     FileUtils.rm_rf(dir) if dir
   end
+
+  it "names objects by content type, ignoring its parameters" do
+    dir = File.tempname("dd-ext")
+    Dir.mkdir_p(dir)
+    db = open_db(dir)
+
+    {"audio/opus" => "opus", "image/svg+xml" => "svg", "text/plain; charset=utf-8" => "txt",
+     "audio/ogg; codecs=opus" => "ogg"}.each do |content_type, ext|
+      rec = db.store("file", bytes: content_type.to_slice, content_type: content_type)
+      File.extname(rec.file_path).should eq ".#{ext}"
+    end
+  ensure
+    db.try(&.close)
+    FileUtils.rm_rf(dir) if dir
+  end
+
+  it "adopts a row recorded by its own path into the store" do
+    dir = File.tempname("dd-adopt")
+    Dir.mkdir_p(dir)
+    db = open_db(dir)
+    own = File.join(dir, "app-files", "voice.opus")
+    Dir.mkdir_p(File.dirname(own))
+    File.write(own, "opus-bytes")
+    id = db.store_asset("narration", "audio", "audio/opus", own, {"speed" => "1.0"},
+      description: "a line", generated: true)
+    db.outside_store.map(&.id).should eq [id]
+
+    rec = db.adopt(db.find_asset_by_id(id).not_nil!)
+
+    hash = Digest::SHA256.hexdigest("opus-bytes")
+    rec.id.should eq id
+    rec.file_path.should eq "#{hash[0, 2]}/#{hash}.opus"
+    rec.file_hash.should eq hash
+    rec.description.should eq "a line"
+    db.load_tags(id).should eq({"speed" => "1.0"})
+    String.new(db.read(rec)).should eq "opus-bytes"
+    File.read(own).should eq "opus-bytes" # the original stays
+    db.outside_store.should be_empty
+    db.adopt(rec).should eq rec # already in the store
+  ensure
+    db.try(&.close)
+    FileUtils.rm_rf(dir) if dir
+  end
+
+  it "shares an object already in the store when adopting identical bytes" do
+    dir = File.tempname("dd-adopt-shared")
+    Dir.mkdir_p(dir)
+    db = open_db(dir)
+    stored = db.store("venue", bytes: "same".to_slice, content_type: "image/webp",
+      image: DataDungeon::ImageMeta.new(compression: "original"))
+    own = File.join(dir, "same.webp")
+    File.write(own, "same")
+    id = db.store_asset("venue", "image", "image/webp", own)
+
+    db.adopt(db.find_asset_by_id(id).not_nil!).file_path.should eq stored.file_path
+    db.check_consistency.clean?.should be_true
+  ensure
+    db.try(&.close)
+    FileUtils.rm_rf(dir) if dir
+  end
+
+  it "leaves a row whose file is gone as it is" do
+    dir = File.tempname("dd-adopt-missing")
+    Dir.mkdir_p(dir)
+    db = open_db(dir)
+    gone = File.join(dir, "gone.webp")
+    id = db.store_asset("venue", "image", "image/webp", gone)
+
+    expect_raises(File::NotFoundError) { db.adopt(db.find_asset_by_id(id).not_nil!) }
+    db.find_asset_by_id(id).not_nil!.file_path.should eq gone
+  ensure
+    db.try(&.close)
+    FileUtils.rm_rf(dir) if dir
+  end
 end
