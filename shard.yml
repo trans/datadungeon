@@ -10,7 +10,7 @@ dependencies:
 
 development_dependencies:
   memo:
-    github: trans/memo
+    github: openbohemians/memo
     branch: main
   # For S3Storage; until taylorfinnell/awscr-s3#168 (S3::Exception#status) is released.
   awscr-s3:
