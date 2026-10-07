@@ -178,33 +178,76 @@ module DataDungeon
     private def setup_schema : Nil
       @db.exec("PRAGMA journal_mode=WAL")
 
-      # New asset store tables
-      @db.exec(ASSETS_SCHEMA)
-      migrate_assets_schema
-      ASSETS_INDEXES.split(";").each { |s| @db.exec(s.strip) unless s.strip.empty? }
-      @db.exec("DROP INDEX IF EXISTS idx_assets_lookup") # keys now name their type
-      @db.exec(ASSET_TAGS_SCHEMA)
-      unless table_columns("asset_tags").has_key?("custom")
-        @db.exec("ALTER TABLE asset_tags ADD COLUMN custom INTEGER NOT NULL DEFAULT 0")
+      # Schema changes run on one connection in one write transaction, so
+      # processes opening the database together take turns, each seeing the
+      # schema the previous one left. foreign_keys is off meanwhile because
+      # rebuilding the assets table would otherwise cascade-delete every tag
+      # and sidecar row; the pragma only changes outside a transaction.
+      rebuilt = false
+      @db.using_connection do |conn|
+        conn.exec("PRAGMA foreign_keys=OFF")
+        begin
+          immediate(conn) do
+            conn.exec(ASSETS_SCHEMA)
+            rebuilt = migrate_assets_schema(conn)
+            ASSETS_INDEXES.split(";").each { |sql| conn.exec(sql.strip) unless sql.strip.empty? }
+            conn.exec("DROP INDEX IF EXISTS idx_assets_lookup") # keys now name their type
+            conn.exec(ASSET_TAGS_SCHEMA)
+            unless table_columns(conn, "asset_tags").has_key?("custom")
+              conn.exec("ALTER TABLE asset_tags ADD COLUMN custom INTEGER NOT NULL DEFAULT 0")
+            end
+            migrate_tag_types(conn)
+            conn.exec(ASSET_TAGS_INDEX)
+            conn.exec("DROP INDEX IF EXISTS idx_tags_kv") # superseded by idx_tags_type_kv
+            conn.exec(ASSET_TYPES_SCHEMA)
+            unless table_columns(conn, "asset_types").has_key?("sets")
+              conn.exec("ALTER TABLE asset_types ADD COLUMN sets TEXT NOT NULL DEFAULT '[]'")
+            end
+            conn.exec(IMAGE_META_SCHEMA)
+            conn.exec(AUDIO_META_SCHEMA)
+            conn.exec(VIDEO_META_SCHEMA)
+            conn.exec(TEXT_META_SCHEMA)
+          end
+        ensure
+          conn.exec("PRAGMA foreign_keys=ON")
+        end
+        if rebuilt
+          violations = conn.query_all("PRAGMA foreign_key_check") { |rs| rs.read(::DB::Any) }
+          raise "asset schema migration left invalid references" unless violations.empty?
+        end
       end
-      migrate_tag_types
-      @db.exec(ASSET_TAGS_INDEX)
-      @db.exec("DROP INDEX IF EXISTS idx_tags_kv") # superseded by idx_tags_type_kv
-      @db.exec(ASSET_TYPES_SCHEMA)
-      unless table_columns("asset_types").has_key?("sets")
-        @db.exec("ALTER TABLE asset_types ADD COLUMN sets TEXT NOT NULL DEFAULT '[]'")
-      end
-      @db.exec(IMAGE_META_SCHEMA)
-      @db.exec(AUDIO_META_SCHEMA)
-      @db.exec(VIDEO_META_SCHEMA)
-      @db.exec(TEXT_META_SCHEMA)
       load_types
     end
 
+    # Run the block in a transaction that takes SQLite's write lock up front
+    # (BEGIN IMMEDIATE). A plain BEGIN reads first and asks for the lock at
+    # its first write, and SQLite can't wait there: if another process wrote
+    # in between, it fails at once with "database is locked". Asking first
+    # means a busy database makes it wait (busy_timeout) instead.
+    private def write_transaction(&)
+      @db.using_connection { |conn| immediate(conn) { yield conn } }
+    end
+
+    private def immediate(conn : ::DB::Connection, &)
+      conn.exec("BEGIN IMMEDIATE")
+      begin
+        result = yield
+        conn.exec("COMMIT")
+        result
+      rescue ex
+        begin
+          conn.exec("ROLLBACK")
+        rescue
+          # the transaction may already be gone; the original error matters
+        end
+        raise ex
+      end
+    end
+
     # Column name => NOT NULL flag for a table.
-    private def table_columns(table : String) : Hash(String, Int32)
+    private def table_columns(conn : ::DB::Connection, table : String) : Hash(String, Int32)
       columns = {} of String => Int32
-      @db.query("PRAGMA table_info(#{table})") do |rs|
+      conn.query("PRAGMA table_info(#{table})") do |rs|
         rs.each do
           rs.read(Int32)
           name = rs.read(String)
@@ -220,63 +263,46 @@ module DataDungeon
     # Older tag tables lacked asset_type. Copy it from each tag's asset, after
     # dropping tags whose asset is gone (unreachable; a delete made on a
     # connection without foreign keys could leave them).
-    private def migrate_tag_types : Nil
-      return if table_columns("asset_tags").has_key?("asset_type")
-      @db.transaction do |tx|
-        conn = tx.connection
-        conn.exec("DELETE FROM asset_tags WHERE asset_id NOT IN (SELECT id FROM assets)")
-        conn.exec("ALTER TABLE asset_tags ADD COLUMN asset_type TEXT NOT NULL DEFAULT ''")
-        conn.exec("UPDATE asset_tags SET asset_type = (SELECT a.asset_type FROM assets a WHERE a.id = asset_tags.asset_id)")
-      end
+    private def migrate_tag_types(conn : ::DB::Connection) : Nil
+      return if table_columns(conn, "asset_tags").has_key?("asset_type")
+      conn.exec("DELETE FROM asset_tags WHERE asset_id NOT IN (SELECT id FROM assets)")
+      conn.exec("ALTER TABLE asset_tags ADD COLUMN asset_type TEXT NOT NULL DEFAULT ''")
+      conn.exec("UPDATE asset_tags SET asset_type = (SELECT a.asset_type FROM assets a WHERE a.id = asset_tags.asset_id)")
     end
 
     # Older databases called the pool key canonical_key (and once required
     # it), lacked the group key or description fields, or required a unique
     # file_path (objects are now shared by content). Rebuild only that table;
     # its child tables retain their asset_id references.
-    private def migrate_assets_schema : Nil
-      columns = table_columns("assets")
-      return if columns["pool_key"]? == 0 && columns.has_key?("description") &&
-                columns.has_key?("generated") && !unique_file_path?
+    private def migrate_assets_schema(conn : ::DB::Connection) : Bool
+      columns = table_columns(conn, "assets")
+      return false if columns["pool_key"]? == 0 && columns.has_key?("description") &&
+                      columns.has_key?("generated") && !unique_file_path?(conn)
 
       pool_key = columns.has_key?("pool_key") ? "pool_key" : (columns.has_key?("canonical_key") ? "canonical_key" : "NULL")
       description = columns.has_key?("description") ? "description" : "NULL"
       generated = columns.has_key?("generated") ? "generated" : "CASE WHEN generator IS NULL THEN 0 ELSE 1 END"
 
-      # foreign_keys is per connection, and dropping the old table with it on
-      # would cascade-delete every tag and sidecar row. Keep the pragma and the
-      # rebuild on one connection.
-      @db.using_connection do |conn|
-        conn.exec("PRAGMA foreign_keys=OFF")
-        begin
-          conn.transaction do |tx|
-            tc = tx.connection
-            tc.exec(ASSETS_SCHEMA.sub("IF NOT EXISTS assets", "assets_migrated"))
-            tc.exec(<<-SQL)
-              INSERT INTO assets_migrated
-              (id, asset_type, media, content_type, file_path, pool_key, file_hash,
+      conn.exec(ASSETS_SCHEMA.sub("IF NOT EXISTS assets", "assets_migrated"))
+      conn.exec(<<-SQL)
+        INSERT INTO assets_migrated
+        (id, asset_type, media, content_type, file_path, pool_key, file_hash,
+         created_at, last_used_at, use_count, permanent, pool, generator,
+         generation, description, generated, rating, flagged)
+        SELECT id, asset_type, media, content_type, file_path, #{pool_key}, file_hash,
                created_at, last_used_at, use_count, permanent, pool, generator,
-               generation, description, generated, rating, flagged)
-              SELECT id, asset_type, media, content_type, file_path, #{pool_key}, file_hash,
-                     created_at, last_used_at, use_count, permanent, pool, generator,
-                     generation, #{description}, #{generated}, rating, flagged
-              FROM assets
-            SQL
-            tc.exec("DROP TABLE assets")
-            tc.exec("ALTER TABLE assets_migrated RENAME TO assets")
-          end
-        ensure
-          conn.exec("PRAGMA foreign_keys=ON")
-        end
-        violations = conn.query_all("PRAGMA foreign_key_check") { |rs| rs.read(::DB::Any) }
-        raise "asset schema migration left invalid references" unless violations.empty?
-      end
+               generation, #{description}, #{generated}, rating, flagged
+        FROM assets
+      SQL
+      conn.exec("DROP TABLE assets")
+      conn.exec("ALTER TABLE assets_migrated RENAME TO assets")
+      true
     end
 
     # Whether the assets table still carries a UNIQUE constraint on file_path.
-    private def unique_file_path? : Bool
+    private def unique_file_path?(conn : ::DB::Connection) : Bool
       constraint_indexes = [] of String
-      @db.query("PRAGMA index_list(assets)") do |rs|
+      conn.query("PRAGMA index_list(assets)") do |rs|
         rs.each do
           rs.read(Int32) # seq
           name = rs.read(String)
@@ -287,7 +313,7 @@ module DataDungeon
         end
       end
       constraint_indexes.any? do |name|
-        @db.query_all(%(PRAGMA index_info("#{name}"))) { |rs|
+        conn.query_all(%(PRAGMA index_info("#{name}"))) { |rs|
           rs.read(Int32)
           rs.read(Int32)
           rs.read(String?)
@@ -338,8 +364,7 @@ module DataDungeon
       asset_id = 0_i64
 
       @object_lock.synchronize do
-        @db.transaction do |tx|
-          conn = tx.connection
+        write_transaction do |conn|
           existing = if pool_key && !pooled
                        conn.query_one?(
                          "SELECT id, file_path FROM assets WHERE asset_type = ? AND pool_key = ? AND pool = 0 LIMIT 1",
@@ -530,27 +555,33 @@ module DataDungeon
       storage_key = object_key(file_hash, ct)
 
       id = @object_lock.synchronize do
-        store.write(storage_key, data) unless store.exists?(storage_key)
-        store_asset(
-          asset_type: asset_type,
-          media: m,
-          content_type: ct,
-          file_path: storage_key,
-          tags: tags,
-          pool_key: pool_key,
-          file_hash: file_hash,
-          pool: pool,
-          custom: custom,
-          permanent: permanent,
-          generator: generator,
-          generation: generation,
-          description: description,
-          generated: generated,
-          image: image,
-          audio: audio,
-          video: video,
-          text: text,
-        )
+        wrote = !store.exists?(storage_key)
+        store.write(storage_key, data) if wrote
+        begin
+          store_asset(
+            asset_type: asset_type,
+            media: m,
+            content_type: ct,
+            file_path: storage_key,
+            tags: tags,
+            pool_key: pool_key,
+            file_hash: file_hash,
+            pool: pool,
+            custom: custom,
+            permanent: permanent,
+            generator: generator,
+            generation: generation,
+            description: description,
+            generated: generated,
+            image: image,
+            audio: audio,
+            video: video,
+            text: text,
+          )
+        rescue ex
+          release_object(storage_key) if wrote # no row will own it
+          raise ex
+        end
       end
 
       find_asset_by_id(id).not_nil!
@@ -833,8 +864,7 @@ module DataDungeon
       changed = [] of Int64
       @object_lock.synchronize do
         unless stored_type(asset_type) == {definition, TraitKey::SCHEME}
-          @db.transaction do |tx|
-            conn = tx.connection
+          write_transaction do |conn|
             conn.exec(
               <<-SQL,
               INSERT INTO asset_types
@@ -1105,9 +1135,9 @@ module DataDungeon
       ) { |rs| read_type(rs) }
       rows.each do |type, scheme|
         unless scheme == TraitKey::SCHEME
-          @db.transaction do |tx|
-            rekey(tx.connection, type)
-            tx.connection.exec("UPDATE asset_types SET key_scheme = ? WHERE asset_type = ?", TraitKey::SCHEME, type.name)
+          write_transaction do |conn|
+            rekey(conn, type)
+            conn.exec("UPDATE asset_types SET key_scheme = ? WHERE asset_type = ?", TraitKey::SCHEME, type.name)
           end
         end
         @types[type.name] = type
