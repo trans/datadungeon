@@ -294,14 +294,14 @@ existing consistency-sweep notes before moving media. No transfs adapter exists.
 
 ## What DD and Memo already do
 
-See [README.md](README.md) for current API examples.
+See [README.md](../../README.md) for current API examples.
 
 - Nullable `canonical_key`, independent tags, description, and generated flag.
 - Application-supplied exact keys; non-pool stores update the same type/key,
   while keyless records remain independent.
 - `DB#store` owns media processing and file writes; `store_asset` indexes media
   already written by the caller. Infocomic currently uses the latter.
-- Optional [SemanticIndex](src/data_dungeon/semantic.cr) uses Memo tables in the
+- Optional [SemanticIndex](../../src/data_dungeon/semantic.cr) uses Memo tables in the
   same SQLite DB and a USearch file alongside it.
 - Embeddings use description plus only explicitly selected descriptive tag keys.
   Numeric generation parameters, IDs, hashes, and bookkeeping are not embedded.

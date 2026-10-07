@@ -1,0 +1,46 @@
+# Consumers
+
+*Updated 2026-10-07*
+
+| App | Checkout | Uses DD for | Builds against |
+|---|---|---|---|
+| Infocomic | `~/Projects/infocomics/infocomic` | images, transcripts, banter, decrees | this checkout (`../data_dungeon` → `infocomics/data_dungeon` → here) |
+| Cattacula | `~/Projects/siliconcircus.lol/cattacula/service` | TTS voice audio (`voices.db`) | this checkout (`lib/data_dungeon` symlink) |
+| Pirateship | `~/Projects/siliconcircus.lol/pirateship` | parrot TTS voices (`data/voices.db`) | GitHub, `~> 0.7.0` |
+| Silicon Circus venues | via the `siliconcircus` agent | venue images, about one per attraction | — |
+
+## Builds from this checkout
+
+Infocomic and Cattacula compile straight from this working tree, so any
+uncommitted DD edit is live for them at once, including while the
+`@infocomics` agent is working. Found 2026-10-05, before the 0.5.0 registry
+rename, when a half-edited tree would have broken a collaborator's build.
+
+- Develop breaking or multi-step changes in a git worktree (in the
+  scratchpad, with `lib` symlinked to this checkout's).
+- Keep deprecated aliases for renamed APIs for a release (`canonical_key`
+  for `pool_key`, for example).
+- Type-check consumers against the worktree before merging:
+  `CRYSTAL_PATH="<dir holding a data_dungeon symlink>:lib:/usr/lib/crystal" crystal build --no-codegen`.
+
+Pirateship installs from GitHub, so it only sees tagged releases (see
+release.md).
+
+## Where each stands
+
+- **Cattacula** registers `voice` (traits `bit beat voice fmt`) and reads
+  through `db.read` (`a2a0f12`, `35d6e92`, pushed).
+- **Pirateship** registers `voice` (traits `pool i voice fmt`), reads
+  through `db.read`, and stores `description`/`generated` (`412f9be`,
+  pushed 2026-10-07). Its live `data/voices.db` upgrades from the 0.3 schema
+  the next time it starts. Its uncommitted training-camp work (from
+  2026-08-26) isn't ours; leave it.
+- **Infocomic** registers transcript, banter, decree and backdrop. Narration,
+  portrait, room, panel and hero_shot are still unregistered, pending
+  Thomas's decisions. That blocks requiring registration for storing.
+- **Silicon Circus** uses DD per app, as a shard, not a shared service.
+  Their case is single-best `db.store`/`db.get` with WebP normalizing.
+  `check_consistency`/`vacuum` (0.3.5) is the orphan sweep they wanted.
+
+Before editing Infocomic's image code, check with `@infocomics` (see
+coordination.md).
