@@ -4,7 +4,7 @@
 
 Everything below "Where we stopped (2026-10-04)" predates this week and is
 partly superseded; README.md describes the current API. DataDungeon main is
-pushed at `44fbf6e` (v0.7.3, untagged; `v0.7.0` is `dc38d81`); `crystal spec` gives 73 examples, 0 failures,
+pushed at `d01f4ec`, tagged `v0.8.0` (2026-10-07; `v0.7.0` is `dc38d81`, 0.7.1-0.7.3 untagged); `crystal spec` gives 86 examples, 0 failures,
 1 pending (S3, which needs `scripts/garage-test`). What landed since 0.4.0:
 
 - **Storage:** objects are content-addressed, `<h2>/<sha256>.<ext>`, shared by
@@ -58,8 +58,13 @@ Next:
 - 0.7.1 (`644f1e5`: `adopt`, `outside_store`, opus/svg extensions) and
   0.7.2 (`8a20a96`: `DB#open`/`Storage#open` streaming, `find_by_hash`,
   `.pdf`, and the S3 read fix) and 0.7.3 (`44fbf6e`: dashes in trait
-  names, `rename_tag`, `rename_type`) are on main but not tagged; Thomas
-  said to hold the tag.
+  names, `rename_tag`, `rename_type`) were never tagged; 0.8.0 (`d01f4ec`:
+  browsing calls, `update_asset`, read-only open, the `data_dungeon/http`
+  JSON API and `dd-serve`) is tagged `v0.8.0`.
+- **DD web UI:** Thomas wants one to filter by tags, see what's there and
+  curate, read-only by default with a big red "update mode" switch. DD stays
+  UI-free; `@curio` (Rust) is to build the UI against DD's JSON API (0.8.0).
+  Briefing `@curio` waits on Thomas's go-ahead.
 - Memo stays in DD's SQLite file for now; working first, then optimize.
 
 ## Where we stopped (2026-10-04)
