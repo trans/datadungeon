@@ -57,6 +57,8 @@ Found 2026-10-07 (0.7.2), not yet reported upstream; Thomas decides.
 
 ## Local Memo
 
-`shard.override.yml` (ignored) points `memo` at `../memo`, so local builds
-use the Memo checkout. A fresh install gets Memo's `main` from GitHub, so
-push any Memo changes DD depends on before DD's.
+Memo lives at `github.com/openbohemians/memo` (moved from `trans/memo`
+2026-10-07; GitHub redirects the old URL). `shard.override.yml` (ignored)
+points `memo` at `../memo`, so local builds use the Memo checkout. A fresh
+install gets Memo's `main` from GitHub, so push any Memo changes DD depends
+on before DD's.
