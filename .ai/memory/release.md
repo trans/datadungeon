@@ -36,6 +36,25 @@ unmodified master too (the integration spec wants MinIO from
 `spec/integration/compose.yml`); run its unit specs file by file.
 `scripts/garage-test` runs DD's own S3 specs against a throwaway Garage.
 
+## Two upstream bugs S3Storage works around
+
+Found 2026-10-07 (0.7.2), not yet reported upstream; Thomas decides.
+
+- **awscr-s3:** `S3::Exception.from_response` does
+  `XML.new(response.body || response.body_io)`. A streamed response's
+  `body` is an empty string, which is truthy, so `body_io` is never read:
+  a streamed GET of a missing object raises `XML::Error` ("Document is
+  empty") instead of the status, and leaves the error body unread on the
+  connection. S3Storage now does its own GET (`S3Storage#get`).
+- **Crystal 1.21 `HTTP::Client`:** an exception raised inside `exec`'s
+  block is caught and turned into a `break`; `retry_once` then sees no
+  result, takes it for a stale connection and, on a reused connection,
+  sends the request again, running the block twice. `S3Storage#get` raises
+  nothing out of the block.
+- Also: with a block, `HTTP::Client` closes an unread body without
+  draining it and keeps the connection, so a pooled client must read each
+  response to the end or close the connection.
+
 ## Local Memo
 
 `shard.override.yml` (ignored) points `memo` at `../memo`, so local builds

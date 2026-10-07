@@ -60,6 +60,11 @@ release.md).
   `@infocomics` asked us to **hold the registration requirement until they
   say Infocomic is done**. For them DD added `adopt`/`outside_store` and the
   opus/svg extensions (0.7.1, `644f1e5`).
+- **Voices are MP3 in every app** (Thomas, 2026-10-07). Safari plays Opus
+  in Ogg only from 18.4 with macOS 15.4 / iOS 18.4 (March 2025), so current
+  Macs still on Sonoma or Ventura, and iPhone 8/X and older, can't. Opus in
+  WebM was unreliable in iOS `<audio>` into 2024. MP3 plays everywhere, and
+  R2 doesn't charge for egress. Infocomic's 105 Opus clips predate this.
 - **Silicon Circus** uses DD per app, as a shard, not a shared service.
   Their case is single-best `db.store`/`db.get` with WebP normalizing.
   `check_consistency`/`vacuum` (0.3.5) is the orphan sweep they wanted.
