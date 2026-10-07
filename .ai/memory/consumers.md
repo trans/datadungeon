@@ -75,3 +75,11 @@ release.md).
 
 Before editing Infocomic's image code, check with `@infocomics` (see
 coordination.md).
+
+## Reaching a store from elsewhere
+
+Each app's DD database is SQLite on that app's server, which nothing can
+open over the network. Since 0.8.0 an app can mount `DataDungeon::API`
+(`data_dungeon/http`), or run `dd-serve` beside the database, so tools such
+as `@curio`'s DD browser reach it over HTTPS with a read token, plus a write
+token for edits.
