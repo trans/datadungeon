@@ -9,6 +9,19 @@
 | Pirateship | `~/Projects/siliconcircus.lol/pirateship` | parrot TTS voices (`data/voices.db`) | GitHub, `~> 0.7.0` |
 | Silicon Circus venues | via the `siliconcircus` agent | venue images, about one per attraction | — |
 
+## Where the files are
+
+All on local disk as of 2026-10-07; no app uses `S3Storage` yet.
+
+- **Infocomic:** `~/.local/share/infocomic/assets.db` (`INFOCOMIC_ASSET_DB`
+  overrides). Its older rows index its own files under
+  `~/.local/share/infocomic/` (`images/`, `audio/`, `banter/`) by absolute
+  path (`store_asset`); new ones go through `DB#store` into
+  `INFOCOMIC_OBJECTS_DIR` (default `<data dir>/objects`), or a bucket when
+  `INFOCOMIC_S3_BUCKET` is set. `DB#adopt` moves the older rows in.
+- **Cattacula:** `service/data/voices.db`, objects in `service/data/voices/`.
+- **Pirateship:** `data/voices.db`, objects in `data/voice-blobs/`.
+
 ## Builds from this checkout
 
 Infocomic and Cattacula compile straight from this working tree, so any
@@ -35,9 +48,18 @@ release.md).
   pushed 2026-10-07). Its live `data/voices.db` upgrades from the 0.3 schema
   the next time it starts. Its uncommitted training-camp work (from
   2026-08-26) isn't ours; leave it.
-- **Infocomic** registers transcript, banter, decree and backdrop. Narration,
-  portrait, room, panel and hero_shot are still unregistered, pending
-  Thomas's decisions. That blocks requiring registration for storing.
+- **Infocomic** is moving every asset except its favicon to `DB#store`
+  (Thomas's call, 2026-10-07), in stages: storage and serving, pictures,
+  voices, text, its repo art, then the existing rows (its TODO.md,
+  "Storage: every asset through DataDungeon"). It registers each type as it
+  moves. Renames: `tile` -> `panel`, `background` with `centerfold=true`
+  -> `heroshot`; panel and heroshot key on art style, rating, portrait (its
+  file's hash) and prompt hash. The 29 other `background` rows are pre-judge
+  room pictures; Thomas decides their fate. It serves `/media/<key>`:
+  local objects read and served, bucket objects redirected to `resolve`.
+  `@infocomics` asked us to **hold the registration requirement until they
+  say Infocomic is done**. For them DD added `adopt`/`outside_store` and the
+  opus/svg extensions (0.7.1, `644f1e5`).
 - **Silicon Circus** uses DD per app, as a shard, not a shared service.
   Their case is single-best `db.store`/`db.get` with WebP normalizing.
   `check_consistency`/`vacuum` (0.3.5) is the orphan sweep they wanted.
