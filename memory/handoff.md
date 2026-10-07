@@ -4,7 +4,7 @@
 
 Everything below "Where we stopped (2026-10-04)" predates this week and is
 partly superseded; README.md describes the current API. DataDungeon main is
-pushed at `dc38d81` (v0.7.0); `crystal spec` gives 59 examples, 0 failures,
+pushed at `644f1e5` (v0.7.1, untagged; `v0.7.0` is `dc38d81`); `crystal spec` gives 63 examples, 0 failures,
 1 pending (S3, which needs `scripts/garage-test`). What landed since 0.4.0:
 
 - **Storage:** objects are content-addressed, `<h2>/<sha256>.<ext>`, shared by
@@ -24,11 +24,10 @@ pushed at `dc38d81` (v0.7.0); `crystal spec` gives 59 examples, 0 failures,
 - **Concurrency** (0.5.6): write transactions use BEGIN IMMEDIATE, so several
   processes on one database wait instead of failing; `bench/concurrency.cr`.
 
-Consumers: Cattacula registers `voice` (pushed). Infocomic registers
-transcript, banter, decree (by `game`), backdrop; narration, portrait, room,
-panel, hero_shot are still unregistered pending Thomas's decisions. Pirateship
-is still on DD 0.3; `~/Projects/siliconcircus.lol/pirateship/DATADUNGEON-0.5.md`
-describes its two-line migration.
+Consumers: Cattacula and Pirateship register `voice` (pushed). Infocomic
+registers transcript, banter, decree (by `game`), room and backdrop;
+narration, portrait, background and tile are still unregistered. See
+consumers.md.
 
 - **S3 storage** (0.6.0, 2026-10-07): `DataDungeon::S3Storage` in the
   optional `data_dungeon/s3` (R2 via `S3Storage.r2`), on `awscr-s3` from
@@ -53,8 +52,11 @@ Next:
   (`training.js`, `public/training-camp/`, six webp assets, from
   2026-08-26) was left as it was.
 - Then require registration for storing. Cattacula and Pirateship
-  register; Infocomic still stores narration, portrait, room, panel and
-  hero_shot unregistered, pending Thomas's decisions.
+  register. Infocomic is moving everything to `DB#store` and registering
+  each type as it moves (see consumers.md); `@infocomics` asked us to hold
+  the requirement until they say they're done.
+- `v0.7.1` (`644f1e5`: `adopt`, `outside_store`, opus/svg extensions) is on
+  main but not tagged; Thomas said to hold the tag.
 - Memo stays in DD's SQLite file for now; working first, then optimize.
 
 ## Where we stopped (2026-10-04)
