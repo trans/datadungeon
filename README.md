@@ -117,7 +117,41 @@ it. Existing rows keep the keys they were stored under. `DB#store_asset`
 indexes a file whose path the caller already owns. Existing SQLite asset tables
 are upgraded when DataDungeon opens the database.
 
-Run the specs with `crystal spec`.
+## Storage
+
+`cache_root:` stores objects on local disk (`LocalStorage`). For an
+S3-compatible bucket (Cloudflare R2, Garage, MinIO or AWS S3), require
+`data_dungeon/s3`, add `awscr-s3` to your shard.yml, and pass an
+`S3Storage`:
+
+```crystal
+require "data_dungeon/s3"
+
+storage = DataDungeon::S3Storage.r2(ENV["R2_ACCOUNT_ID"], "game-assets",
+  access_key: ENV["R2_ACCESS_KEY_ID"], secret_key: ENV["R2_SECRET_ACCESS_KEY"],
+  public_url: "https://assets.example.com")   # optional: a domain or CDN in front
+db = DataDungeon::DB.new("assets.db", storage: storage)
+
+db.read(record)       # the object's bytes, from whichever storage
+db.path_for(record)   # a URL: under public_url, or presigned without one
+```
+
+`S3Storage.new(bucket, endpoint:, region:, access_key:, secret_key:)` reaches
+any other S3-compatible service. Objects are uploaded with their content type
+and immutable cache headers, since content-addressed objects never change.
+Connections are kept alive, and requests the service turns away for load
+(429, 5xx) are retried with backoff. Give DataDungeon a bucket, or a `prefix:`
+in one, of its own: `check_consistency` treats every object under it as
+DataDungeon's.
+
+With remote storage, lookups don't confirm that each record's object still
+exists, since that would cost a round trip per read; `check_consistency` finds
+any drift. Read objects with `DB#read` rather than opening `path_for`, which
+is only a file path for local storage.
+
+Run the specs with `crystal spec`. The S3 specs need a server:
+`scripts/garage-test` runs them against a throwaway single-node
+[Garage](https://garagehq.deuxfleurs.fr) (the `garage` binary on PATH).
 
 ## Semantic asset search
 

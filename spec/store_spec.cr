@@ -32,6 +32,7 @@ describe DataDungeon::DB do
     rec.file_hash.should eq hash
     rec.file_path.should eq "#{hash[0, 2]}/#{hash}.webp" # content addressed
     File.read(db.path_for(rec)).should eq "webp-bytes"
+    String.new(db.read(rec)).should eq "webp-bytes"
 
     got = db.get("venue", key_for(tags))
     got.should_not be_nil

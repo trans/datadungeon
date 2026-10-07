@@ -561,7 +561,7 @@ module DataDungeon
 
       id = @object_lock.synchronize do
         wrote = !store.exists?(storage_key)
-        store.write(storage_key, data) if wrote
+        store.write(storage_key, data, ct) if wrote
         begin
           store_asset(
             asset_type: asset_type,
@@ -599,7 +599,7 @@ module DataDungeon
     def get(asset_type : String, pool_key : String, touch : Bool = true) : AssetRecord?
       rec = find_asset(asset_type, pool_key)
       return nil unless rec
-      if store = @storage
+      if (store = @storage) && store.local?
         return nil unless store.exists?(rec.file_path)
       end
       touch_asset(rec.id) if touch
@@ -617,7 +617,7 @@ module DataDungeon
         "SELECT * FROM assets WHERE pool_key = ? AND pool = 0 LIMIT 1", pool_key
       ) { |rs| read_asset_record(rs) }
       return nil unless rec
-      if store = @storage
+      if (store = @storage) && store.local?
         return nil unless store.exists?(rec.file_path)
       end
       touch_asset(rec.id) if touch
@@ -628,7 +628,7 @@ module DataDungeon
     def get_by_id(id : Int64, touch : Bool = true) : AssetRecord?
       rec = find_asset_by_id(id)
       return nil unless rec
-      if store = @storage
+      if (store = @storage) && store.local?
         return nil unless store.exists?(rec.file_path)
       end
       touch_asset(rec.id) if touch
@@ -716,11 +716,19 @@ module DataDungeon
       return nil unless pair
 
       rec, meta = pair
-      if store = @storage
+      if (store = @storage) && store.local?
         return nil unless store.exists?(rec.file_path)
       end
       touch_asset(rec.id) if touch
       {rec, meta}
+    end
+
+    # The record's object, read through whichever storage is configured (a
+    # local file or a remote bucket). Prefer it to opening path_for yourself,
+    # which only works for local storage.
+    def read(rec : AssetRecord) : Bytes
+      store = @storage || raise "DataDungeon::DB has no storage backend"
+      store.read(rec.file_path)
     end
 
     # Resolve a record's storage key to a usable location (local path or URL).
@@ -1359,6 +1367,9 @@ module DataDungeon
     def check_consistency : ConsistencyReport
       store = @storage || raise "DataDungeon::DB has no storage backend; construct with cache_root: or storage:"
 
+      # One listing of the backend, compared with the rows, rather than a
+      # check per row: on remote storage each check is a round trip.
+      stored = store.list_keys.to_set
       indexed = Set(String).new
       missing_ids = [] of Int64
       # Collect first; don't issue nested queries while this cursor is open.
@@ -1367,12 +1378,12 @@ module DataDungeon
           id = rs.read(Int64)
           path = rs.read(String)
           indexed << path
-          missing_ids << id unless store.exists?(path)
+          missing_ids << id unless stored.includes?(path)
         end
       end
 
       missing = missing_ids.compact_map { |id| find_asset_by_id(id) }
-      orphans = store.list_keys.reject { |key| indexed.includes?(key) }
+      orphans = stored.reject { |key| indexed.includes?(key) }.sort
       ConsistencyReport.new(missing, orphans)
     end
 

@@ -1,0 +1,71 @@
+#!/bin/sh
+# Runs the S3 storage specs against a throwaway single-node Garage
+# (https://garagehq.deuxfleurs.fr). Needs the `garage` binary on PATH.
+#
+#   scripts/garage-test [crystal spec arguments]   (default: spec/s3_storage_spec.cr)
+#
+# Everything lives in a temporary directory, removed afterwards along with
+# the server. Ports: DD_GARAGE_PORT (S3 API, default 39900), +1 for RPC,
+# +3 for admin.
+set -eu
+
+command -v garage >/dev/null || { echo "garage not found; install it first" >&2; exit 1; }
+
+port=${DD_GARAGE_PORT:-39900}
+dir=$(mktemp -d "${TMPDIR:-/tmp}/dd-garage.XXXXXX")
+config="$dir/garage.toml"
+server=""
+
+cleanup() {
+  [ -n "$server" ] && kill "$server" 2>/dev/null && wait "$server" 2>/dev/null
+  rm -rf "$dir"
+}
+trap cleanup EXIT INT TERM
+
+cat >"$config" <<EOF
+metadata_dir = "$dir/meta"
+data_dir = "$dir/data"
+db_engine = "sqlite"
+replication_factor = 1
+rpc_bind_addr = "127.0.0.1:$((port + 1))"
+rpc_public_addr = "127.0.0.1:$((port + 1))"
+rpc_secret = "$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')"
+
+[s3_api]
+s3_region = "garage"
+api_bind_addr = "127.0.0.1:$port"
+root_domain = ".s3.garage.localhost"
+
+[admin]
+api_bind_addr = "127.0.0.1:$((port + 3))"
+EOF
+
+g() { garage -c "$config" "$@"; }
+
+garage -c "$config" server >"$dir/server.log" 2>&1 &
+server=$!
+
+# Wait for the node to answer, then give it the whole (one-node) layout.
+tries=0
+until node=$(g node id -q 2>/dev/null); do
+  tries=$((tries + 1))
+  [ $tries -gt 50 ] && { cat "$dir/server.log" >&2; echo "garage didn't start" >&2; exit 1; }
+  sleep 0.2
+done
+g layout assign -z local -c 1G "${node%@*}" >/dev/null
+g layout apply --version 1 >/dev/null
+
+key=$(g key create dd-test)
+g bucket create dd-test >/dev/null
+g bucket allow --read --write --owner dd-test --key dd-test >/dev/null
+
+DD_S3_ENDPOINT="http://127.0.0.1:$port"
+DD_S3_REGION=garage
+DD_S3_BUCKET=dd-test
+DD_S3_ACCESS_KEY=$(echo "$key" | sed -n 's/^Key ID: *//p')
+DD_S3_SECRET_KEY=$(echo "$key" | sed -n 's/^Secret key: *//p')
+export DD_S3_ENDPOINT DD_S3_REGION DD_S3_BUCKET DD_S3_ACCESS_KEY DD_S3_SECRET_KEY
+[ -n "$DD_S3_ACCESS_KEY" ] && [ -n "$DD_S3_SECRET_KEY" ] || { echo "couldn't read the key from:" >&2; echo "$key" >&2; exit 1; }
+
+if [ $# -eq 0 ]; then set -- spec/s3_storage_spec.cr; fi
+crystal spec "$@"

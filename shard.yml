@@ -1,5 +1,5 @@
 name: data_dungeon
-version: 0.5.7
+version: 0.6.0
 
 authors:
   - Thomas Sawyer <transfire@gmail.com>
@@ -12,6 +12,10 @@ development_dependencies:
   memo:
     github: trans/memo
     branch: main
+  # For S3Storage; until taylorfinnell/awscr-s3#168 (S3::Exception#status) is released.
+  awscr-s3:
+    github: trans/awscr-s3
+    branch: exception-status
 
 crystal: '>= 1.19.1'
 
