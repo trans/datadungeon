@@ -11,6 +11,12 @@ module DataDungeon
     abstract def write(key : String, bytes : Bytes, content_type : String? = nil) : Nil
     # Read the bytes stored at the given key.
     abstract def read(key : String) : Bytes
+    # Stream the object at the given key: the block gets an IO over its
+    # bytes. This default reads the whole object; adapters that can stream
+    # override it.
+    def open(key : String, & : IO ->) : Nil
+      yield IO::Memory.new(read(key))
+    end
     # Whether an object exists at the given key.
     abstract def exists?(key : String) : Bool
     # Remove the object at the given key (no-op if absent).
@@ -66,6 +72,10 @@ module DataDungeon
 
     def read(key : String) : Bytes
       File.open(resolve(key), "rb", &.getb_to_end)
+    end
+
+    def open(key : String, & : IO ->) : Nil
+      File.open(resolve(key), "rb") { |file| yield file }
     end
 
     def exists?(key : String) : Bool

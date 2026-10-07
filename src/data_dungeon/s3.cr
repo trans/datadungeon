@@ -20,6 +20,8 @@ module DataDungeon
     getter prefix : String
 
     @client : Awscr::S3::Client
+    @factory : PooledClientFactory
+    @signer : Awscr::Signer::Signers::V4
     @endpoint : URI
     @region : String
     @access_key : String
@@ -47,8 +49,11 @@ module DataDungeon
       @endpoint = URI.parse(endpoint)
       @prefix = prefix.empty? || prefix.ends_with?('/') ? prefix : "#{prefix}/"
       @public_url = public_url.try(&.rstrip('/'))
+      @factory = PooledClientFactory.new(pool_size)
+      @signer = Awscr::Signer::Signers::V4.new(service: "s3", region: @region,
+        aws_access_key: access_key, aws_secret_key: secret_key)
       @client = Awscr::S3::Client.new(@region, access_key, secret_key,
-        endpoint: endpoint, client_factory: PooledClientFactory.new(pool_size))
+        endpoint: endpoint, client_factory: @factory)
     end
 
     # A Cloudflare R2 bucket in the given account.
@@ -67,9 +72,13 @@ module DataDungeon
     end
 
     def read(key : String) : Bytes
-      retrying do
-        @client.get_object(@bucket, object(key)) { |response| response.body_io.getb_to_end }
-      end
+      retrying { get(key, &.getb_to_end) }
+    end
+
+    # A status the bucket turns a request away with comes before any bytes,
+    # so retrying it never runs the block twice.
+    def open(key : String, & : IO ->) : Nil
+      retrying { get(key) { |io| yield io; nil } }
     end
 
     def exists?(key : String) : Bool
@@ -107,6 +116,49 @@ module DataDungeon
 
     private def object(key : String) : String
       "#{@prefix}#{key}"
+    end
+
+    # A GET on a pooled connection, done here rather than by awscr-s3's
+    # streaming get_object, which misreads a streamed error body (an
+    # XML::Error instead of the status) and leaves a partly read body on the
+    # connection. A successful response's body is yielded; any other status
+    # raises S3::Exception. The connection goes back to the pool only once
+    # its response has been read to the end, so the next request on it
+    # doesn't read this one's leftovers; otherwise it's closed.
+    #
+    # Nothing is raised out of HTTP::Client's block: on a reused connection
+    # it takes an exception there for a stale connection and sends the
+    # request again, running the block twice (Crystal 1.21). Failures are
+    # kept and raised once the request is over.
+    private def get(key : String, & : IO -> T) : T forall T
+      client = @factory.acquire_client(@endpoint, @signer)
+      finished = false
+      failure = nil
+      begin
+        result = client.get("/#{@bucket}/#{URI.encode_path(object(key))}") do |response|
+          body = response.body_io? || IO::Memory.new
+          if response.success?
+            value = yield body
+            body.skip_to_end
+            finished = true
+            value
+          else
+            body.skip_to_end
+            finished = true
+            failure = Awscr::S3::Exception.new(
+              "GET #{object(key)}: #{response.status_code} #{response.status.description}", response.status)
+            nil
+          end
+        rescue ex
+          failure = ex
+          nil
+        end
+        failure.try { |ex| raise ex }
+        result.as(T)
+      ensure
+        client.close unless finished
+        @factory.release(client)
+      end
     end
 
     # Every call here is safe to repeat: a PUT of the same bytes to the same

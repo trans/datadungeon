@@ -146,6 +146,7 @@ storage = DataDungeon::S3Storage.r2(ENV["R2_ACCOUNT_ID"], "game-assets",
 db = DataDungeon::DB.new("assets.db", storage: storage)
 
 db.read(record)       # the object's bytes, from whichever storage
+db.open(record) { |io| IO.copy(io, response) }   # streamed, not loaded whole
 db.path_for(record)   # a URL: under public_url, or presigned without one
 ```
 
@@ -159,8 +160,9 @@ DataDungeon's.
 
 With remote storage, lookups don't confirm that each record's object still
 exists, since that would cost a round trip per read; `check_consistency` finds
-any drift. Read objects with `DB#read` rather than opening `path_for`, which
-is only a file path for local storage.
+any drift. Read objects with `DB#read`, or stream them with `DB#open`, rather
+than opening `path_for`, which is only a file path for local storage.
+`DB#find_by_hash` finds the assets holding given bytes, by their SHA-256.
 
 Run the specs with `crystal spec`. The S3 specs need a server:
 `scripts/garage-test` runs them against a throwaway single-node

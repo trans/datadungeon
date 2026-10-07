@@ -576,7 +576,7 @@ describe DataDungeon::DB do
     db = open_db(dir)
 
     {"audio/opus" => "opus", "image/svg+xml" => "svg", "text/plain; charset=utf-8" => "txt",
-     "audio/ogg; codecs=opus" => "ogg"}.each do |content_type, ext|
+     "audio/ogg; codecs=opus" => "ogg", "application/pdf" => "pdf"}.each do |content_type, ext|
       rec = db.store("file", bytes: content_type.to_slice, content_type: content_type)
       File.extname(rec.file_path).should eq ".#{ext}"
     end
@@ -639,6 +639,33 @@ describe DataDungeon::DB do
 
     expect_raises(File::NotFoundError) { db.adopt(db.find_asset_by_id(id).not_nil!) }
     db.find_asset_by_id(id).not_nil!.file_path.should eq gone
+  ensure
+    db.try(&.close)
+    FileUtils.rm_rf(dir) if dir
+  end
+
+  it "finds the assets holding the same bytes by their hash" do
+    dir = File.tempname("dd-by-hash")
+    Dir.mkdir_p(dir)
+    db = open_db(dir)
+    one = db.store("venue", {"venue" => "diner"}, bytes: "same".to_slice, content_type: "image/webp")
+    two = db.store("venue", {"venue" => "arcade"}, bytes: "same".to_slice, content_type: "image/webp")
+    db.store("venue", {"venue" => "mall"}, bytes: "other".to_slice, content_type: "image/webp")
+
+    db.find_by_hash(Digest::SHA256.hexdigest("same")).map(&.id).should eq [one.id, two.id]
+    db.find_by_hash(Digest::SHA256.hexdigest("missing")).should be_empty
+  ensure
+    db.try(&.close)
+    FileUtils.rm_rf(dir) if dir
+  end
+
+  it "streams an object through open" do
+    dir = File.tempname("dd-open")
+    Dir.mkdir_p(dir)
+    db = open_db(dir)
+    rec = db.store("clip", bytes: "streamed bytes".to_slice, content_type: "audio/mpeg")
+
+    db.open(rec) { |io| io.gets_to_end.should eq "streamed bytes" }
   ensure
     db.try(&.close)
     FileUtils.rm_rf(dir) if dir

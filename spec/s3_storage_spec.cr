@@ -44,6 +44,30 @@ describe DataDungeon::S3Storage do
     storage.delete("cd/two.mp3")
   end
 
+  it "streams an object, and doesn't repeat the block when it fails" do
+    storage = s3_storage("spec-#{Random::Secure.hex(4)}")
+    storage.write("ab/big.bin", Bytes.new(300_000) { |i| (i % 251).to_u8 }, "application/octet-stream")
+    streamed = IO::Memory.new
+    storage.open("ab/big.bin") { |io| IO.copy(io, streamed) }
+    streamed.to_slice.should eq storage.read("ab/big.bin")
+
+    calls = 0
+    expect_raises(IO::Error, "client went away") do
+      storage.open("ab/big.bin") { |_io| calls += 1; raise IO::Error.new("client went away") }
+    end
+    calls.should eq 1
+    storage.read("ab/big.bin").size.should eq 300_000 # the connection the failure used isn't reused
+
+    2.times do # a missing object leaves the connection usable too
+      ex = expect_raises(Awscr::S3::Exception) { storage.open("ab/missing.bin") { } }
+      ex.status.should eq HTTP::Status::NOT_FOUND
+      ex = expect_raises(Awscr::S3::Exception) { storage.read("ab/missing.bin") }
+      ex.status.should eq HTTP::Status::NOT_FOUND
+    end
+    storage.exists?("ab/big.bin").should be_true
+    storage.delete("ab/big.bin")
+  end
+
   it "serves a presigned URL for an object" do
     storage = s3_storage("spec-#{Random::Secure.hex(4)}")
     storage.write("ab/url.txt", "by url".to_slice, "text/plain")

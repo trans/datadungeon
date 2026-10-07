@@ -79,6 +79,8 @@ module DataDungeon
         ON assets(asset_type);
       CREATE INDEX IF NOT EXISTS idx_assets_file_path
         ON assets(file_path);
+      CREATE INDEX IF NOT EXISTS idx_assets_file_hash
+        ON assets(file_hash);
       CREATE INDEX IF NOT EXISTS idx_assets_generator
         ON assets(generator)
     SQL
@@ -592,6 +594,12 @@ module DataDungeon
       find_asset_by_id(id).not_nil!
     end
 
+    # The assets holding these bytes, by their SHA-256, oldest first.
+    # Identical bytes share one object, so several assets can hold it.
+    def find_by_hash(file_hash : String) : Array(AssetRecord)
+      query_assets("a.file_hash = ?", [file_hash] of ::DB::Any)
+    end
+
     # The rows that index a file outside the store: those `store_asset`
     # recorded by an absolute path the caller owns. `adopt` moves them in.
     def outside_store : Array(AssetRecord)
@@ -768,6 +776,13 @@ module DataDungeon
       store.read(rec.file_path)
     end
 
+    # Stream the record's object: the block gets an IO over its bytes, from
+    # whichever storage is configured, without loading it all into memory.
+    def open(rec : AssetRecord, & : IO ->) : Nil
+      store = @storage || raise "DataDungeon::DB has no storage backend"
+      store.open(rec.file_path) { |io| yield io }
+    end
+
     # Resolve a record's storage key to a usable location (local path or URL).
     def path_for(rec : AssetRecord) : String
       store = @storage || raise "DataDungeon::DB has no storage backend"
@@ -833,6 +848,7 @@ module DataDungeon
       when "video/mp4"                then "mp4"
       when "text/plain"               then "txt"
       when "application/json"         then "json"
+      when "application/pdf"          then "pdf"
       else                                 "bin"
       end
     end
