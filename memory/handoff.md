@@ -4,7 +4,7 @@
 
 Everything below "Where we stopped (2026-10-04)" predates this week and is
 partly superseded; README.md describes the current API. DataDungeon main is
-pushed at `644f1e5` (v0.7.1, untagged; `v0.7.0` is `dc38d81`); `crystal spec` gives 63 examples, 0 failures,
+pushed at `8a20a96` (v0.7.2, untagged; `v0.7.0` is `dc38d81`); `crystal spec` gives 65 examples, 0 failures,
 1 pending (S3, which needs `scripts/garage-test`). What landed since 0.4.0:
 
 - **Storage:** objects are content-addressed, `<h2>/<sha256>.<ext>`, shared by
@@ -55,8 +55,10 @@ Next:
   register. Infocomic is moving everything to `DB#store` and registering
   each type as it moves (see consumers.md); `@infocomics` asked us to hold
   the requirement until they say they're done.
-- `v0.7.1` (`644f1e5`: `adopt`, `outside_store`, opus/svg extensions) is on
-  main but not tagged; Thomas said to hold the tag.
+- 0.7.1 (`644f1e5`: `adopt`, `outside_store`, opus/svg extensions) and
+  0.7.2 (`8a20a96`: `DB#open`/`Storage#open` streaming, `find_by_hash`,
+  `.pdf`, and the S3 read fix) are on main but not tagged; Thomas said to
+  hold the tag.
 - Memo stays in DD's SQLite file for now; working first, then optimize.
 
 ## Where we stopped (2026-10-04)
