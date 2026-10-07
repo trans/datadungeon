@@ -1,5 +1,9 @@
+require "json"
+
 module DataDungeon
   struct AssetRecord
+    include JSON::Serializable
+
     getter id : Int64
     getter asset_type : String
     getter media : String
@@ -55,6 +59,8 @@ module DataDungeon
   # and whether a pool key holds many interchangeable assets (`pool`) or one
   # best asset.
   struct AssetType
+    include JSON::Serializable
+
     getter name : String
     getter pool_traits : Array(String)
     getter group_traits : Array(String)
@@ -126,6 +132,8 @@ module DataDungeon
   # both. When produced by `vacuum`, the entries are what was found *and* acted
   # on per the flags passed.
   struct ConsistencyReport
+    include JSON::Serializable
+
     # Rows whose backing object no longer resolves in storage.
     getter missing_objects : Array(AssetRecord)
     # Object keys present in storage with no owning `assets` row.
@@ -156,6 +164,8 @@ module DataDungeon
   end
 
   struct ImageMeta < AssetMeta
+    include JSON::Serializable
+
     getter width : Int32?
     getter height : Int32?
     getter usage_class : String?
@@ -185,6 +195,8 @@ module DataDungeon
   end
 
   struct AudioMeta < AssetMeta
+    include JSON::Serializable
+
     getter duration_ms : Int32?
     getter sample_rate : Int32?
     getter bitrate : Int32?
@@ -206,6 +218,8 @@ module DataDungeon
   end
 
   struct VideoMeta < AssetMeta
+    include JSON::Serializable
+
     getter width : Int32?
     getter height : Int32?
     getter duration_ms : Int32?
@@ -233,6 +247,8 @@ module DataDungeon
   end
 
   struct TextMeta < AssetMeta
+    include JSON::Serializable
+
     getter content : String
     getter language : String?
 

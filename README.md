@@ -176,6 +176,40 @@ Run the specs with `crystal spec`. The S3 specs need a server:
 `scripts/garage-test` runs them against a throwaway single-node
 [Garage](https://garagehq.deuxfleurs.fr) (the `garage` binary on PATH).
 
+## Browsing, curating and the HTTP API
+
+`asset_types` lists every type with its asset count; `tag_keys(type)` a
+type's tag names and `tag_values(type, key)` one tag's values, each with a
+count; `list_assets(type, tags, limit, offset)` a page of assets, newest
+first. `update_asset(id, tags:, description:, flagged:, rating:)` edits an
+asset in place without storing its bytes again. Opening with
+`DB.new(path, storage, read_only: true)` changes nothing: no schema setup, no
+re-keying, writes refused by DataDungeon (`ReadOnlyError`) and by SQLite.
+
+`require "data_dungeon/http"` adds `DataDungeon::API`, a JSON API over a DB
+for a browser elsewhere. It's an `HTTP::Handler`, so an application can
+mount it, or `dd-serve` (`shards build dd-serve`) runs it alone beside the
+database, configured by `DD_*` environment variables (see
+`src/dd_serve.cr`). Reads need the read token, writes the write token
+(`Authorization: Bearer …`); without a write token there are no writes, and
+`dd-serve` opens the database read-only.
+
+```crystal
+api = DataDungeon::API.new(db, read_token: ENV["DD_READ_TOKEN"], write_token: ENV["DD_WRITE_TOKEN"]?,
+  prefix: "/dd")
+HTTP::Server.new([api, app_handler])
+```
+
+| | |
+|---|---|
+| `GET /types` | types, counts and registrations |
+| `GET /types/:type/tags[/:key]` | tag names, or one tag's values, with counts |
+| `GET /assets?type=&tag.<key>=&limit=&offset=` | a page of assets with their tags |
+| `GET /assets/:id`, `/assets/:id/object` | an asset with its tags and metadata; its bytes |
+| `POST /maintenance/check` | the consistency report |
+| `PATCH`, `DELETE /assets/:id` | edit or delete (write token) |
+| `POST /types/:type/promote`, `/maintenance/vacuum` | (write token) |
+
 ## Semantic asset search
 
 Semantic search is an optional entry point. Applications using it need a

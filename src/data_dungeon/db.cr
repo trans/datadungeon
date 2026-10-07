@@ -3,6 +3,11 @@ require "digest/sha256"
 require "json"
 
 module DataDungeon
+  # Raised by a write to a DB opened with `read_only: true`, and by a
+  # read-only open of a database that needs upgrading first.
+  class ReadOnlyError < Exception
+  end
+
   class DB
     TIME_FORMAT = "%F %T"
 
@@ -16,6 +21,7 @@ module DataDungeon
     @object_lock = Mutex.new(:reentrant)
     # Registered asset types, loaded from asset_types when the DB opens.
     @types = {} of String => AssetType
+    getter? read_only = false
 
     # Shared connection for extensions that keep their tables in the asset DB.
     def connection : ::DB::Database
@@ -27,16 +33,36 @@ module DataDungeon
       @indexer = indexer
     end
 
-    def initialize(path : String, storage : Storage? = nil, cache_root : String? = nil)
-      dir = File.dirname(path)
-      Dir.mkdir_p(dir) unless Dir.exists?(dir)
+    # With `read_only: true` the database is only read: nothing is created,
+    # upgraded or re-keyed, every connection refuses writes (PRAGMA
+    # query_only), and the methods that write raise ReadOnlyError. A database
+    # an older DataDungeon wrote must be opened read-write once first.
+    def initialize(path : String, storage : Storage? = nil, cache_root : String? = nil, *, read_only : Bool = false)
+      @read_only = read_only
+      if read_only
+        raise ReadOnlyError.new("No database at #{path}") unless File.file?(path)
+      else
+        dir = File.dirname(path)
+        Dir.mkdir_p(dir) unless Dir.exists?(dir)
+      end
       # Pragmas in the URI apply to every pooled connection: deletes cascade to
       # tags and sidecars whichever connection runs them, and a write that
       # meets another connection's open transaction waits for it (up to 5 s)
       # rather than failing at once with "database is locked".
       @db = ::DB.open("sqlite3://#{path}?foreign_keys=on&busy_timeout=5000")
       @storage = storage || (cache_root ? LocalStorage.new(cache_root) : nil)
-      setup_schema
+      if read_only
+        @db.setup_connection { |conn| conn.exec("PRAGMA query_only = ON"); nil }
+        begin
+          check_schema
+          load_types
+        rescue ex
+          @db.close
+          raise ex
+        end
+      else
+        setup_schema
+      end
     end
 
     def close : Nil
@@ -226,6 +252,25 @@ module DataDungeon
       load_types
     end
 
+    # A read-only open uses the schema as it is, so it must be the one
+    # setup_schema leaves.
+    private def check_schema : Nil
+      @db.using_connection do |conn|
+        assets = table_columns(conn, "assets")
+        tags = table_columns(conn, "asset_tags")
+        types = table_columns(conn, "asset_types")
+        current = assets["pool_key"]? == 0 && assets.has_key?("description") && assets.has_key?("generated") &&
+                  !unique_file_path?(conn) && tags.has_key?("custom") && tags.has_key?("asset_type") &&
+                  types.has_key?("sets") && types.has_key?("facets") &&
+                  %w[image_meta audio_meta video_meta text_meta].none? { |table| table_columns(conn, table).empty? }
+        raise ReadOnlyError.new("The database needs upgrading: open it read-write once first") unless current
+      end
+    end
+
+    private def writable! : Nil
+      raise ReadOnlyError.new("This DataDungeon::DB is read-only") if @read_only
+    end
+
     # Run the block in a transaction that takes SQLite's write lock up front
     # (BEGIN IMMEDIATE). A plain BEGIN reads first and asks for the lock at
     # its first write, and SQLite can't wait there: if another process wrote
@@ -357,6 +402,7 @@ module DataDungeon
       custom : Array(String) = [] of String,
       canonical_key : String? = nil, # deprecated: use pool_key
     ) : Int64
+      writable!
       pool_key ||= canonical_key
       validate_store(asset_type, media, tags, pool_key, pool, custom, image, audio, video, text)
       pooled = pool || false
@@ -541,6 +587,7 @@ module DataDungeon
       custom : Array(String) = [] of String,
       canonical_key : String? = nil, # deprecated: use pool_key
     ) : AssetRecord
+      writable!
       store = @storage || raise "DataDungeon::DB has no storage backend; construct with cache_root: or storage:"
       unless source_path.nil? ^ bytes.nil?
         raise ArgumentError.new("provide exactly one of source_path / bytes")
@@ -612,6 +659,7 @@ module DataDungeon
     # original file is left where it is. A row already in the store comes
     # back unchanged. Raises File::NotFoundError if the file is gone.
     def adopt(rec : AssetRecord) : AssetRecord
+      writable!
       store = @storage || raise "DataDungeon::DB has no storage backend; construct with cache_root: or storage:"
       return rec unless Path[rec.file_path].absolute?
 
@@ -635,6 +683,49 @@ module DataDungeon
       end
 
       find_asset_by_id(rec.id).not_nil!
+    end
+
+    # Edit an asset in place, without storing its bytes again: replace its
+    # tags, or change its description, flag or rating. Arguments left nil
+    # stay as they are. A registered type's traits are normalized and its key
+    # derived again; in a single-best type, a key another asset holds
+    # raises. A tag stays custom while its value is unchanged.
+    def update_asset(id : Int64, *, tags : Hash(String, String)? = nil, description : String? = nil,
+                     flagged : Bool? = nil, rating : Int32? = nil) : AssetRecord
+      writable!
+      rec = find_asset_by_id(id) || raise ArgumentError.new("No asset #{id}")
+      @object_lock.synchronize do
+        write_transaction do |conn|
+          conn.exec("UPDATE assets SET description = ? WHERE id = ?", description, id) unless description.nil?
+          conn.exec("UPDATE assets SET flagged = ? WHERE id = ?", flagged ? 1 : 0, id) unless flagged.nil?
+          conn.exec("UPDATE assets SET rating = ? WHERE id = ?", rating, id) unless rating.nil?
+          replace_tags(conn, rec, tags) if tags
+        end
+      end
+      @indexer.try(&.enqueue_asset(id))
+      find_asset_by_id(id).not_nil!
+    end
+
+    private def replace_tags(conn, rec : AssetRecord, tags : Hash(String, String)) : Nil
+      if type = @types[rec.asset_type]?
+        tags = normalize_traits(type, tags)
+        key = type.key(tags)
+        unless type.pool
+          holder = conn.query_one?("SELECT id FROM assets WHERE asset_type = ? AND pool_key = ? AND pool = 0 AND id != ?",
+            rec.asset_type, key, rec.id, as: Int64)
+          raise ArgumentError.new("Asset #{holder} already has the key #{key}") if holder
+        end
+        conn.exec("UPDATE assets SET pool_key = ? WHERE id = ?", key, rec.id)
+      end
+      custom = {} of String => String
+      conn.query("SELECT tag_key, tag_value FROM asset_tags WHERE asset_id = ? AND custom = 1", rec.id) do |rs|
+        rs.each { custom[rs.read(String)] = rs.read(String) }
+      end
+      conn.exec("DELETE FROM asset_tags WHERE asset_id = ?", rec.id)
+      tags.each do |key, value|
+        conn.exec("INSERT INTO asset_tags (asset_id, asset_type, tag_key, tag_value, custom) VALUES (?, ?, ?, ?, ?)",
+          rec.id, rec.asset_type, key, value, custom[key]? == value ? 1 : 0)
+      end
     end
 
     # High-level lookup: verifies the backing file still exists (self-heals a
@@ -889,6 +980,63 @@ module DataDungeon
       results
     end
 
+    # ── Browse ──
+
+    # Every asset type with how many assets it has, by name. Registered types
+    # are listed even with none.
+    def asset_types : Hash(String, Int32)
+      counts = {} of String => Int32
+      @types.each_key { |name| counts[name] = 0 }
+      @db.query("SELECT asset_type, COUNT(*) FROM assets GROUP BY asset_type") do |rs|
+        rs.each { counts[rs.read(String)] = rs.read(Int64).to_i32 }
+      end
+      counts.to_a.sort_by!(&.[0]).to_h
+    end
+
+    # A type's tag names, each with how many of its assets carry it.
+    def tag_keys(asset_type : String) : Hash(String, Int32)
+      counts = {} of String => Int32
+      @db.query(<<-SQL, asset_type) do |rs|
+        SELECT tag_key, COUNT(*) FROM asset_tags WHERE asset_type = ?
+        GROUP BY tag_key ORDER BY tag_key
+      SQL
+        rs.each { counts[rs.read(String)] = rs.read(Int64).to_i32 }
+      end
+      counts
+    end
+
+    # The values one tag takes across a type's assets, most frequent first,
+    # each with how many assets carry it.
+    def tag_values(asset_type : String, tag_key : String, limit : Int32 = 100) : Hash(String, Int32)
+      counts = {} of String => Int32
+      @db.query(<<-SQL, asset_type, tag_key, limit) do |rs|
+        SELECT tag_value, COUNT(*) FROM asset_tags WHERE asset_type = ? AND tag_key = ?
+        GROUP BY tag_value ORDER BY COUNT(*) DESC, tag_value LIMIT ?
+      SQL
+        rs.each { counts[rs.read(String)] = rs.read(Int64).to_i32 }
+      end
+      counts
+    end
+
+    # A page of a type's assets carrying every one of these tags (all of
+    # them with no tags), newest first. `count_pool_assets` counts them.
+    def list_assets(asset_type : String, tags : Hash(String, String) = {} of String => String,
+                    limit : Int32 = 50, offset : Int32 = 0) : Array(AssetRecord)
+      tags = normalize_tags(asset_type, tags)
+      from, where, args =
+        if tags.empty?
+          {"assets a", "a.asset_type = ?", [asset_type] of ::DB::Any}
+        else
+          tag_filter(asset_type, tags) || return [] of AssetRecord
+        end
+      results = [] of AssetRecord
+      @db.query("SELECT a.* FROM #{from} WHERE #{where} ORDER BY a.id DESC LIMIT ? OFFSET ?",
+        args: args + [limit, offset] of ::DB::Any) do |rs|
+        rs.each { results << read_asset_record(rs) }
+      end
+      results
+    end
+
     def asset_exists?(asset_type : String, pool_key : String) : Bool
       result = @db.scalar(
         "SELECT COUNT(*) FROM assets WHERE asset_type = ? AND pool_key = ?",
@@ -932,6 +1080,7 @@ module DataDungeon
       sets : Array(String) = [] of String,
       facets : Hash(String, Array(String)) = {} of String => Array(String),
     ) : AssetType
+      writable!
       definition = AssetType.new(asset_type, pool_traits, group_traits, pool, labels, sets, facets)
       validate_type(definition)
       changed = [] of Int64
@@ -958,6 +1107,7 @@ module DataDungeon
     # registration if it has one. A registered type's keys begin with its
     # name, so they're derived again. Returns the number of assets moved.
     def rename_type(from : String, to : String) : Int32
+      writable!
       return 0 if from == to
       unless to.matches?(TYPE_NAME)
         raise ArgumentError.new("asset type #{to.inspect} must be lowercase letters and digits, joined by '_' or '-'")
@@ -990,6 +1140,7 @@ module DataDungeon
     # right. Raises if an asset already has a tag named `to`. Returns the
     # number of assets whose tag was renamed.
     def rename_tag(asset_type : String, from : String, to : String) : Int32
+      writable!
       return 0 if from == to
       renamed = [] of Int64
       rekeyed = [] of Int64
@@ -1173,6 +1324,7 @@ module DataDungeon
     # custom values like any other, so no key changes. Returns the number of
     # tags updated.
     def promote(asset_type : String, trait : String, value : String) : Int64
+      writable!
       if type = @types[asset_type]?
         value = normalize_traits(type, {trait => value})[trait]? || value
       end
@@ -1290,6 +1442,7 @@ module DataDungeon
       ) { |rs| read_type(rs) }
       rows.each do |type, scheme|
         unless scheme == TraitKey::SCHEME
+          raise ReadOnlyError.new("#{type.name}'s keys need re-keying: open the database read-write once first") if @read_only
           write_transaction do |conn|
             rekey(conn, type)
             conn.exec("UPDATE asset_types SET key_scheme = ? WHERE asset_type = ?", TraitKey::SCHEME, type.name)
@@ -1342,6 +1495,7 @@ module DataDungeon
     # ── Touch ──
 
     def touch_asset(id : Int64) : Nil
+      return if @read_only
       now = Time.utc.to_s(TIME_FORMAT)
       @db.exec(
         "UPDATE assets SET last_used_at = ?, use_count = use_count + 1 WHERE id = ?",
@@ -1466,6 +1620,7 @@ module DataDungeon
     # object key is read before the row is removed; Storage#delete is a no-op
     # if the object is already gone.
     def delete_asset(id : Int64) : Nil
+      writable!
       @object_lock.synchronize do
         path = @db.query_one?(
           "SELECT file_path FROM assets WHERE id = ? LIMIT 1", id
@@ -1522,6 +1677,7 @@ module DataDungeon
       delete_missing_rows : Bool = false,
       delete_orphan_objects : Bool = false,
     ) : ConsistencyReport
+      writable! if delete_missing_rows || delete_orphan_objects
       @storage || raise "DataDungeon::DB has no storage backend; construct with cache_root: or storage:"
       report = check_consistency
 

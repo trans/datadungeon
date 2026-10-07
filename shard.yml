@@ -1,8 +1,13 @@
 name: data_dungeon
-version: 0.7.3
+version: 0.8.0
 
 authors:
   - Thomas Sawyer <transfire@gmail.com>
+
+# DataDungeon's JSON API on its own, next to a database (src/dd_serve.cr)
+targets:
+  dd-serve:
+    main: src/dd_serve.cr
 
 dependencies:
   sqlite3:
