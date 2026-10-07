@@ -18,6 +18,13 @@ coding things just for Infocomic's use case.
 - 0.7.0 moved the last Infocomic-only code (prompts, portrait index, image
   cache layout) out to Infocomic.
 
+## No underscores in asset names
+
+Thomas, 2026-10-07: asset type, trait and tag names use dashes or nothing
+(`art-style`, `artstyle`), not underscores. DD accepts both, since other
+apps may use underscores, but its README examples use dashes. Crystal
+identifiers in DD's own API (`pool_key`) are unaffected.
+
 ## The plain design comes first
 
 Lead with the simplest version that meets the requirement, and prefer

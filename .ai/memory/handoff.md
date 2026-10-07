@@ -4,7 +4,7 @@
 
 Everything below "Where we stopped (2026-10-04)" predates this week and is
 partly superseded; README.md describes the current API. DataDungeon main is
-pushed at `8a20a96` (v0.7.2, untagged; `v0.7.0` is `dc38d81`); `crystal spec` gives 65 examples, 0 failures,
+pushed at `44fbf6e` (v0.7.3, untagged; `v0.7.0` is `dc38d81`); `crystal spec` gives 73 examples, 0 failures,
 1 pending (S3, which needs `scripts/garage-test`). What landed since 0.4.0:
 
 - **Storage:** objects are content-addressed, `<h2>/<sha256>.<ext>`, shared by
@@ -57,8 +57,9 @@ Next:
   the requirement until they say they're done.
 - 0.7.1 (`644f1e5`: `adopt`, `outside_store`, opus/svg extensions) and
   0.7.2 (`8a20a96`: `DB#open`/`Storage#open` streaming, `find_by_hash`,
-  `.pdf`, and the S3 read fix) are on main but not tagged; Thomas said to
-  hold the tag.
+  `.pdf`, and the S3 read fix) and 0.7.3 (`44fbf6e`: dashes in trait
+  names, `rename_tag`, `rename_type`) are on main but not tagged; Thomas
+  said to hold the tag.
 - Memo stays in DD's SQLite file for now; working first, then optimize.
 
 ## Where we stopped (2026-10-04)

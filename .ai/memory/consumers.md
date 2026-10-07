@@ -59,7 +59,11 @@ release.md).
   local objects read and served, bucket objects redirected to `resolve`.
   `@infocomics` asked us to **hold the registration requirement until they
   say Infocomic is done**. For them DD added `adopt`/`outside_store` and the
-  opus/svg extensions (0.7.1, `644f1e5`).
+  opus/svg extensions (0.7.1), `open`/`find_by_hash`/`.pdf` (0.7.2), and
+  dashed trait names with `rename_tag`/`rename_type` (0.7.3). Next it renames
+  its traits and types without underscores (`art_style` -> `art-style`,
+  `banter_script` -> `banter-script`) and merges `room`, `background` and
+  the seed backdrops into one `backdrop` type.
 - **Voices are MP3 in every app** (Thomas, 2026-10-07). Safari plays Opus
   in Ogg only from 18.4 with macOS 15.4 / iOS 18.4 (March 2025), so current
   Macs still on Sonoma or Ventura, and iPhone 8/X and older, can't. Opus in
