@@ -61,13 +61,20 @@ module DataDungeon
     getter pool : Bool
     # Suffixes that make some traits' key segments readable (`tan-skin`).
     getter labels : Hash(String, String)
+    # Traits whose value is a set (`lantern,sword`), matched as a whole.
+    getter sets : Array(String)
 
     def initialize(@name : String, @pool_traits : Array(String), @group_traits : Array(String), @pool : Bool,
-                   @labels : Hash(String, String) = {} of String => String)
+                   @labels : Hash(String, String) = {} of String => String,
+                   @sets : Array(String) = [] of String)
     end
 
     def trait?(name : String) : Bool
       @pool_traits.includes?(name)
+    end
+
+    def set?(name : String) : Bool
+      @sets.includes?(name)
     end
 
     # The pool key of these normalized values.

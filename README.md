@@ -31,6 +31,19 @@ would read ambiguously, such as several colours (`tan-skin`, `red-hair`).
 Normalization can't make different words equal, so the application must spell
 each value consistently.
 
+`sets` names traits whose value is a set, such as a poster's colours. The
+application passes the members comma-separated, in any order; DataDungeon
+normalizes each, drops duplicates and sorts them, so `"Red, blue, red"` is
+stored and keyed as `blue,red`. A set matches only the same set. Normalizing
+turns commas inside a value into `-`, so a key's only commas separate set
+members, and prefixes still stop at dots. Set traits can't be labelled.
+
+```crystal
+db.register_type("poster", pool_traits: %w[style colors], sets: %w[colors], pool: true)
+db.store("poster", {"style" => "art deco", "colors" => "Red, blue"}, ...)
+# pool_key: poster.art-deco.blue,red
+```
+
 A tag may be marked `custom` when its value isn't one of the application's
 standard choices. Custom values are keyed like any other; `custom_values`
 counts them and `promote` turns one into a standard choice without changing

@@ -102,7 +102,7 @@ module DataDungeon
     SQL
 
     # One row per registered asset type. Trait lists are JSON arrays in
-    # registration order and labels a JSON object;
+    # registration order, labels a JSON object and sets a JSON array;
     # key_scheme records the TraitKey format the stored keys were made with.
     ASSET_TYPES_SCHEMA = <<-SQL
       CREATE TABLE IF NOT EXISTS asset_types (
@@ -110,6 +110,7 @@ module DataDungeon
         pool_traits  TEXT NOT NULL,
         group_traits TEXT NOT NULL,
         labels       TEXT NOT NULL DEFAULT '{}',
+        sets         TEXT NOT NULL DEFAULT '[]',
         pool         INTEGER NOT NULL,
         key_scheme   INTEGER NOT NULL
       )
@@ -190,6 +191,9 @@ module DataDungeon
       @db.exec(ASSET_TAGS_INDEX)
       @db.exec("DROP INDEX IF EXISTS idx_tags_kv") # superseded by idx_tags_type_kv
       @db.exec(ASSET_TYPES_SCHEMA)
+      unless table_columns("asset_types").has_key?("sets")
+        @db.exec("ALTER TABLE asset_types ADD COLUMN sets TEXT NOT NULL DEFAULT '[]'")
+      end
       @db.exec(IMAGE_META_SCHEMA)
       @db.exec(AUDIO_META_SCHEMA)
       @db.exec(VIDEO_META_SCHEMA)
@@ -805,7 +809,10 @@ module DataDungeon
     # traits is a prefix match. `group_traits` names the leading traits that
     # make up the type's group, and `labels` suffixes for traits whose values
     # alone would read ambiguously in a key (`{"skin" => "skin"}` gives
-    # `tan-skin`). Trait tags are stored normalized, as the key holds them.
+    # `tan-skin`). `sets` names traits whose value is a set, given as
+    # comma-separated members in any order (`"sword, Lantern"` is stored and
+    # keyed as `lantern,sword`); a set matches only the same set. Trait tags
+    # are stored normalized, as the key holds them.
     # With `pool: true` many interchangeable assets share a pool key;
     # otherwise storing under a pool key replaces the asset there.
     #
@@ -819,8 +826,9 @@ module DataDungeon
       group_traits : Array(String) = [] of String,
       pool : Bool = false,
       labels : Hash(String, String) = {} of String => String,
+      sets : Array(String) = [] of String,
     ) : AssetType
-      definition = AssetType.new(asset_type, pool_traits, group_traits, pool, labels)
+      definition = AssetType.new(asset_type, pool_traits, group_traits, pool, labels, sets)
       validate_type(definition)
       changed = [] of Int64
       @object_lock.synchronize do
@@ -830,14 +838,15 @@ module DataDungeon
             conn.exec(
               <<-SQL,
               INSERT INTO asset_types
-              (asset_type, pool_traits, group_traits, labels, pool, key_scheme)
-              VALUES (?, ?, ?, ?, ?, ?)
+              (asset_type, pool_traits, group_traits, labels, sets, pool, key_scheme)
+              VALUES (?, ?, ?, ?, ?, ?, ?)
               ON CONFLICT(asset_type) DO UPDATE SET pool_traits = excluded.pool_traits,
                 group_traits = excluded.group_traits, labels = excluded.labels,
+                sets = excluded.sets,
                 pool = excluded.pool, key_scheme = excluded.key_scheme
             SQL
               asset_type, definition.pool_traits.to_json, definition.group_traits.to_json,
-              definition.labels.to_json, pool ? 1 : 0, TraitKey::SCHEME
+              definition.labels.to_json, definition.sets.to_json, pool ? 1 : 0, TraitKey::SCHEME
             )
             changed = rekey(conn, definition)
           end
@@ -1009,8 +1018,8 @@ module DataDungeon
     # custom values like any other, so no key changes. Returns the number of
     # tags updated.
     def promote(asset_type : String, trait : String, value : String) : Int64
-      if (type = @types[asset_type]?) && type.trait?(trait)
-        value = TraitKey.normalize(value) || value
+      if type = @types[asset_type]?
+        value = normalize_traits(type, {trait => value})[trait]? || value
       end
       @db.exec(<<-SQL, asset_type, trait, value).rows_affected
         UPDATE asset_tags SET custom = 0
@@ -1044,7 +1053,12 @@ module DataDungeon
         unless label.matches?(LABEL)
           raise ArgumentError.new("#{name}: label #{label.inspect} must be lowercase words joined by '-'")
         end
+        raise ArgumentError.new("#{name}: #{trait} is a set, which can't be labelled") if type.set?(trait)
       end
+      type.sets.each do |trait|
+        raise ArgumentError.new("#{name}: set #{trait} is not a pool trait") unless type.trait?(trait)
+      end
+      raise ArgumentError.new("#{name}: a set is listed twice") if type.sets.uniq.size != type.sets.size
     end
 
     # Normalized lookup values; raises on names that aren't the type's traits.
@@ -1060,7 +1074,7 @@ module DataDungeon
       tags.each do |key, value|
         if !type.trait?(key)
           normalized[key] = value
-        elsif normal = TraitKey.normalize(value)
+        elsif normal = (type.set?(key) ? TraitKey.normalize_set(value) : TraitKey.normalize(value))
           normalized[key] = normal
         end
       end
@@ -1069,7 +1083,7 @@ module DataDungeon
 
     private def stored_type(asset_type : String) : {AssetType, Int32}?
       @db.query_one?(
-        "SELECT asset_type, pool_traits, group_traits, labels, pool, key_scheme FROM asset_types WHERE asset_type = ?",
+        "SELECT asset_type, pool_traits, group_traits, labels, sets, pool, key_scheme FROM asset_types WHERE asset_type = ?",
         asset_type
       ) { |rs| read_type(rs) }
     end
@@ -1079,14 +1093,15 @@ module DataDungeon
       pool_traits = Array(String).from_json(rs.read(String))
       group_traits = Array(String).from_json(rs.read(String))
       labels = Hash(String, String).from_json(rs.read(String))
+      sets = Array(String).from_json(rs.read(String))
       pool = rs.read(Int32) != 0
-      {AssetType.new(name, pool_traits, group_traits, pool, labels), rs.read(Int32)}
+      {AssetType.new(name, pool_traits, group_traits, pool, labels, sets), rs.read(Int32)}
     end
 
     # Registrations made with an older key encoding are re-keyed on open.
     private def load_types : Nil
       rows = @db.query_all(
-        "SELECT asset_type, pool_traits, group_traits, labels, pool, key_scheme FROM asset_types"
+        "SELECT asset_type, pool_traits, group_traits, labels, sets, pool, key_scheme FROM asset_types"
       ) { |rs| read_type(rs) }
       rows.each do |type, scheme|
         unless scheme == TraitKey::SCHEME

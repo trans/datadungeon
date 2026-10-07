@@ -12,6 +12,7 @@ module DataDungeon
     SCHEME = 2 # 1 lacked the type prefix
 
     SEPARATOR = '.'
+    MEMBER    = ','
 
     # Keys are for matching, not display: Unicode case folding and NFC, with
     # runs of whitespace, dots and commas turned into a single `-`, so a value
@@ -20,6 +21,16 @@ module DataDungeon
       folded = value.unicode_normalize(:nfc).downcase(Unicode::CaseOptions::Fold).unicode_normalize(:nfc)
       words = folded.split(/[\s.,]+/, remove_empty: true)
       words.empty? ? nil : words.join("-")
+    end
+
+    # A set trait's value: its comma-separated members, each normalized,
+    # without duplicates, sorted and joined by commas
+    # (`"Troll dead, trapdoor open"` gives `trapdoor-open,troll-dead`). No
+    # member can contain a comma, since normalizing turns commas into `-`.
+    # An empty set is no value.
+    def self.normalize_set(value : String) : String?
+      members = value.split(MEMBER).compact_map { |member| normalize(member) }.uniq.sort
+      members.empty? ? nil : members.join(MEMBER)
     end
 
     # The key of `type`'s `traits` (in registration order) over normalized

@@ -54,6 +54,13 @@ describe DataDungeon::TraitKey do
     DataDungeon::TraitKey.prefix("hero", traits, values, 3, labels).should eq "hero.human.tan-skin.long-hair."
   end
 
+  it "normalizes a set: members normalized, deduplicated, sorted" do
+    DataDungeon::TraitKey.normalize_set("Troll dead, trapdoor open").should eq "trapdoor-open,troll-dead"
+    DataDungeon::TraitKey.normalize_set("sword, Lantern,  sword").should eq "lantern,sword"
+    DataDungeon::TraitKey.normalize_set("lantern").should eq "lantern"
+    DataDungeon::TraitKey.normalize_set(" , ,").should be_nil
+  end
+
   it "normalizes values for matching, never leaving a separator in them" do
     DataDungeon::TraitKey.normalize("  Giant\t APE ").should eq "giant-ape"
     DataDungeon::TraitKey.normalize("St. Bernard").should eq "st-bernard"
@@ -154,6 +161,79 @@ describe "DataDungeon::DB type registry" do
       db.find_pool("portrait.golden.pg").map(&.id).should eq [portrait.id]
       db.find_group("tile.golden.").map(&.id).should eq [tile.id]
     end
+  end
+
+  it "keys room pictures by state and items, finding a set seen before in any order" do
+    with_db("dd-reg-sets") do |db|
+      db.register_type("room", pool_traits: %w[room art_style rating state items],
+        group_traits: %w[room art_style rating], labels: {"room" => "room"},
+        sets: %w[state items], pool: true)
+      scene = ->(state : String?, items : String?) do
+        traits = {"room" => "17", "art_style" => "golden", "rating" => "pg"}
+        traits["state"] = state if state
+        traits["items"] = items if items
+        traits
+      end
+      bare = db.store("room", scene.call("troll dead", nil), bytes: "a".to_slice, content_type: "image/webp")
+      lantern = db.store("room", scene.call("troll dead", "Lantern"), bytes: "b".to_slice, content_type: "image/webp")
+      both = db.store("room", scene.call("Troll dead", "sword, lantern"), bytes: "c".to_slice, content_type: "image/webp")
+      alive = db.store("room", scene.call("troll alive", "lantern"), bytes: "d".to_slice, content_type: "image/webp")
+
+      bare.pool_key.should eq "room.17-room.golden.pg.troll-dead."
+      lantern.pool_key.should eq "room.17-room.golden.pg.troll-dead.lantern"
+      both.pool_key.should eq "room.17-room.golden.pg.troll-dead.lantern,sword"
+      db.load_tags(both.id)["items"].should eq "lantern,sword"
+
+      # Picking things up and dropping them again finds what was drawn before.
+      db.find_pool("room", scene.call("troll dead", nil)).map(&.id).should eq [bare.id]
+      db.find_pool("room", scene.call("troll dead", "LANTERN, Sword")).map(&.id).should eq [both.id]
+      db.find_pool("room", scene.call("troll dead", "sword")).should be_empty # never drawn
+
+      # This room in this state, whatever is lying around.
+      db.find_group("room", scene.call("troll dead", nil), 4).map(&.id).should eq [bare.id, lantern.id, both.id]
+      db.find_pool("room", scene.call("troll dead", "sword"), custom: %w[items]).map(&.id)
+        .should eq [bare.id, lantern.id, both.id]
+      db.find_assets_by_tags("room", {"items" => "sword,lantern"}).map(&.id).should eq [both.id]
+      db.find_group("room", scene.call(nil, nil)).map(&.id).should eq [bare.id, lantern.id, both.id, alive.id]
+    end
+  end
+
+  it "rejects malformed sets and keeps them across reopening" do
+    with_db("dd-reg-sets-invalid") do |db, dir|
+      expect_raises(ArgumentError, /not a pool trait/) { db.register_type("t", pool_traits: %w[room], sets: %w[items]) }
+      expect_raises(ArgumentError, /can't be labelled/) do
+        db.register_type("t", pool_traits: %w[items], labels: {"items" => "item"}, sets: %w[items])
+      end
+      db.register_type("room", pool_traits: %w[room items], sets: %w[items], pool: true)
+      db.close
+      reopened = open_db(dir)
+      begin
+        reopened.registration("room").not_nil!.sets.should eq %w[items]
+        reopened.store("room", {"room" => "1", "items" => "b, a"}, bytes: "x".to_slice, content_type: "image/webp")
+          .pool_key.should eq "room.1.a,b"
+      ensure
+        reopened.close
+      end
+    end
+  end
+
+  it "upgrades a registry table that predates sets" do
+    dir = File.tempname("dd-reg-sets-upgrade")
+    Dir.mkdir_p(dir)
+    raw = ::DB.open("sqlite3://#{File.join(dir, "assets.db")}")
+    raw.exec(DataDungeon::DB::ASSET_TYPES_SCHEMA.lines.reject(&.includes?("sets")).join)
+    raw.exec(%(INSERT INTO asset_types (asset_type, pool_traits, group_traits, labels, pool, key_scheme)
+               VALUES ('voice', '["bit","voice"]', '[]', '{}', 0, #{DataDungeon::TraitKey::SCHEME})))
+    raw.close
+
+    db = open_db(dir)
+    db.registration("voice").not_nil!.sets.should be_empty
+    db.store("voice", {"bit" => "b1", "voice" => "fable"}, bytes: "v".to_slice, content_type: "audio/mpeg")
+      .pool_key.should eq "voice.b1.fable"
+  ensure
+    raw.try(&.close)
+    db.try(&.close)
+    FileUtils.rm_rf(dir) if dir
   end
 
   it "keeps one best asset per key for a single-best type" do
