@@ -68,6 +68,14 @@ describe DataDungeon::TraitKey do
     DataDungeon::TraitKey.normalize("Straße").should eq "strasse"
     DataDungeon::TraitKey.normalize("e\u0301lan").should eq "élan" # composed form
     DataDungeon::TraitKey.normalize(" ., ").should be_nil
+    DataDungeon::TraitKey.normalize("Zork III: The Dungeon Master").should eq "zork-iii-the-dungeon-master"
+    DataDungeon::TraitKey.normalize("Zork III \u2013 The Dungeon Master").should eq "zork-iii-the-dungeon-master"
+    DataDungeon::TraitKey.normalize("Dragon's Lair").should eq "dragons-lair"
+    DataDungeon::TraitKey.normalize("Dragon\u2019s Lair").should eq "dragons-lair"
+    DataDungeon::TraitKey.normalize("#FF0000").should eq "ff0000"
+    DataDungeon::TraitKey.normalize("so_very!").should eq "so-very"
+    DataDungeon::TraitKey.normalize("東京 タワー").should eq "東京-タワー"
+    DataDungeon::TraitKey.normalize("!?!").should be_nil
   end
 end
 

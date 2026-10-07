@@ -24,8 +24,10 @@ match (`portrait.golden.pg.f.`), one index range scan, at any depth.
 
 Keys are canonical: every trait is present, in the registered order, with an
 empty segment for a trait the asset lacks (`portrait.golden.pg..human`). Values are
-normalized for matching (Unicode case folding, NFC, and runs of spaces or dots
-turned into `-`), and the stored trait tags are normalized the same way, so a
+normalized for matching (Unicode case folding and NFC; letters and digits
+kept, apostrophes dropped, and every other run of punctuation, symbols or
+spaces turned into `-`, so `Zork III: The Dungeon Master` becomes
+`zork-iii-the-dungeon-master`), and the stored trait tags are normalized the same way, so a
 value never contains a dot. `labels` add a suffix to traits whose values alone
 would read ambiguously, such as several colours (`tan-skin`, `red-hair`).
 Normalization can't make different words equal, so the application must spell

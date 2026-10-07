@@ -9,19 +9,24 @@ module DataDungeon
   # whose leading traits are equal.
   module TraitKey
     # Recorded with each registered type; changing the format re-derives keys.
-    SCHEME = 2 # 1 lacked the type prefix
+    SCHEME = 3 # 1 lacked the type prefix; 2 kept punctuation other than "." and ","
 
     SEPARATOR = '.'
     MEMBER    = ','
 
-    # Keys are for matching, not display: Unicode case folding and NFC, with
-    # runs of whitespace, dots and commas turned into a single `-`, so a value
-    # never contains the separator. A blank value is no value.
+    # Keys are for matching, not display: Unicode case folding and NFC, then
+    # letters and digits (in any script) kept, apostrophes dropped, and every
+    # other run of punctuation, symbols or space turned into a single `-`.
+    # `"Zork III: The Dungeon Master"` gives `zork-iii-the-dungeon-master`,
+    # and a value never contains a separator. A value with no letters or
+    # digits is no value.
     def self.normalize(value : String) : String?
       folded = value.unicode_normalize(:nfc).downcase(Unicode::CaseOptions::Fold).unicode_normalize(:nfc)
-      words = folded.split(/[\s.,]+/, remove_empty: true)
+      words = folded.gsub(APOSTROPHES, "").split(/[^\p{L}\p{M}\p{N}]+/, remove_empty: true)
       words.empty? ? nil : words.join("-")
     end
+
+    APOSTROPHES = /['\x{2019}\x{02BC}]/ # ' ’ ʼ: "Dragon's" reads as "dragons"
 
     # A set trait's value: its comma-separated members, each normalized,
     # without duplicates, sorted and joined by commas
