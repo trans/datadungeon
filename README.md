@@ -171,8 +171,9 @@ pool rather than of the catalogue, and Memo ranks that set exactly.
 Once attached, storing an asset queues it for embedding; deleting an asset
 removes its Memo entry. Changes to the description or selected tags are
 re-embedded by the worker. Until that worker runs, search may still use the
-previous embedding. `process_queue` saves the index through Memo, which also keeps every
-vector in the database: after a crash or a lost index file, Memo replays or
+previous embedding. Memo saves the index file on its own policy (after many unsaved changes or a
+few minutes) and when the database closes, and it also keeps every vector in
+the database: after a crash or a lost index file, Memo replays or
 rebuilds the index when it opens, without embedding anything again. `backfill`
 queues assets that were never embedded, such as those stored before the index
 was attached; it is safe to repeat. An asset with

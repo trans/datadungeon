@@ -113,11 +113,12 @@ module DataDungeon
     end
 
     # Run from a single background worker; Memo owns retries and the queue.
-    # Saving through Memo checkpoints its journal, so a restart replays only
-    # what came after.
+    # Memo saves the index file on its own policy (after many unsaved changes
+    # or a few minutes) and on close; until then its journal covers a crash,
+    # so saving after every batch would only rewrite the file needlessly.
     def process_queue : Int32
       processed = @memo.process_queue
-      @memo.save_index if processed > 0
+      @memo.save_index_if_due
       processed
     end
 

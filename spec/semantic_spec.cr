@@ -151,9 +151,9 @@ describe DataDungeon::SemanticIndex do
       description: "A castle on a hill")
     index.process_queue.should eq 1
     path = index.memo.index_path
-    File.exists?(path).should be_true
-    db.close
+    db.close # saves the index, whatever Memo's save policy had scheduled
     closed = true
+    File.exists?(path).should be_true
 
     # Memo keeps each vector in the database and rebuilds a missing index
     # file from them on open, so nothing needs embedding again.
