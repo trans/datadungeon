@@ -105,8 +105,10 @@ registration.
 
 For a single-best type, `get(asset_type, traits)` and
 `get_with_meta(asset_type, traits)` return the one asset for those traits. The
-registration is stored in the database; registering a type again with a
-different definition re-derives the keys of its assets from their tags. If two
+registration is stored in the database. Registering a type again with the
+same definition changes nothing; a different definition raises unless given
+`rekey: true`, which re-derives the keys of its assets from their tags. A
+store shared by several applications should register its types in one place. If two
 assets of a single-best type then share a key, the most recently used keeps it.
 
 An unregistered type may still pass an explicit `pool_key` (formerly
@@ -180,9 +182,29 @@ Run the specs with `crystal spec`. The S3 specs need a server:
 
 `asset_types` lists every type with its asset count; `tag_keys(type)` a
 type's tag names and `tag_values(type, key)` one tag's values, each with a
-count; `list_assets(type, tags, limit, offset)` a page of assets, newest
-first. `update_asset(id, tags:, description:, flagged:, rating:)` edits an
-asset in place without storing its bytes again. Opening with
+count. `list_assets` gives a page of assets, newest first, of one type or of
+all, filtered by tags, links and search words. `offset` numbers pages (about
+2 ms to skip 100,000 assets); to walk through them all, pass the last
+asset's id as `before` for the next page. `count_assets` counts them all:
+
+```crystal
+db.list_assets("prop", {"venue" => "boardwalk"})
+db.list_assets(q: "cattacula night")          # the type or tag values (or parts), any order
+db.list_assets(q: "catt* night")              # catt* matches the start of a word
+db.list_assets(q: "red-hair")                 # a labelled trait, only as keys spell it
+db.list_assets(links: {"used-by" => "boardwalk"}, limit: 50, before: last_id)
+db.list_assets("prop", unlinked: "used-by")   # what nothing uses
+```
+
+Search words come from a full-text index (SQLite FTS5) of each asset's type
+and tag values, kept current as assets change. `update_asset(id, tags:,
+description:, flagged:, rating:)` edits an asset in place without storing
+its bytes again.
+
+`link(from, rel, to)` relates an asset to another asset (`derived-from`,
+`supersedes`) or to a name (`used-by`, `"boardwalk"`), outside its key, so
+the link can change freely. `links_from` and `links_to` list them; they go
+when either asset is deleted. Opening with
 `DB.new(path, storage, read_only: true)` changes nothing: no schema setup, no
 re-keying, writes refused by DataDungeon (`ReadOnlyError`) and by SQLite.
 
@@ -204,10 +226,11 @@ HTTP::Server.new([api, app_handler])
 |---|---|
 | `GET /types` | types, counts and registrations |
 | `GET /types/:type/tags[/:key]` | tag names, or one tag's values, with counts |
-| `GET /assets?type=&tag.<key>=&limit=&offset=` | a page of assets with their tags |
-| `GET /assets/:id`, `/assets/:id/object` | an asset with its tags and metadata; its bytes |
+| `GET /assets?type=&q=&tag.<key>=&link.<rel>=&unlinked=&limit=&page=&before=&count=1` | a page of assets with their tags, and `next` |
+| `GET /assets/:id`, `/assets/:id/object`, `/assets/:id/links` | an asset with its tags, metadata and links; its bytes; its links |
 | `POST /maintenance/check` | the consistency report |
 | `PATCH`, `DELETE /assets/:id` | edit or delete (write token) |
+| `POST`, `DELETE /assets/:id/links` | link or unlink (write token) |
 | `POST /types/:type/promote`, `/maintenance/vacuum` | (write token) |
 
 ## Semantic asset search

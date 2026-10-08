@@ -56,11 +56,20 @@ describe DataDungeon::API do
       store_backdrop(db, "silver", "b")
       c = store_backdrop(db, "golden", "c")
 
-      page = json(call(api, "GET", "/dd/assets?type=backdrop&tag.art-style=Golden&limit=1", "r"))
+      page = json(call(api, "GET", "/dd/assets?type=backdrop&tag.art-style=Golden&limit=1&count=1", "r"))
       page["total"].should eq 2
       page["assets"].as_a.map(&.["asset"]["id"]).should eq [c.id]
       page["assets"][0]["tags"]["art-style"].should eq "golden"
-      json(call(api, "GET", "/dd/assets?type=backdrop&tag.art-style=golden&limit=1&offset=1", "r"))["assets"][0]["asset"]["id"].should eq a.id
+      page["next"].should eq c.id
+      last = json(call(api, "GET", "/dd/assets?type=backdrop&tag.art-style=golden&limit=1&before=#{c.id}", "r"))
+      last["assets"][0]["asset"]["id"].should eq a.id
+      last["total"].raw.should be_nil # counted only on request
+      second = json(call(api, "GET", "/dd/assets?type=backdrop&limit=2&page=2", "r"))
+      second["page"].should eq 2
+      second["assets"].as_a.map(&.["asset"]["id"]).should eq [a.id]
+      call(api, "GET", "/dd/assets?page=0", "r").status_code.should eq 400
+      json(call(api, "GET", "/dd/assets?q=golden&limit=5", "r"))["next"].raw.should be_nil
+      json(call(api, "GET", "/dd/assets?q=silv*", "r"))["assets"].size.should eq 1
 
       shown = json(call(api, "GET", "/dd/assets/#{a.id}", "r"))
       shown["asset"]["pool_key"].should eq "backdrop.golden.pg"
@@ -72,8 +81,26 @@ describe DataDungeon::API do
       db.find_asset_by_id(a.id).not_nil!.use_count.should eq 0 # browsing doesn't count as use
 
       call(api, "GET", "/dd/assets/999", "r").status_code.should eq 404
-      call(api, "GET", "/dd/assets", "r").status_code.should eq 400 # no type
+      json(call(api, "GET", "/dd/assets", "r"))["assets"].size.should eq 3 # every type
+      call(api, "GET", "/dd/assets?before=x", "r").status_code.should eq 400
       call(api, "GET", "/dd/assets?type=backdrop&limit=9999", "r").status_code.should eq 400
+    end
+  end
+
+  it "links and unlinks with the write token, and shows links" do
+    with_api("dd-api-links") do |api, db|
+      a = store_backdrop(db, "golden", "a")
+      b = store_backdrop(db, "silver", "b")
+      call(api, "POST", "/dd/assets/#{a.id}/links", "r", {rel: "used-by", name: "boardwalk"}).status_code.should eq 403
+      json(call(api, "POST", "/dd/assets/#{a.id}/links", "w", {rel: "used-by", name: "boardwalk"}))["from"][0]["to_name"].should eq "boardwalk"
+      call(api, "POST", "/dd/assets/#{b.id}/links", "w", {rel: "derived-from", to: a.id}).status_code.should eq 200
+      call(api, "POST", "/dd/assets/#{b.id}/links", "w", {rel: "derived-from", to: a.id, name: "x"}).status_code.should eq 400
+
+      json(call(api, "GET", "/dd/assets/#{a.id}", "r"))["links"]["to"][0]["from_id"].should eq b.id
+      json(call(api, "GET", "/dd/assets?link.used-by=boardwalk", "r"))["assets"].as_a.map(&.["asset"]["id"]).should eq [a.id]
+      json(call(api, "GET", "/dd/assets?unlinked=used-by", "r"))["assets"].as_a.map(&.["asset"]["id"]).should eq [b.id]
+      json(call(api, "DELETE", "/dd/assets/#{a.id}/links?rel=used-by&name=boardwalk", "w"))["removed"].should be_true
+      json(call(api, "GET", "/dd/assets/#{a.id}/links", "r"))["from"].as_a.should be_empty
     end
   end
 

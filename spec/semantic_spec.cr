@@ -216,7 +216,7 @@ describe DataDungeon::SemanticIndex do
 
     # Dropping a facet removes its sources at the next backfill.
     db.register_type("hero", pool_traits: %w[race hair_color], pool: true,
-      facets: {"identity" => %w[race skin]})
+      facets: {"identity" => %w[race skin]}, rekey: true)
     index.backfill
     text.call("hero.hair", elf.id).should be_nil
     text.call("hero.identity", elf.id).should eq "race: elf\nskin: pale"

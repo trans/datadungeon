@@ -131,6 +131,21 @@ module DataDungeon
   # Divergence between the index and the backend can go two ways; this reports
   # both. When produced by `vacuum`, the entries are what was found *and* acted
   # on per the flags passed.
+  # A relation from one asset to another asset (`to_id`) or to a name
+  # (`to_name`): see DB#link.
+  struct Link
+    include JSON::Serializable
+
+    getter from_id : Int64
+    getter rel : String
+    getter to_id : Int64?
+    getter to_name : String?
+    getter created_at : String
+
+    def initialize(@from_id : Int64, @rel : String, @to_id : Int64?, @to_name : String?, @created_at : String)
+    end
+  end
+
   struct ConsistencyReport
     include JSON::Serializable
 

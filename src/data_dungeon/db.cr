@@ -129,9 +129,59 @@ module DataDungeon
         ON asset_tags(asset_type, tag_key, tag_value)
     SQL
 
+    # Tag filters across all types.
+    ASSET_TAGS_KV_INDEX = <<-SQL
+      CREATE INDEX IF NOT EXISTS idx_tags_key_value
+        ON asset_tags(tag_key, tag_value)
+    SQL
+
     # One row per registered asset type. Trait lists are JSON arrays in
     # registration order, labels and facets JSON objects, sets a JSON array;
     # key_scheme records the TraitKey format the stored keys were made with.
+    # Relations from an asset to another asset (`derived-from`, `supersedes`)
+    # or to a name (`used-by` "boardwalk"). Exactly one target is set; links
+    # go when either asset is deleted.
+    ASSET_LINKS_SCHEMA = <<-SQL
+      CREATE TABLE IF NOT EXISTS asset_links (
+        from_id    INTEGER NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+        rel        TEXT NOT NULL,
+        to_id      INTEGER REFERENCES assets(id) ON DELETE CASCADE,
+        to_name    TEXT,
+        created_at TEXT NOT NULL,
+        CHECK ((to_id IS NULL) <> (to_name IS NULL))
+      )
+    SQL
+
+    # Each way round: an asset's links (and linking twice changing nothing),
+    # what links to an asset, and the assets linked to a name.
+    ASSET_LINKS_INDEXES = <<-SQL
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_links_from
+        ON asset_links(from_id, rel, ifnull(to_id, 0), ifnull(to_name, ''));
+      CREATE INDEX IF NOT EXISTS idx_links_to_asset
+        ON asset_links(to_id, rel);
+      CREATE INDEX IF NOT EXISTS idx_links_to_name
+        ON asset_links(rel, to_name, from_id)
+    SQL
+
+    # Each asset's type and tag values as words, for `list_assets(q:)`:
+    # lowercase, with dashes and underscores inside a word (`red-hair`) and a
+    # word's parts listed too, so `house` finds `west-of-house`. Diacritics
+    # are kept, so the index and a walk through the words match alike.
+    ASSET_SEARCH_SCHEMA = <<-SQL
+      CREATE VIRTUAL TABLE IF NOT EXISTS asset_search
+        USING fts5(words, tokenize = "unicode61 tokenchars '-_' remove_diacritics 0")
+    SQL
+
+    # How many assets have each word, kept with the index so a search can
+    # tell a common word from a rare one without reading its matches. The
+    # empty word counts every indexed asset.
+    ASSET_SEARCH_TERMS_SCHEMA = <<-SQL
+      CREATE TABLE IF NOT EXISTS asset_search_terms (
+        term TEXT PRIMARY KEY,
+        docs INTEGER NOT NULL
+      ) WITHOUT ROWID
+    SQL
+
     ASSET_TYPES_SCHEMA = <<-SQL
       CREATE TABLE IF NOT EXISTS asset_types (
         asset_type   TEXT PRIMARY KEY,
@@ -213,6 +263,7 @@ module DataDungeon
       # rebuilding the assets table would otherwise cascade-delete every tag
       # and sidecar row; the pragma only changes outside a transaction.
       rebuilt = false
+      search_missing = false
       @db.using_connection do |conn|
         conn.exec("PRAGMA foreign_keys=OFF")
         begin
@@ -240,6 +291,12 @@ module DataDungeon
             conn.exec(AUDIO_META_SCHEMA)
             conn.exec(VIDEO_META_SCHEMA)
             conn.exec(TEXT_META_SCHEMA)
+            conn.exec(ASSET_TAGS_KV_INDEX)
+            conn.exec(ASSET_LINKS_SCHEMA)
+            ASSET_LINKS_INDEXES.split(";").each { |sql| conn.exec(sql.strip) unless sql.strip.empty? }
+            search_missing = table_columns(conn, "asset_search").empty?
+            conn.exec(ASSET_SEARCH_SCHEMA)
+            conn.exec(ASSET_SEARCH_TERMS_SCHEMA)
           end
         ensure
           conn.exec("PRAGMA foreign_keys=ON")
@@ -250,6 +307,11 @@ module DataDungeon
         end
       end
       load_types
+      # A database from before search gets its words once; labels come from
+      # the registrations, so after load_types.
+      if search_missing
+        write_transaction { |conn| index_search(conn, conn.query_all("SELECT id FROM assets", as: Int64)) }
+      end
     end
 
     # A read-only open uses the schema as it is, so it must be the one
@@ -262,7 +324,7 @@ module DataDungeon
         current = assets["pool_key"]? == 0 && assets.has_key?("description") && assets.has_key?("generated") &&
                   !unique_file_path?(conn) && tags.has_key?("custom") && tags.has_key?("asset_type") &&
                   types.has_key?("sets") && types.has_key?("facets") &&
-                  %w[image_meta audio_meta video_meta text_meta].none? { |table| table_columns(conn, table).empty? }
+                  %w[image_meta audio_meta video_meta text_meta asset_links asset_search asset_search_terms].none? { |table| table_columns(conn, table).empty? }
         raise ReadOnlyError.new("The database needs upgrading: open it read-write once first") unless current
       end
     end
@@ -463,6 +525,7 @@ module DataDungeon
               asset_id, asset_type, k, v, custom.includes?(k) ? 1 : 0
             )
           end
+          index_search(conn, [asset_id])
 
           # Store media-specific metadata
           if im = image
@@ -699,7 +762,10 @@ module DataDungeon
           conn.exec("UPDATE assets SET description = ? WHERE id = ?", description, id) unless description.nil?
           conn.exec("UPDATE assets SET flagged = ? WHERE id = ?", flagged ? 1 : 0, id) unless flagged.nil?
           conn.exec("UPDATE assets SET rating = ? WHERE id = ?", rating, id) unless rating.nil?
-          replace_tags(conn, rec, tags) if tags
+          if tags
+            replace_tags(conn, rec, tags)
+            index_search(conn, [id])
+          end
         end
       end
       @indexer.try(&.enqueue_asset(id))
@@ -1018,23 +1084,221 @@ module DataDungeon
       counts
     end
 
-    # A page of a type's assets carrying every one of these tags (all of
-    # them with no tags), newest first. `count_pool_assets` counts them.
-    def list_assets(asset_type : String, tags : Hash(String, String) = {} of String => String,
-                    limit : Int32 = 50, offset : Int32 = 0) : Array(AssetRecord)
-      tags = normalize_tags(asset_type, tags)
-      from, where, args =
-        if tags.empty?
-          {"assets a", "a.asset_type = ?", [asset_type] of ::DB::Any}
-        else
-          tag_filter(asset_type, tags) || return [] of AssetRecord
-        end
+    # A page of assets, newest first: of one type or of all, carrying every
+    # one of `tags` (normalized for a registered type), matching every word
+    # of `q`, linked by each relation in `links` to its name, and with no
+    # `unlinked` link. Each word of `q` is the type or a tag value (or a part
+    # of one), in any order, as in a search box: `cattacula night` finds
+    # `front.boardwalk.cattacula.night`; `catt*` matches the start of a
+    # word; and `red-hair` matches only a labelled trait spelled that way. Skip `offset` assets for a numbered
+    # page (it costs a little per asset skipped: about 2 ms for 100,000), or,
+    # to walk through them all, pass the last asset's id as `before` for the
+    # next page. `count_assets` counts them all.
+    def list_assets(asset_type : String? = nil, tags : Hash(String, String) = {} of String => String, *,
+                    q : String? = nil, links : Hash(String, String) = {} of String => String,
+                    unlinked : String? = nil, limit : Int32 = 50, offset : Int32 = 0,
+                    before : Int64? = nil) : Array(AssetRecord)
+      from, where, args, order = asset_filter(asset_type, tags, q, links, unlinked, limit + offset) || return [] of AssetRecord
+      if before
+        where += " AND #{order} < ?"
+        args << before
+      end
       results = [] of AssetRecord
-      @db.query("SELECT a.* FROM #{from} WHERE #{where} ORDER BY a.id DESC LIMIT ? OFFSET ?",
+      @db.query("SELECT a.* FROM #{from} WHERE #{where} ORDER BY #{order} DESC LIMIT ? OFFSET ?",
         args: args + [limit, offset] of ::DB::Any) do |rs|
         rs.each { results << read_asset_record(rs) }
       end
       results
+    end
+
+    # How many assets `list_assets` would list with these filters, on every
+    # page. It reads every match, so ask only when the total is wanted.
+    def count_assets(asset_type : String? = nil, tags : Hash(String, String) = {} of String => String, *,
+                     q : String? = nil, links : Hash(String, String) = {} of String => String,
+                     unlinked : String? = nil) : Int64
+      from, where, args, _ = asset_filter(asset_type, tags, q, links, unlinked, nil) || return 0_i64
+      @db.scalar("SELECT COUNT(*) FROM #{from} WHERE #{where}", args: args).as(Int64)
+    end
+
+    # The FROM, WHERE, arguments and ordering column for list_assets, which
+    # wants `reach` assets (its limit and offset), or count_assets (nil).
+    #
+    # Search words are found whichever of three ways costs least, judged by
+    # how many assets have each word:
+    # - the full-text index finds every asset with each word, so its cost
+    #   grows with how many have them (about 22 ns each);
+    # - the index finds only the rarest word, and the others are checked on
+    #   those assets (about 0.46 us each), for a rare word among common ones;
+    # - walking the newest assets and checking their words stops once the
+    #   page is full, so its cost grows with how rare the words are together
+    #   (about 0.44 us an asset), not with the store: for common words.
+    # Counting every match never walks.
+    private def asset_filter(asset_type : String?, tags : Hash(String, String), q : String?,
+                             links : Hash(String, String), unlinked : String?,
+                             reach : Int32?) : {String, String, Array(::DB::Any), String}?
+      tags = normalize_tags(asset_type, tags) if asset_type
+      clauses = [] of String
+      args = [] of ::DB::Any
+      from, order, id = "assets a", "a.id", "a.id"
+      words = search_terms(q)
+      unless words.empty?
+        route, rarest = search_route(words, reach)
+        if route.walk?
+          from = "assets a CROSS JOIN asset_search s"
+          clauses << "s.rowid = a.id"
+        else
+          from, order = "asset_search s CROSS JOIN assets a", "s.rowid"
+          clauses << "asset_search MATCH ? AND a.id = s.rowid"
+          found = route.rarest? ? [rarest] : words
+          args << found.map { |word| %("#{word.text}"#{"*" if word.prefix}) }.join(" ")
+        end
+        checked = case route
+                  in .walk?   then words
+                  in .rarest? then words - [rarest]
+                  in .index?  then [] of SearchWord
+                  end
+        checked.each do |word|
+          clauses << "(' ' || s.words || ' ') LIKE ? ESCAPE '\\'"
+          escaped = word.text.gsub("\\", "\\\\").gsub("%", "\\%").gsub("_", "\\_")
+          args << "% #{escaped}#{word.prefix ? "%" : " %"}"
+        end
+      end
+      if asset_type && !tags.empty? && words.empty?
+        tag_from, tag_where, tag_args = tag_filter(asset_type, tags) || return nil
+        from = tag_from
+        clauses << tag_where
+        args.concat(tag_args)
+      else
+        if asset_type
+          clauses << "a.asset_type = ?"
+          args << asset_type
+        end
+        tags.each do |key, value|
+          clauses << "EXISTS (SELECT 1 FROM asset_tags t WHERE t.asset_id = #{id} AND t.tag_key = ? AND t.tag_value = ?)"
+          args << key << value
+        end
+      end
+      links.each do |rel, name|
+        clauses << "#{id} IN (SELECT from_id FROM asset_links WHERE rel = ? AND to_name = ?)"
+        args << rel << name
+      end
+      if rel = unlinked
+        clauses << "NOT EXISTS (SELECT 1 FROM asset_links l WHERE l.from_id = #{id} AND l.rel = ?)"
+        args << rel
+      end
+      clauses << "1 = 1" if clauses.empty?
+      {from, clauses.join(" AND "), args, order}
+    end
+
+    WALK_COST  =  0.44 # microseconds to check one asset's words on a walk
+    INDEX_COST = 0.022 # microseconds per match the full-text index reads
+
+    # A search-box word: a whole word to find, or with `prefix` (typed as
+    # `catt*`) the start of one.
+    record SearchWord, text : String, prefix : Bool
+
+    # Search-box words, as the index holds them: lowercase, and split at
+    # anything but letters, digits, dashes and underscores (so at spaces,
+    # dots and quotes). A word ending in `*` matches the start of a word.
+    private def search_terms(q : String?) : Array(SearchWord)
+      words = (q || "").split(/[\s.]+/, remove_empty: true).flat_map do |typed|
+        parts = search_text(typed).split(' ', remove_empty: true)
+        parts.map_with_index { |part, i| SearchWord.new(part, typed.ends_with?('*') && i == parts.size - 1) }
+      end
+      words.uniq
+    end
+
+    private def search_text(text : String) : String
+      text.downcase.gsub { |char| char.alphanumeric? || char == '-' || char == '_' ? char : ' ' }
+    end
+
+    CHECK_COST = 0.46 # microseconds to read and check an asset found by its rarest word
+
+    enum SearchRoute
+      Index  # every word from the full-text index
+      Rarest # the rarest word from the index, the others checked
+      Walk   # the newest assets, checked
+    end
+
+    # The cheapest route to `reach` matches (nil: all of them) for these
+    # words, and the rarest word, from how many assets have each word
+    # (taken as independent; the start of a word counts every word it starts).
+    private def search_route(words : Array(SearchWord), reach : Int32?) : {SearchRoute, SearchWord}
+      total = @db.query_one?("SELECT docs FROM asset_search_terms WHERE term = ''", as: Int64) || 0_i64
+      counts = words.map do |word|
+        docs = if word.prefix
+                 @db.scalar("SELECT ifnull(sum(docs), 0) FROM asset_search_terms WHERE term >= ? AND term < ?",
+                   word.text, word.text.rchop + word.text[-1].succ).as(Int64)
+               else
+                 @db.query_one?("SELECT docs FROM asset_search_terms WHERE term = ?", word.text, as: Int64) || 0_i64
+               end
+        {word, docs}
+      end
+      rarest, fewest = counts.min_by(&.[1])
+      costs = {SearchRoute::Index => counts.sum(&.[1]) * INDEX_COST}
+      costs[SearchRoute::Rarest] = fewest * (INDEX_COST + CHECK_COST) if words.size > 1
+      if reach && total > 0
+        share = counts.product(1.0) { |(_, docs)| Math.min(1.0, docs / total) }
+        costs[SearchRoute::Walk] = reach / share * WALK_COST if share > 0
+      end
+      {costs.min_by(&.[1])[0], rarest}
+    end
+
+    # Refresh the search words of these assets (or drop them, for assets
+    # gone), and the counts of their words. Run inside the write that
+    # changed them.
+    private def index_search(conn, ids : Array(Int64)) : Nil
+      ids.each_slice(500) do |batch|
+        types = {} of Int64 => String
+        conn.query("SELECT id, asset_type FROM assets WHERE id IN (#{batch.join(", ")})") do |rs|
+          rs.each { types[rs.read(Int64)] = rs.read(String) }
+        end
+        tags = tags_batch(conn, batch)
+        batch.each do |id|
+          unindex_search(conn, id)
+          next unless type = types[id]?
+          words = search_words(type, tags[id]? || {} of String => String)
+          conn.exec("INSERT INTO asset_search (rowid, words) VALUES (?, ?)", id, words)
+          count_terms(conn, words, 1)
+        end
+      end
+    end
+
+    private def unindex_search(conn, id : Int64) : Nil
+      words = conn.query_one?("SELECT words FROM asset_search WHERE rowid = ?", id, as: String)
+      return unless words
+      conn.exec("DELETE FROM asset_search WHERE rowid = ?", id)
+      count_terms(conn, words, -1)
+    end
+
+    # Add `by` to the count of each of these words, and of every asset ('').
+    private def count_terms(conn, words : String, by : Int32) : Nil
+      ([""] + words.split(' ', remove_empty: true).uniq).each do |term|
+        conn.exec("INSERT INTO asset_search_terms (term, docs) VALUES (?, ?) " \
+                  "ON CONFLICT(term) DO UPDATE SET docs = docs + excluded.docs", term, by)
+      end
+      conn.exec("DELETE FROM asset_search_terms WHERE docs <= 0 AND term <> ''") if by < 0
+    end
+
+    private def index_type_search(conn, asset_type : String) : Nil
+      index_search(conn, conn.query_all("SELECT id FROM assets WHERE asset_type = ?", asset_type, as: Int64))
+    end
+
+    # The type and every tag value, each with its parts, and a labelled
+    # trait also as keys spell it (`red-hair`).
+    private def search_words(asset_type : String, tags : Hash(String, String)) : String
+      labels = @types[asset_type]?.try(&.labels) || {} of String => String
+      words = word_and_parts(asset_type)
+      tags.each do |key, value|
+        words.concat(word_and_parts(value))
+        labels[key]?.try { |label| words << "#{value}-#{label}" }
+      end
+      search_text(words.join(" ")).split(' ', remove_empty: true).uniq.join(" ")
+    end
+
+    private def word_and_parts(text : String) : Array(String)
+      parts = text.split(/[-_]/, remove_empty: true)
+      parts.size > 1 ? [text] + parts : [text]
     end
 
     def asset_exists?(asset_type : String, pool_key : String) : Bool
@@ -1043,6 +1307,56 @@ module DataDungeon
         asset_type, pool_key
       )
       result.as(Int64) > 0
+    end
+
+    # ── Links ──
+
+    # Relate an asset to another asset (`derived-from`, `supersedes`) or to a
+    # name (`used-by`, "boardwalk"). Relations are lowercase words joined by
+    # '-'. Linking twice changes nothing; links go when either asset does.
+    def link(from_id : Int64, rel : String, to : Int64 | String) : Nil
+      writable!
+      raise ArgumentError.new("relation #{rel.inspect} must be lowercase words joined by '-'") unless rel.matches?(LABEL)
+      raise ArgumentError.new("No asset #{from_id}") unless find_asset_by_id(from_id)
+      case to
+      in Int64
+        raise ArgumentError.new("No asset #{to}") unless find_asset_by_id(to)
+      in String
+        raise ArgumentError.new("a link's name must not be empty") if to.strip.empty?
+      end
+      write_transaction do |conn|
+        conn.exec("INSERT OR IGNORE INTO asset_links (from_id, rel, to_id, to_name, created_at) VALUES (?, ?, ?, ?, ?)",
+          from_id, rel, to.as?(Int64), to.as?(String), Time.utc.to_s(TIME_FORMAT))
+      end
+    end
+
+    # Remove a link; returns whether there was one.
+    def unlink(from_id : Int64, rel : String, to : Int64 | String) : Bool
+      writable!
+      write_transaction do |conn|
+        conn.exec(<<-SQL, from_id, rel, to.as?(Int64) || 0_i64, to.as?(String) || "").rows_affected > 0
+          DELETE FROM asset_links
+          WHERE from_id = ? AND rel = ? AND ifnull(to_id, 0) = ? AND ifnull(to_name, '') = ?
+        SQL
+      end
+    end
+
+    # An asset's links, of one relation or of all.
+    def links_from(id : Int64, rel : String? = nil) : Array(Link)
+      query_links("from_id = ?#{" AND rel = ?" if rel}", rel ? [id, rel] of ::DB::Any : [id] of ::DB::Any)
+    end
+
+    # The links to an asset, or to a name, of one relation or of all.
+    def links_to(to : Int64 | String, rel : String? = nil) : Array(Link)
+      column = to.is_a?(Int64) ? "to_id" : "to_name"
+      query_links("#{column} = ?#{" AND rel = ?" if rel}", rel ? [to, rel] of ::DB::Any : [to] of ::DB::Any)
+    end
+
+    private def query_links(where : String, args : Array(::DB::Any)) : Array(Link)
+      @db.query_all("SELECT from_id, rel, to_id, to_name, created_at FROM asset_links WHERE #{where} ORDER BY created_at, rowid",
+        args: args) do |rs|
+        Link.new(rs.read(Int64), rs.read(String), rs.read(Int64?), rs.read(String?), rs.read(String))
+      end
     end
 
     # ── Registry ──
@@ -1068,8 +1382,11 @@ module DataDungeon
     # otherwise storing under a pool key replaces the asset there.
     #
     # The registration is stored in the database. Registering a type again
-    # with the same definition changes nothing; a different definition,
-    # including a new order, re-derives the keys of its assets from their tags.
+    # with the same definition changes nothing. A different definition,
+    # including a new order, raises unless `rekey: true`: changing it
+    # re-derives the keys of every asset of the type, so a process holding a
+    # stale definition (a shared store's venue, say) fails loudly instead of
+    # re-keying everyone's assets.
     def register_type(
       asset_type : String,
       *,
@@ -1079,16 +1396,22 @@ module DataDungeon
       labels : Hash(String, String) = {} of String => String,
       sets : Array(String) = [] of String,
       facets : Hash(String, Array(String)) = {} of String => Array(String),
+      rekey : Bool = false,
     ) : AssetType
       writable!
       definition = AssetType.new(asset_type, pool_traits, group_traits, pool, labels, sets, facets)
       validate_type(definition)
       changed = [] of Int64
       @object_lock.synchronize do
-        unless stored_type(asset_type) == {definition, TraitKey::SCHEME}
+        stored = stored_type(asset_type)
+        if stored && stored[0] != definition && !rekey
+          raise ArgumentError.new("#{asset_type} is registered differently: pass rekey: true to change it and re-key its assets")
+        end
+        unless stored == {definition, TraitKey::SCHEME}
           write_transaction do |conn|
             save_type(conn, definition)
             changed = rekey(conn, definition)
+            index_type_search(conn, asset_type) # labels may have changed
           end
         end
         @types[asset_type] = definition
@@ -1125,6 +1448,7 @@ module DataDungeon
             save_type(conn, target)
             rekeyed = rekey(conn, target)
           end
+          index_type_search(conn, to)
         end
         @types.delete(from)
         @types[to] = target if target
@@ -1160,6 +1484,7 @@ module DataDungeon
           if updated
             save_type(conn, updated) if updated != type
             rekeyed = rekey(conn, updated)
+            index_search(conn, rekeyed)
           end
         end
         @types[asset_type] = updated if updated
@@ -1441,14 +1766,14 @@ module DataDungeon
         "SELECT asset_type, pool_traits, group_traits, labels, sets, facets, pool, key_scheme FROM asset_types"
       ) { |rs| read_type(rs) }
       rows.each do |type, scheme|
+        @types[type.name] = type
         unless scheme == TraitKey::SCHEME
           raise ReadOnlyError.new("#{type.name}'s keys need re-keying: open the database read-write once first") if @read_only
           write_transaction do |conn|
-            rekey(conn, type)
+            index_search(conn, rekey(conn, type))
             conn.exec("UPDATE asset_types SET key_scheme = ? WHERE asset_type = ?", TraitKey::SCHEME, type.name)
           end
         end
-        @types[type.name] = type
       end
     end
 
@@ -1635,7 +1960,10 @@ module DataDungeon
     # whose object is already gone.
     private def delete_asset_row(id : Int64) : Nil
       @indexer.try(&.delete_asset(id))
-      @db.exec("DELETE FROM assets WHERE id = ?", id)
+      write_transaction do |conn|
+        unindex_search(conn, id)
+        conn.exec("DELETE FROM assets WHERE id = ?", id)
+      end
     end
 
     # ── Consistency sweep (fsck / vacuum) ──

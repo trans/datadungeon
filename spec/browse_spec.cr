@@ -58,10 +58,122 @@ describe "DataDungeon::DB browsing" do
 
       db.list_assets("backdrop").map(&.id).should eq [c.id, b.id, a.id]
       db.list_assets("backdrop", limit: 2).map(&.id).should eq [c.id, b.id]
+      db.list_assets("backdrop", limit: 2, before: b.id).map(&.id).should eq [a.id]
       db.list_assets("backdrop", limit: 2, offset: 2).map(&.id).should eq [a.id]
       db.list_assets("backdrop", {"art-style" => "Golden"}).map(&.id).should eq [c.id, a.id]
-      db.count_pool_assets("backdrop", {"art-style" => "golden"}).should eq 2
+      db.count_assets("backdrop", {"art-style" => "golden"}).should eq 2
       db.list_assets("backdrop", {"art-style" => "bronze"}).should be_empty
+    end
+  end
+
+  it "lists across types, and searches by words in any order" do
+    with_db("dd-browse-search") do |db|
+      db.register_type("front", pool_traits: %w[venue attraction look])
+      db.register_type("sprite", pool_traits: %w[venue attraction look scale])
+      db.register_type("portrait", pool_traits: %w[hair skin], labels: {"hair" => "hair", "skin" => "skin"})
+      front = db.store("front", {"venue" => "boardwalk", "attraction" => "cattacula", "look" => "night"},
+        bytes: "f".to_slice, content_type: "image/webp")
+      sprite = db.store("sprite", {"venue" => "boardwalk", "attraction" => "cattacula", "look" => "night", "scale" => "32"},
+        bytes: "s".to_slice, content_type: "image/webp")
+      room = db.store("room", {"room" => "west-of-house", "note" => "Giant Ape"}, bytes: "r".to_slice,
+        content_type: "image/webp")
+      red_hair = db.store("portrait", {"hair" => "red", "skin" => "tan"}, bytes: "h".to_slice, content_type: "image/webp")
+      red_skin = db.store("portrait", {"hair" => "black", "skin" => "red"}, bytes: "k".to_slice, content_type: "image/webp")
+
+      db.list_assets.map(&.id).should eq [red_skin.id, red_hair.id, room.id, sprite.id, front.id]
+      db.list_assets(limit: 2, before: room.id).map(&.id).should eq [sprite.id, front.id]
+      db.list_assets(nil, {"venue" => "boardwalk"}).map(&.id).should eq [sprite.id, front.id]
+
+      db.list_assets(q: "boardwalk cattacula front").map(&.id).should eq [front.id]
+      db.list_assets(q: "catt* night").map(&.id).should eq [sprite.id, front.id]
+      db.list_assets(q: "catt night").should be_empty # whole words unless asked
+      db.list_assets(q: "boardwalk.cattacula.front.night").map(&.id).should eq [front.id]
+      db.list_assets("sprite", q: "night").map(&.id).should eq [sprite.id]
+      db.list_assets(q: "night", limit: 1).map(&.id).should eq [sprite.id]
+      db.list_assets(q: "night", limit: 1, before: sprite.id).map(&.id).should eq [front.id]
+      db.list_assets(q: "house").map(&.id).should eq [room.id] # a part of west-of-house
+      db.list_assets(q: "west-of*").map(&.id).should eq [room.id]
+      db.list_assets(q: "giant ape").map(&.id).should eq [room.id] # an unkeyed tag, as given
+      db.list_assets(q: "red").map(&.id).should eq [red_skin.id, red_hair.id]
+      db.list_assets(q: "red-hair").map(&.id).should eq [red_hair.id] # only as keys spell it
+      db.list_assets(q: %("quoted" OR night)).should be_empty         # words, never query syntax
+      db.count_assets(q: "night").should eq 2
+      db.count_assets.should eq 5
+
+      db.update_asset(front.id, tags: {"venue" => "boardwalk", "attraction" => "cattacula", "look" => "day"})
+      db.list_assets(q: "night").map(&.id).should eq [sprite.id]
+      db.rename_type("front", "facade")
+      db.list_assets(q: "facade day").map(&.id).should eq [front.id]
+      db.delete_asset(sprite.id)
+      db.list_assets(q: "cattacula").map(&.id).should eq [front.id]
+    end
+  end
+
+  it "walks the newest assets for common words, matching as the index does" do
+    with_db("dd-browse-walk") do |db|
+      ids = (1..300).map do |i|
+        tags = {"look" => i.even? ? "night" : "day", "thing" => "lamp_#{i % 3}", "venue" => i % 10 == 0 ? "west-of-house" : "midway"}
+        db.store("prop", tags, bytes: "p#{i}".to_slice, content_type: "image/webp").id
+      end
+      newest = ids.reverse
+      newest_where = ->(test : Int32 -> Bool) { (1..300).select { |i| test.call(i) }.map { |i| ids[i - 1] }.reverse }
+      night = newest_where.call(->(i : Int32) { i.even? })
+
+      # Common words with a short page: the walk is cheaper, and agrees with the index.
+      db.list_assets(q: "night", limit: 3).map(&.id).should eq night.first(3)
+      db.list_assets(q: "nig*", limit: 3, offset: 3).map(&.id).should eq night[3, 3]
+      db.list_assets(q: "nig", limit: 3).should be_empty
+      db.list_assets(q: "night", limit: 2, before: night[1]).map(&.id).should eq night[2, 2]
+      db.list_assets("prop", {"look" => "night"}, q: "lamp_0", limit: 2).map(&.id)
+        .should eq newest_where.call(->(i : Int32) { i.even? && i % 3 == 0 }).first(2)
+      db.list_assets(q: "lamp_*", limit: 1).map(&.id).should eq [newest.first] # _ is a letter here, not a wildcard
+      db.list_assets(q: "lamp%", limit: 1).map(&.id).should eq [newest.first]  # % separates words, as in the index
+      db.list_assets(q: "lamp_1", limit: 1).map(&.id).should eq [ids[297]]     # 298 % 3 == 1
+      db.list_assets(q: "house night", limit: 2).map(&.id).should eq newest_where.call(->(i : Int32) { i % 10 == 0 }).first(2)
+      db.count_assets(q: "night").should eq 150
+      rare = db.store("prop", {"look" => "night", "thing" => "lamp_rare", "venue" => "midway"},
+        bytes: "rare".to_slice, content_type: "image/webp")
+      db.list_assets(q: "night lamp_rare").map(&.id).should eq [rare.id] # the rare word drives
+      db.count_assets(q: "night lamp_rare").should eq 1
+      db.delete_asset(rare.id)
+
+      terms = ->(term : String) { db.connection.query_one("SELECT docs FROM asset_search_terms WHERE term = ?", term, as: Int64) }
+      terms.call("").should eq 300
+      terms.call("night").should eq 150
+      db.update_asset(night.first, tags: {"look" => "day", "thing" => "lamp_9", "venue" => "midway"})
+      db.delete_asset(night[1])
+      terms.call("").should eq 299
+      terms.call("night").should eq 148
+      db.connection.query_one?("SELECT docs FROM asset_search_terms WHERE term = 'lamp_9'", as: Int64).should eq 1
+    end
+  end
+
+  it "links assets to assets and to names, filters by them, and drops them with the asset" do
+    with_db("dd-browse-links") do |db|
+      portrait = db.store("portrait", {"hair" => "red"}, bytes: "p".to_slice, content_type: "image/webp")
+      picture = db.store("panel", {"scene" => "beach"}, bytes: "q".to_slice, content_type: "image/webp")
+      prop = db.store("prop", {"thing" => "gangway"}, bytes: "g".to_slice, content_type: "image/webp")
+
+      db.link(picture.id, "derived-from", portrait.id)
+      db.link(prop.id, "used-by", "boardwalk")
+      db.link(prop.id, "used-by", "park-map")
+      db.link(prop.id, "used-by", "boardwalk") # twice changes nothing
+
+      db.links_from(prop.id).map(&.to_name).should eq ["boardwalk", "park-map"]
+      db.links_to(portrait.id, "derived-from").map(&.from_id).should eq [picture.id]
+      db.links_to("boardwalk").map(&.from_id).should eq [prop.id]
+      db.list_assets(links: {"used-by" => "boardwalk"}).map(&.id).should eq [prop.id]
+      db.list_assets("prop", links: {"used-by" => "park-map"}).map(&.id).should eq [prop.id]
+      db.list_assets(unlinked: "used-by").map(&.id).should eq [picture.id, portrait.id]
+
+      db.unlink(prop.id, "used-by", "park-map").should be_true
+      db.unlink(prop.id, "used-by", "park-map").should be_false
+      db.links_from(prop.id).map(&.to_name).should eq ["boardwalk"]
+      expect_raises(ArgumentError, /lowercase words/) { db.link(prop.id, "Used By", "x") }
+      expect_raises(ArgumentError, /No asset/) { db.link(prop.id, "derived-from", 999_i64) }
+
+      db.delete_asset(portrait.id)
+      db.links_from(picture.id).should be_empty # the link went with its target
     end
   end
 

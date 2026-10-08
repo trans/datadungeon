@@ -376,12 +376,30 @@ describe "DataDungeon::DB type registry" do
 
       # A new label is a new definition.
       db.register_type("portrait", pool_traits: PORTRAIT_TRAITS, group_traits: PORTRAIT_GROUP, pool: true,
-        labels: {"hair_color" => "hair-color"})
+        labels: {"hair_color" => "hair-color"}, rekey: true)
       db.find_asset_by_id(old.id).not_nil!.pool_key.should eq "portrait.golden.pg.f.human.red-hair-color."
 
       # Fewer traits in another order: keys follow the new definition.
-      db.register_type("portrait", pool_traits: %w[race art_style rating], group_traits: %w[race], pool: true)
+      db.register_type("portrait", pool_traits: %w[race art_style rating], group_traits: %w[race], pool: true,
+        rekey: true)
       db.find_asset_by_id(old.id).not_nil!.pool_key.should eq "portrait.human.golden.pg"
+    end
+  end
+
+  it "refuses to change a registration unless asked to re-key" do
+    with_db("dd-reg-guard") do |db|
+      register_portraits(db)
+      rec = store_portrait(db, portrait, "a")
+      register_portraits(db) # the same definition: nothing to do
+
+      expect_raises(ArgumentError, /registered differently.*rekey: true/) do
+        db.register_type("portrait", pool_traits: %w[race art_style], pool: true)
+      end
+      db.registration("portrait").not_nil!.pool_traits.should eq PORTRAIT_TRAITS
+      db.find_asset_by_id(rec.id).not_nil!.pool_key.should eq rec.pool_key
+
+      db.register_type("portrait", pool_traits: %w[race art_style], pool: true, rekey: true)
+      db.find_asset_by_id(rec.id).not_nil!.pool_key.should eq "portrait.human.golden"
     end
   end
 
@@ -480,7 +498,7 @@ describe "DataDungeon::DB type registry" do
       db.register_type("backdrop", pool_traits: %w[art_style rating], pool: true)
       rec = db.store("backdrop", {"art_style" => "golden", "rating" => "pg"}, bytes: "b".to_slice,
         content_type: "image/webp")
-      db.register_type("backdrop", pool_traits: %w[art-style rating], pool: true)
+      db.register_type("backdrop", pool_traits: %w[art-style rating], pool: true, rekey: true)
       db.find_asset_by_id(rec.id).not_nil!.pool_key.should eq "backdrop..pg" # its tag isn't art-style yet
 
       db.rename_tag("backdrop", "art_style", "art-style").should eq 1
