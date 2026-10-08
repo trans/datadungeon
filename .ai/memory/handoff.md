@@ -4,7 +4,7 @@
 
 Everything below "Where we stopped (2026-10-04)" predates this week and is
 partly superseded; README.md describes the current API. DataDungeon main is
-pushed at `d01f4ec`, tagged `v0.8.0` (2026-10-07; `v0.7.0` is `dc38d81`, 0.7.1-0.7.3 untagged); `crystal spec` gives 86 examples, 0 failures,
+pushed at `2b79d46`, tagged `v0.9.0` (2026-10-08; `v0.8.0` is `d01f4ec`, `v0.7.0` `dc38d81`, 0.7.1-0.7.3 untagged); `crystal spec` gives 91 examples, 0 failures,
 1 pending (S3, which needs `scripts/garage-test`). What landed since 0.4.0:
 
 - **Storage:** objects are content-addressed, `<h2>/<sha256>.<ext>`, shared by
@@ -69,13 +69,19 @@ Next:
   and Pirateship's live DBs are pre-0.4), curio makes thumbnails keyed on
   `file_hash`, no CORS (curio proxies and holds the tokens). Open: listing
   without a type, other sort orders, and whether update mode re-locks itself.
-- **`@curio`'s requests, 2026-10-08 (Open, awaiting Thomas):** (1) search
-  across types, `GET /assets?q=`, every term matching the type or a tag
-  value, any order, plus listing with no type; (2) `register_type` raising
-  on a changed definition unless `rekey: true`; (3) unkeyed tags with
-  several values, filtered by membership (`used-by`); later, HTTP Range on
-  objects. Recommended: prefix matching for (1); the guard for (2), telling
-  `@infocomics`; unkeyed set tags for (3).
+- **`@curio`'s requests, 2026-10-08: Done in 0.9.0 (`2b79d46`).** Search
+  across types (whole words; `catt*` for a start, since Thomas said exact
+  matching is the common case), listing with no type, the `register_type`
+  guard (`rekey: true`), and links instead of multi-valued tags (Thomas
+  agreed; relations named as transfs does: `derived-from`, `supersedes`,
+  `used-by`). Numbered pages (`page=`) as well as the cursor, at Thomas's
+  request. **Open:** HTTP Range on objects (later).
+- **Next: controlled vectors for best match** (Thomas's idea, 2026-10-08):
+  a registration's traits get value lists; each trait a block of
+  dimensions (unordered: one per value; ordered: an arc; colors:
+  coordinates), weighted by importance; a USearch index per type, used
+  directly, not through Memo (which embeds text). Write a short design for
+  Thomas before building; numbers in performance.md.
 - Memo stays in DD's SQLite file for now; working first, then optimize.
 
 ## Where we stopped (2026-10-04)
