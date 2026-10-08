@@ -78,7 +78,10 @@ release.md).
   style variant fmt). Only the store repo's `types.cr` registers them;
   venues mustn't, since a drifted definition would re-key everyone's assets.
   Who uses an asset is a plain, unkeyed tag (`used-by`), so use can change
-  without re-keying. Cattacula still reads its own voices.db for now.
+  without re-keying (0.9.0 adds links: `link(id, "used-by", "boardwalk")`
+  is the intended form). Cattacula still reads its own voices.db for now.
+  Under 0.9 its database must be opened read-write once (adding the links
+  and search tables) before a read-only `dd-serve` accepts it.
 - **Silicon Circus** (before the park store) used DD per app, as a shard,
   not a shared service.
   Their case is single-best `db.store`/`db.get` with WebP normalizing.
