@@ -1,6 +1,6 @@
 # Consumers
 
-*Updated 2026-10-07*
+*Updated 2026-10-08*
 
 | App | Checkout | Uses DD for | Builds against |
 |---|---|---|---|
@@ -8,6 +8,7 @@
 | Cattacula | `~/Projects/siliconcircus.lol/cattacula/service` | TTS voice audio (`voices.db`) | this checkout (`lib/data_dungeon` symlink) |
 | Pirateship | `~/Projects/siliconcircus.lol/pirateship` | parrot TTS voices (`data/voices.db`) | GitHub, `~> 0.7.0` |
 | Silicon Circus venues | via the `siliconcircus` agent | venue images, about one per attraction | — |
+| Silicon Circus park store | `~/Projects/siliconcircus.lol/assets` | the park's shared assets: Cattacula's voices (copied), fronts, sprites, props | GitHub, `~> 0.8.0`; `just serve` runs dd-serve on 127.0.0.1:12782 |
 
 ## Where the files are
 
@@ -69,7 +70,17 @@ release.md).
   Macs still on Sonoma or Ventura, and iPhone 8/X and older, can't. Opus in
   WebM was unreliable in iOS `<audio>` into 2024. MP3 plays everywhere, and
   R2 doesn't charge for egress. Infocomic's 105 Opus clips predate this.
-- **Silicon Circus** uses DD per app, as a shard, not a shared service.
+- **Silicon Circus park store** (Thomas's decision, reported by `@curio`
+  2026-10-08): one DD for the whole park, in its own repo. Types name an
+  asset's shape, not its venue, and every key leads with `venue`:
+  `stage-standup` (venue act bit beat voice fmt), `front` (venue attraction
+  look), `sprite` (venue attraction look scale), `prop` (venue thing look
+  style variant fmt). Only the store repo's `types.cr` registers them;
+  venues mustn't, since a drifted definition would re-key everyone's assets.
+  Who uses an asset is a plain, unkeyed tag (`used-by`), so use can change
+  without re-keying. Cattacula still reads its own voices.db for now.
+- **Silicon Circus** (before the park store) used DD per app, as a shard,
+  not a shared service.
   Their case is single-best `db.store`/`db.get` with WebP normalizing.
   `check_consistency`/`vacuum` (0.3.5) is the orphan sweep they wanted.
 

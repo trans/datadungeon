@@ -63,8 +63,19 @@ Next:
   JSON API and `dd-serve`) is tagged `v0.8.0`.
 - **DD web UI:** Thomas wants one to filter by tags, see what's there and
   curate, read-only by default with a big red "update mode" switch. DD stays
-  UI-free; `@curio` (Rust) is to build the UI against DD's JSON API (0.8.0).
-  Briefing `@curio` waits on Thomas's go-ahead.
+  UI-free; `@curio` (Rust) is rebuilding curio as that UI over DD's JSON API
+  (0.8.0), with Thomas's go-ahead. We answered its questions 2026-10-07:
+  stores and their paths, copies need one read-write open first (Cattacula's
+  and Pirateship's live DBs are pre-0.4), curio makes thumbnails keyed on
+  `file_hash`, no CORS (curio proxies and holds the tokens). Open: listing
+  without a type, other sort orders, and whether update mode re-locks itself.
+- **`@curio`'s requests, 2026-10-08 (Open, awaiting Thomas):** (1) search
+  across types, `GET /assets?q=`, every term matching the type or a tag
+  value, any order, plus listing with no type; (2) `register_type` raising
+  on a changed definition unless `rekey: true`; (3) unkeyed tags with
+  several values, filtered by membership (`used-by`); later, HTTP Range on
+  objects. Recommended: prefix matching for (1); the guard for (2), telling
+  `@infocomics`; unkeyed set tags for (3).
 - Memo stays in DD's SQLite file for now; working first, then optimize.
 
 ## Where we stopped (2026-10-04)

@@ -3,6 +3,7 @@
 Notes that AI agents working on DataDungeon keep for each other: decisions,
 plans, and lessons that are not obvious from the code or the git history.
 Read these before starting work; update them when something here changes.
+`../config.yml` names this project's agent on the Arcana bus.
 
 | File | What it holds |
 |---|---|
@@ -15,8 +16,9 @@ Read these before starting work; update them when something here changes.
 Design documents are at the repo root: `DESIGN.md`, `DESIGN-store.md`,
 `NOTES-delete-orphans.md` and `NOTES-list-keys-scope.md`.
 
-Keep each note short and dated. Check the code or `git log` before acting on
-anything here; notes go stale.
+Keep each note short and dated (`*Updated YYYY-MM-DD*`), with absolute
+dates and commit hashes. Check the code or `git log` before acting on
+anything here; notes go stale. Machine-specific facts don't belong here.
 
 ## Handling inbox notes
 
@@ -38,3 +40,9 @@ The repo is private, but don't commit credentials or keys from a note.
 Thomas shares files for the work at hand in `.ai/intake/`. Look there when
 starting a session. The files are his: don't commit, move or delete them
 unless he asks.
+
+## Arcana
+
+Outbound Arcana messages need Thomas's go-ahead, message by message: draft
+and offer, then wait. Reading and receiving mail is fine. See
+coordination.md.
