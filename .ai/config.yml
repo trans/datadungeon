@@ -1,0 +1,8 @@
+# Settings for AI agents, and tools, working in this project.
+# See the dot-ai skill's references/config.md.
+arcana:
+  handle: "@datadungeon"    # this project's agent on the Arcana bus
+  description: >            # what that agent does, shown to other agents
+    The agent for DataDungeon, the type-aware asset store (a Crystal shard)
+    used by Infocomic, Cattacula, Pirateship and the Silicon Circus park
+    store. Ask about storing, finding, keying or serving assets.
