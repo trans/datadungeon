@@ -1,6 +1,6 @@
 # Principles
 
-*Updated 2026-10-07*
+*Updated 2026-10-08*
 
 ## DD stays generic
 
@@ -38,6 +38,16 @@ Mention heavier alternatives (hashing, enumeration, extra separators) only
 with the concrete problem they'd solve. Do raise real correctness costs,
 such as an ambiguity that would merge distinct values; he wants those
 raised, then decides.
+
+## Design for scale, not for today's sizes
+
+Thomas, 2026-10-08: "You have to stop doing 'fast enough for current
+sizes'; we need fast enough for a lot more than current sizes." Today's
+stores (hundreds to thousands of assets) are not an argument for a design.
+Choose structures that stay fast at far larger sizes (indexed lookups,
+keyset paging, an ANN or full-text index rather than a scan), and say how a
+proposal behaves as a store grows. This refines the next section: build
+things simply and get them working, but on designs that scale.
 
 ## Working first, then optimize
 
