@@ -1,10 +1,10 @@
 # Consumers
 
-*Updated 2026-10-08*
+*Updated 2026-10-09*
 
 | App | Checkout | Uses DD for | Builds against |
 |---|---|---|---|
-| Infocomic | `~/Projects/infocomics/infocomic` | images, transcripts, banter, decrees | this checkout (`../data_dungeon` → `infocomics/data_dungeon` → here) |
+| Overlore (formerly Infocomic) | `~/Projects/infocomics/infocomic` | images, transcripts, banter, decrees | this checkout (`../data_dungeon` → `infocomics/data_dungeon` → here) |
 | Cattacula | `~/Projects/siliconcircus.lol/cattacula/service` | TTS voice audio (`voices.db`) | this checkout (`lib/data_dungeon` symlink) |
 | Pirateship | `~/Projects/siliconcircus.lol/pirateship` | parrot TTS voices (`data/voices.db`) | GitHub, `~> 0.7.0` |
 | Silicon Circus venues | via the `siliconcircus` agent | venue images, about one per attraction | — |
@@ -58,10 +58,12 @@ release.md).
   file's hash) and prompt hash. The 29 other `background` rows are pre-judge
   room pictures; Thomas decides their fate. It serves `/media/<key>`:
   local objects read and served, bucket objects redirected to `resolve`.
-  `@infocomics` asked us to **hold the registration requirement until they
+  `@overlore` (then `@infocomics`) asked us to **hold the registration requirement until they
   say Infocomic is done**. For them DD added `adopt`/`outside_store` and the
   opus/svg extensions (0.7.1), `open`/`find_by_hash`/`.pdf` (0.7.2), and
-  dashed trait names with `rename_tag`/`rename_type` (0.7.3). Next it renames
+  dashed trait names with `rename_tag`/`rename_type` (0.7.3). It runs on
+  0.9.0 unchanged (2026-10-08) and plans `derived-from` links from panels to
+  portraits once panels are judged. Next it renames
   its traits and types without underscores (`art_style` -> `art-style`,
   `banter_script` -> `banter-script`) and merges `room`, `background` and
   the seed backdrops into one `backdrop` type.
@@ -78,8 +80,9 @@ release.md).
   style variant fmt). Only the store repo's `types.cr` registers them;
   venues mustn't, since a drifted definition would re-key everyone's assets.
   Who uses an asset is a plain, unkeyed tag (`used-by`), so use can change
-  without re-keying (0.9.0 adds links: `link(id, "used-by", "boardwalk")`
-  is the intended form). Cattacula still reads its own voices.db for now.
+  without re-keying: since 0.9.0 a `used-by` link, which the 58 boardwalk
+  props now carry (2026-10-08). The store is on `~> 0.9.0`; its `types.cr`
+  passes `rekey: true` only for `just types --rekey`. Cattacula still reads its own voices.db for now.
   Under 0.9 its database must be opened read-write once (adding the links
   and search tables) before a read-only `dd-serve` accepts it.
 - **Silicon Circus** (before the park store) used DD per app, as a shard,
@@ -87,7 +90,7 @@ release.md).
   Their case is single-best `db.store`/`db.get` with WebP normalizing.
   `check_consistency`/`vacuum` (0.3.5) is the orphan sweep they wanted.
 
-Before editing Infocomic's image code, check with `@infocomics` (see
+Before editing Overlore's image code, check with `@overlore` (see
 coordination.md).
 
 ## Reaching a store from elsewhere

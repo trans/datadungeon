@@ -4,7 +4,7 @@
 
 Everything below "Where we stopped (2026-10-04)" predates this week and is
 partly superseded; README.md describes the current API. DataDungeon main is
-pushed at `2b79d46`, tagged `v0.9.0` (2026-10-08; `v0.8.0` is `d01f4ec`, `v0.7.0` `dc38d81`, 0.7.1-0.7.3 untagged); `crystal spec` gives 91 examples, 0 failures,
+pushed at `7618531`, tagged `v0.10.0` (2026-10-09; `v0.9.0` is `2b79d46`, `v0.8.0` `d01f4ec`, `v0.7.0` `dc38d81`, 0.7.1-0.7.3 untagged); `crystal spec` gives 97 examples, 0 failures,
 1 pending (S3, which needs `scripts/garage-test`). What landed since 0.4.0:
 
 - **Storage:** objects are content-addressed, `<h2>/<sha256>.<ext>`, shared by
@@ -53,7 +53,7 @@ Next:
   2026-08-26) was left as it was.
 - Then require registration for storing. Cattacula and Pirateship
   register. Infocomic is moving everything to `DB#store` and registering
-  each type as it moves (see consumers.md); `@infocomics` asked us to hold
+  each type as it moves (see consumers.md); `@overlore` (formerly `@infocomics`) asked us to hold
   the requirement until they say they're done.
 - 0.7.1 (`644f1e5`: `adopt`, `outside_store`, opus/svg extensions) and
   0.7.2 (`8a20a96`: `DB#open`/`Storage#open` streaming, `find_by_hash`,
@@ -75,13 +75,22 @@ Next:
   guard (`rekey: true`), and links instead of multi-valued tags (Thomas
   agreed; relations named as transfs does: `derived-from`, `supersedes`,
   `used-by`). Numbered pages (`page=`) as well as the cursor, at Thomas's
-  request. **Open:** HTTP Range on objects (later).
-- **Next: controlled vectors for best match** (Thomas's idea, 2026-10-08):
-  a registration's traits get value lists; each trait a block of
-  dimensions (unordered: one per value; ordered: an arc; colors:
-  coordinates), weighted by importance; a USearch index per type, used
-  directly, not through Memo (which embeds text). Write a short design for
-  Thomas before building; numbers in performance.md.
+  request. `@curio` uses all of it (2026-10-08). **Open:** HTTP Range on
+  objects (later); an estimated total (performance.md).
+- **Best match: Done in 0.10.0 (`7618531`).** `MatchIndex`
+  (`data_dungeon/matches`), designed with Thomas: see
+  `DESIGN-best-match.md`. `dd-serve` always has it (Thomas asked why it
+  was a setting; the usearch shard builds its own C library, so no flag).
+  **Open:** building is single-threaded (~11 min per 1M).
+- **`prefer:` (Open, next release):** `@mj`'s images carry `version` and
+  `quality`; prefer higher ones among candidates, never discard. Thomas
+  isn't sure yet how it should work (2026-10-09); see coordination.md.
+- **0.11: image fields, views and placement (Open, design drafted
+  2026-10-09, `DESIGN-image-fields.md`, uncommitted until settled).**
+  Key = what it is; image fields = real columns; links = who and where;
+  link data = placement. Views and light stored as unit vectors (Thomas
+  agreed), shown as side/yaw/pitch/roll in quarter turns. Includes
+  `@curio`'s link-name prefixes (`boardwalk.*`) and `cycles:`.
 - Memo stays in DD's SQLite file for now; working first, then optimize.
 
 ## Where we stopped (2026-10-04)
@@ -103,7 +112,7 @@ their overlapping image changes and explicitly cleared our migration to land.
 | Memo | `/home/trans/Projects/memo` | `9931865` — optional read-only searches, synchronized query cache, bound SQL filter arguments, USearch capacity growth |
 | Infocomic | `/home/trans/Projects/infocomics/infocomic` | `bfba3a7` — DD 0.4 API migration, on top of the other agent's `5a18ed7` image changes |
 | Cattacula | `/home/trans/Projects/siliconcircus.lol/cattacula` | DD adaptation remains uncommitted in `service/src/cattacula.cr` |
-| MJ / mjanime | `/home/trans/Projects/minanime` | Consult its agent for image workflow design; no separate MJ service is planned for this integration |
+| MJ / mjanime | `/home/trans/Projects/mjanime` (was `minanime` until 2026-10-08) | Consult its agent for image workflow design; no separate MJ service is planned for this integration |
 
 The three named DD/Memo/Infocomic commits **have not been pushed during this
 session**. Each checkout reports one commit ahead of its locally recorded

@@ -15,7 +15,8 @@ Read these before starting work; update them when something here changes.
 | [coordination.md](coordination.md) | Arcana identity, peers, and the per-message sign-off rule |
 
 Design documents are at the repo root: `DESIGN.md`, `DESIGN-store.md`,
-`NOTES-delete-orphans.md` and `NOTES-list-keys-scope.md`.
+`DESIGN-best-match.md` (built in 0.10.0), `DESIGN-image-fields.md` (the
+0.11 draft), `NOTES-delete-orphans.md` and `NOTES-list-keys-scope.md`.
 
 Keep each note short and dated (`*Updated YYYY-MM-DD*`), with absolute
 dates and commit hashes. Check the code or `git log` before acting on
