@@ -9,7 +9,7 @@ Releases 0.4.0 to 0.6.x were committed and pushed but never tagged, which
 blocked Pirateship's upgrade. `v0.7.0` was tagged at `dc38d81` on
 2026-10-07, annotated, with a `vX.Y.Z: <summary>` message like `v0.3.5`,
 and `v0.8.0` at `d01f4ec` the same day; `v0.9.0` at `2b79d46` on
-2026-10-08. 0.7.1-0.7.3 were held and never tagged. `~> 0.7.0`
+2026-10-08; `v0.10.0` at `7618531` on 2026-10-09. 0.7.1-0.7.3 were held and never tagged. `~> 0.7.0`
 (Pirateship) doesn't reach 0.8, and `~> 0.8.0` (the park store) doesn't
 reach 0.9.
 

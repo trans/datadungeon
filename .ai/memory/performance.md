@@ -28,7 +28,12 @@ slots (`t1..t16`) would give one per common order: deferred by Thomas
 inner product = weighted count of matching traits. At 1M (102 dims, f32,
 797 MB): nearest 10 in 0.22 ms (recall 100%), with style and rating
 required 0.38 ms; 200k: 0.16 ms. Grows about logarithmically. Building 1M
-took 213 s single-threaded. Not built into DD yet; a design comes first.
+took 213 s single-threaded. Built in 0.10.0 as `MatchIndex` (`bench/best_match.cr`, through DD, 200k
+portraits, 8 traits incl. a scale, colors, a set): best 10 in 1.36 ms,
+3.4 ms with two traits required, recall@10 100% against exhaustive
+scoring, catching up 0.9 ms a write, reopening 0.67 s, building 130 s.
+Hashing every word gave only 81.5% recall (its noise outweighed small
+score gaps); each trait's first 16 values get an exact dimension.
 
 ## Search box (`list_assets(q:)`), at 1M
 
@@ -40,6 +45,9 @@ from the index with the others checked, or a walk through the newest assets
 0.08 ms, rare with common 0.18 ms, a broad prefix 0.13 ms; two moderately
 common words together 4.8-6.3 ms, the slowest case (about N^(2/3)).
 Counting all matches is linear (9 ms for a word in a quarter of 1M).
+**Open:** `@curio` asks for `count=1` only when a search or filter changes,
+and would take an estimated total for "page N of M" (2026-10-08). The word
+counts in `asset_search_terms` could estimate a search's total instantly.
 FTS5 `detail=none` was about 3x slower; `fts5vocab` counts cost as much as
 the search, hence DD's own `asset_search_terms`.
 
