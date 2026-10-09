@@ -5,6 +5,7 @@ module DataDungeon
 end
 
 require "./data_dungeon/asset_record"
+require "./data_dungeon/matcher"
 require "./data_dungeon/webp"
 require "./data_dungeon/storage"
 require "./data_dungeon/trait_key"

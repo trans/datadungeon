@@ -73,11 +73,22 @@ module DataDungeon
     # `{"hair" => %w[hair-length hair-color]}`; "description" names the
     # asset's description.
     getter facets : Hash(String, Array(String))
+    # For best matches (MatchIndex): traits whose values are ordered, low to
+    # high (`{"rating" => ["g", "pg", "r", "x"]}`), so near values count as
+    # close; traits whose values are colors, compared by appearance; and
+    # each trait's default weight (1 unless given). None of these affect
+    # keys.
+    getter scales : Hash(String, Array(String))
+    getter colors : Array(String)
+    getter weights : Hash(String, Float64)
 
     def initialize(@name : String, @pool_traits : Array(String), @group_traits : Array(String), @pool : Bool,
                    @labels : Hash(String, String) = {} of String => String,
                    @sets : Array(String) = [] of String,
-                   @facets : Hash(String, Array(String)) = {} of String => Array(String))
+                   @facets : Hash(String, Array(String)) = {} of String => Array(String),
+                   @scales : Hash(String, Array(String)) = {} of String => Array(String),
+                   @colors : Array(String) = [] of String,
+                   @weights : Hash(String, Float64) = {} of String => Float64)
     end
 
     def trait?(name : String) : Bool
@@ -90,7 +101,7 @@ module DataDungeon
 
     # This registration under another type name.
     def renamed(name : String) : AssetType
-      AssetType.new(name, @pool_traits, @group_traits, @pool, @labels, @sets, @facets)
+      AssetType.new(name, @pool_traits, @group_traits, @pool, @labels, @sets, @facets, @scales, @colors, @weights)
     end
 
     # This registration with a trait or facet tag renamed wherever it appears.
@@ -98,7 +109,8 @@ module DataDungeon
       swap = ->(name : String) { name == from ? to : name }
       AssetType.new(@name, @pool_traits.map(&swap), @group_traits.map(&swap), @pool,
         @labels.to_h { |trait, label| {swap.call(trait), label} }, @sets.map(&swap),
-        @facets.transform_values(&.map(&swap)))
+        @facets.transform_values(&.map(&swap)), @scales.to_h { |trait, values| {swap.call(trait), values} },
+        @colors.map(&swap), @weights.to_h { |trait, weight| {swap.call(trait), weight} })
     end
 
     # The pool key of these normalized values.

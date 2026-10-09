@@ -9,8 +9,13 @@
 #   DD_READ_TOKEN       needed to read; required unless only this machine listens
 #   DD_WRITE_TOKEN      enables writes; without it the database opens read-only
 #   DD_HOST, DD_PORT    where to listen (127.0.0.1:7077)
+#   DD_MATCHES_DIR      where best-match files go (beside the database)
+#
+# Building it needs the awscr-s3 and usearch shards (usearch builds its C
+# library when installed, statically linked).
 require "./data_dungeon/http"
 require "./data_dungeon/s3"
+require "./data_dungeon/matches"
 
 def setting(name : String) : String?
   ENV[name]?.presence
@@ -40,11 +45,15 @@ unless read_token || host.in?("127.0.0.1", "::1", "localhost")
 end
 
 db = DataDungeon::DB.new(database, storage, read_only: write_token.nil?)
-server = HTTP::Server.new([DataDungeon::API.new(db, read_token: read_token, write_token: write_token)])
+# Owns the store's match files; a type's index is built on its first match query.
+matcher = DataDungeon::MatchIndex.new(db, setting("DD_MATCHES_DIR"))
+server = HTTP::Server.new([DataDungeon::API.new(db, read_token: read_token, write_token: write_token,
+  matcher: matcher)])
 Process.on_terminate do
   server.close
 end
 address = server.bind_tcp(host, port)
 puts "dd-serve: #{database} (#{db.read_only? ? "read-only" : "writable"}) on http://#{address}"
 server.listen
+matcher.close
 db.close

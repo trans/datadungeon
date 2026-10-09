@@ -22,6 +22,8 @@ module DataDungeon
     # Registered asset types, loaded from asset_types when the DB opens.
     @types = {} of String => AssetType
     getter? read_only = false
+    # The database file.
+    getter path : String
 
     # Shared connection for extensions that keep their tables in the asset DB.
     def connection : ::DB::Database
@@ -37,7 +39,7 @@ module DataDungeon
     # upgraded or re-keyed, every connection refuses writes (PRAGMA
     # query_only), and the methods that write raise ReadOnlyError. A database
     # an older DataDungeon wrote must be opened read-write once first.
-    def initialize(path : String, storage : Storage? = nil, cache_root : String? = nil, *, read_only : Bool = false)
+    def initialize(@path : String, storage : Storage? = nil, cache_root : String? = nil, *, read_only : Bool = false)
       @read_only = read_only
       if read_only
         raise ReadOnlyError.new("No database at #{path}") unless File.file?(path)
@@ -191,9 +193,24 @@ module DataDungeon
         sets         TEXT NOT NULL DEFAULT '[]',
         facets       TEXT NOT NULL DEFAULT '{}',
         pool         INTEGER NOT NULL,
-        key_scheme   INTEGER NOT NULL
+        key_scheme   INTEGER NOT NULL,
+        scales       TEXT NOT NULL DEFAULT '{}',
+        colors       TEXT NOT NULL DEFAULT '[]',
+        weights      TEXT NOT NULL DEFAULT '{}'
       )
     SQL
+
+    # Every change to an asset's tags or type, and every deletion, in order:
+    # what a MatchIndex in another process catches up from. Only the latest
+    # CHANGES_KEPT are kept; an index further behind rebuilds.
+    ASSET_CHANGES_SCHEMA = <<-SQL
+      CREATE TABLE IF NOT EXISTS asset_changes (
+        seq      INTEGER PRIMARY KEY AUTOINCREMENT,
+        asset_id INTEGER NOT NULL
+      )
+    SQL
+
+    CHANGES_KEPT = 100_000
 
     IMAGE_META_SCHEMA = <<-SQL
       CREATE TABLE IF NOT EXISTS image_meta (
@@ -287,6 +304,12 @@ module DataDungeon
             unless asset_type_columns.has_key?("facets")
               conn.exec("ALTER TABLE asset_types ADD COLUMN facets TEXT NOT NULL DEFAULT '{}'")
             end
+            {"scales" => "'{}'", "colors" => "'[]'", "weights" => "'{}'"}.each do |column, empty|
+              unless asset_type_columns.has_key?(column)
+                conn.exec("ALTER TABLE asset_types ADD COLUMN #{column} TEXT NOT NULL DEFAULT #{empty}")
+              end
+            end
+            conn.exec(ASSET_CHANGES_SCHEMA)
             conn.exec(IMAGE_META_SCHEMA)
             conn.exec(AUDIO_META_SCHEMA)
             conn.exec(VIDEO_META_SCHEMA)
@@ -323,8 +346,8 @@ module DataDungeon
         types = table_columns(conn, "asset_types")
         current = assets["pool_key"]? == 0 && assets.has_key?("description") && assets.has_key?("generated") &&
                   !unique_file_path?(conn) && tags.has_key?("custom") && tags.has_key?("asset_type") &&
-                  types.has_key?("sets") && types.has_key?("facets") &&
-                  %w[image_meta audio_meta video_meta text_meta asset_links asset_search asset_search_terms].none? { |table| table_columns(conn, table).empty? }
+                  types.has_key?("sets") && types.has_key?("facets") && types.has_key?("weights") &&
+                  %w[image_meta audio_meta video_meta text_meta asset_links asset_search asset_search_terms asset_changes].none? { |table| table_columns(conn, table).empty? }
         raise ReadOnlyError.new("The database needs upgrading: open it read-write once first") unless current
       end
     end
@@ -1256,6 +1279,7 @@ module DataDungeon
         tags = tags_batch(conn, batch)
         batch.each do |id|
           unindex_search(conn, id)
+          log_change(conn, id)
           next unless type = types[id]?
           words = search_words(type, tags[id]? || {} of String => String)
           conn.exec("INSERT INTO asset_search (rowid, words) VALUES (?, ?)", id, words)
@@ -1378,7 +1402,12 @@ module DataDungeon
     # are stored normalized, as the key holds them. `facets` names groups of
     # tags that SemanticIndex embeds separately, so a search can rank one
     # part of an asset (its hair, say) without the rest diluting it.
-    # With `pool: true` many interchangeable assets share a pool key;
+    # `scales`, `colors` and `weights` shape best matches (MatchIndex) and
+    # change no keys: `scales` lists an ordered trait's values low to high
+    # (`{"rating" => %w[g pg r x]}`), so near values count as close; `colors`
+    # names traits whose values are colors (CSS names or hex codes),
+    # compared by appearance; `weights` gives traits a default weight other
+    # than 1. With `pool: true` many interchangeable assets share a pool key;
     # otherwise storing under a pool key replaces the asset there.
     #
     # The registration is stored in the database. Registering a type again
@@ -1396,10 +1425,15 @@ module DataDungeon
       labels : Hash(String, String) = {} of String => String,
       sets : Array(String) = [] of String,
       facets : Hash(String, Array(String)) = {} of String => Array(String),
+      scales : Hash(String, Array(String)) = {} of String => Array(String),
+      colors : Array(String) = [] of String,
+      weights : Hash(String, Float64) = {} of String => Float64,
       rekey : Bool = false,
     ) : AssetType
       writable!
-      definition = AssetType.new(asset_type, pool_traits, group_traits, pool, labels, sets, facets)
+      scales = scales.transform_values { |values| values.compact_map { |value| TraitKey.normalize(value) } }
+      definition = AssetType.new(asset_type, pool_traits, group_traits, pool, labels, sets, facets,
+        scales, colors, weights)
       validate_type(definition)
       changed = [] of Int64
       @object_lock.synchronize do
@@ -1703,6 +1737,21 @@ module DataDungeon
           end
         end
       end
+      type.scales.each do |trait, values|
+        raise ArgumentError.new("#{name}: scale #{trait} is not a pool trait") unless type.trait?(trait)
+        raise ArgumentError.new("#{name}: #{trait} is a set, which can't be a scale") if type.set?(trait)
+        raise ArgumentError.new("#{name}: scale #{trait} needs at least two values") if values.size < 2
+        raise ArgumentError.new("#{name}: scale #{trait} lists a value twice") if values.uniq.size != values.size
+      end
+      type.colors.each do |trait|
+        raise ArgumentError.new("#{name}: color #{trait} is not a pool trait") unless type.trait?(trait)
+        raise ArgumentError.new("#{name}: #{trait} is a set or a scale, which can't be a color") if type.set?(trait) || type.scales.has_key?(trait)
+      end
+      raise ArgumentError.new("#{name}: a color is listed twice") if type.colors.uniq.size != type.colors.size
+      type.weights.each do |trait, weight|
+        raise ArgumentError.new("#{name}: weight #{trait} is not a pool trait") unless type.trait?(trait)
+        raise ArgumentError.new("#{name}: weight #{trait} must be positive") unless weight > 0 && weight.finite?
+      end
     end
 
     # Normalized lookup values; raises on names that aren't the type's traits.
@@ -1729,22 +1778,23 @@ module DataDungeon
       conn.exec(
         <<-SQL,
         INSERT INTO asset_types
-        (asset_type, pool_traits, group_traits, labels, sets, facets, pool, key_scheme)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        (asset_type, pool_traits, group_traits, labels, sets, facets, pool, key_scheme, scales, colors, weights)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(asset_type) DO UPDATE SET pool_traits = excluded.pool_traits,
           group_traits = excluded.group_traits, labels = excluded.labels,
           sets = excluded.sets, facets = excluded.facets,
-          pool = excluded.pool, key_scheme = excluded.key_scheme
+          pool = excluded.pool, key_scheme = excluded.key_scheme,
+          scales = excluded.scales, colors = excluded.colors, weights = excluded.weights
       SQL
         type.name, type.pool_traits.to_json, type.group_traits.to_json,
         type.labels.to_json, type.sets.to_json, type.facets.to_json,
-        type.pool ? 1 : 0, TraitKey::SCHEME
+        type.pool ? 1 : 0, TraitKey::SCHEME, type.scales.to_json, type.colors.to_json, type.weights.to_json
       )
     end
 
     private def stored_type(asset_type : String) : {AssetType, Int32}?
       @db.query_one?(
-        "SELECT asset_type, pool_traits, group_traits, labels, sets, facets, pool, key_scheme FROM asset_types WHERE asset_type = ?",
+        "SELECT asset_type, pool_traits, group_traits, labels, sets, facets, pool, key_scheme, scales, colors, weights FROM asset_types WHERE asset_type = ?",
         asset_type
       ) { |rs| read_type(rs) }
     end
@@ -1757,13 +1807,17 @@ module DataDungeon
       sets = Array(String).from_json(rs.read(String))
       facets = Hash(String, Array(String)).from_json(rs.read(String))
       pool = rs.read(Int32) != 0
-      {AssetType.new(name, pool_traits, group_traits, pool, labels, sets, facets), rs.read(Int32)}
+      scheme = rs.read(Int32)
+      scales = Hash(String, Array(String)).from_json(rs.read(String))
+      colors = Array(String).from_json(rs.read(String))
+      weights = Hash(String, Float64).from_json(rs.read(String))
+      {AssetType.new(name, pool_traits, group_traits, pool, labels, sets, facets, scales, colors, weights), scheme}
     end
 
     # Registrations made with an older key encoding are re-keyed on open.
     private def load_types : Nil
       rows = @db.query_all(
-        "SELECT asset_type, pool_traits, group_traits, labels, sets, facets, pool, key_scheme FROM asset_types"
+        "SELECT asset_type, pool_traits, group_traits, labels, sets, facets, pool, key_scheme, scales, colors, weights FROM asset_types"
       ) { |rs| read_type(rs) }
       rows.each do |type, scheme|
         @types[type.name] = type
@@ -1962,8 +2016,17 @@ module DataDungeon
       @indexer.try(&.delete_asset(id))
       write_transaction do |conn|
         unindex_search(conn, id)
+        log_change(conn, id)
         conn.exec("DELETE FROM assets WHERE id = ?", id)
       end
+    end
+
+    # Record that an asset changed or went (asset_changes), keeping only the
+    # latest CHANGES_KEPT.
+    private def log_change(conn, id : Int64) : Nil
+      conn.exec("INSERT INTO asset_changes (asset_id) VALUES (?)", id)
+      seq = conn.scalar("SELECT last_insert_rowid()").as(Int64)
+      conn.exec("DELETE FROM asset_changes WHERE seq <= ?", seq - CHANGES_KEPT) if seq % 1000 == 0
     end
 
     # ── Consistency sweep (fsck / vacuum) ──

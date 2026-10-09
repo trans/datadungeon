@@ -233,6 +233,44 @@ HTTP::Server.new([api, app_handler])
 | `POST`, `DELETE /assets/:id/links` | link or unlink (write token) |
 | `POST /types/:type/promote`, `/maintenance/vacuum` | (write token) |
 
+## Best matches
+
+`require "data_dungeon/matches"` (with the `usearch` shard and its C
+library) adds `DataDungeon::MatchIndex`: for a registered type, the assets
+closest to what was picked, even when none matches every pick, ranked by
+`score = Σ weight × similarity` over the traits asked for.
+
+```crystal
+db.register_type("portrait", pool_traits: %w[art-style rating race hair skin items], pool: true,
+  scales: {"rating" => %w[g pg r x]},  # ordered: near values count as close
+  colors: %w[hair skin],               # CSS names or hex codes, by appearance
+  sets: %w[items],                     # by shared members
+  weights: {"art-style" => 2.0})       # default weights (else 1)
+index = DataDungeon::MatchIndex.new(db)
+index.best_matches("portrait", {"art-style" => "golden", "rating" => "pg", "hair" => "crimson"},
+  require: %w[art-style rating],       # must match exactly
+  weights: {"hair" => 3.0}, limit: 10) # => [BestMatch(asset, score), …], best first
+index.similar(asset_id, limit: 10)     # by an asset's own traits
+index.close
+```
+
+Other traits are words, alike only when equal; a color name DD doesn't
+know matches only itself. What must match and what matters most are the
+application's to say: nothing is required, and every trait weighs 1,
+unless given.
+
+Each asset has a vector built from its tags, one block per trait, whose
+inner product with a query's approximates the score; USearch finds 200
+candidates in one file per type (beside the database), and those are
+scored exactly. Weights travel with the query, so changing them rebuilds
+nothing; changing a type's traits, scales or colors rebuilds its file from
+the tags. One process owns a store's match files (a lock) and, before each
+query, catches up on every process's writes from the database's change
+log. `DataDungeon::API` answers `GET /types/:type/matches` and
+`GET /assets/:id/similar` when given one, as `dd-serve` is. See `DESIGN-best-match.md` and `bench/best_match.cr`: at
+200k assets a query takes about 1.4 ms (3.4 ms with required traits), with
+the exhaustive top 10 found every time.
+
 ## Semantic asset search
 
 Semantic search is an optional entry point. Applications using it need a

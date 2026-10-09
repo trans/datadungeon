@@ -27,6 +27,9 @@ module DataDungeon
   #     GET    /assets/:id/object          its bytes, streamed from the storage
   #     GET    /assets/:id/links           its links, and the links to it
   #     POST   /maintenance/check          check_consistency's report
+  #     GET    /types/:type/matches        best matches, given a matcher (MatchIndex):
+  #                                          ?trait.<k>=<v> &require=a,b &weight.<k>=<n> &limit=
+  #     GET    /assets/:id/similar         the assets closest to this one: ?require= &weight.<k>= &limit=
   #
   #     PATCH  /assets/:id                 {tags, description, flagged, rating}: update_asset
   #     DELETE /assets/:id
@@ -40,7 +43,8 @@ module DataDungeon
     PAGE     =  50
     MAX_PAGE = 500
 
-    def initialize(@db : DB, *, @read_token : String? = nil, @write_token : String? = nil, prefix : String = "")
+    def initialize(@db : DB, *, @read_token : String? = nil, @write_token : String? = nil, prefix : String = "",
+                   @matcher : Matcher? = nil)
       @prefix = prefix.rstrip('/')
     end
 
@@ -68,6 +72,15 @@ module DataDungeon
         respond(context, @db.tag_keys(parts[1]))
       elsif method == "GET" && parts.size == 4 && parts[0] == "types" && parts[2] == "tags"
         respond(context, @db.tag_values(parts[1], parts[3], page_param(context, "limit", 100)))
+      elsif method == "GET" && parts.size == 3 && parts[0] == "types" && parts[2] == "matches"
+        matches(context) { |matcher, required, weights, limit|
+          picks = prefixed(context.request.query_params, "trait.")
+          matcher.best_matches(parts[1], picks, require: required, weights: weights, limit: limit)
+        }
+      elsif method == "GET" && parts.size == 3 && parts[0] == "assets" && parts[2] == "similar" && id
+        matches(context) { |matcher, required, weights, limit|
+          matcher.similar(id, require: required, weights: weights, limit: limit)
+        }
       elsif method == "POST" && parts.size == 3 && parts[0] == "types" && parts[2] == "promote"
         body = JSON.parse(context.request.body.try(&.gets_to_end) || "{}")
         respond(context, {promoted: @db.promote(parts[1], body["trait"].as_s, body["value"].as_s)})
@@ -121,6 +134,18 @@ module DataDungeon
         next:   assets.size == limit ? assets.last?.try(&.id) : nil,
         total:  params["count"]? == "1" ? @db.count_assets(type, tags, q: q, links: links, unlinked: unlinked) : nil,
       })
+    end
+
+    private def matches(context, & : Matcher, Array(String), Hash(String, Float64), Int32 -> Array(BestMatch)) : Nil
+      matcher = @matcher || return error(context, 404, "Best matches aren't enabled on this server")
+      params = context.request.query_params
+      required = params["require"]?.try(&.split(',', remove_empty: true)) || [] of String
+      weights = prefixed(params, "weight.").transform_values do |weight|
+        weight.to_f64? || raise ArgumentError.new("a weight must be a number")
+      end
+      found = yield matcher, required, weights, page_param(context, "limit", 10, max: 100)
+      tags = @db.load_tags_batch(found.map(&.asset.id))
+      respond(context, {matches: found.map { |match| {asset: match.asset, tags: tags[match.asset.id]? || {} of String => String, score: match.score} }})
     end
 
     private def prefixed(params : URI::Params, prefix : String) : Hash(String, String)

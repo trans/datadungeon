@@ -1,5 +1,5 @@
 name: data_dungeon
-version: 0.9.0
+version: 0.10.0
 
 authors:
   - Thomas Sawyer <transfire@gmail.com>
@@ -17,6 +17,10 @@ development_dependencies:
   memo:
     github: openbohemians/memo
     branch: main
+  # For MatchIndex (data_dungeon/matches): USearch, with its C library.
+  usearch:
+    github: trans/usearch.cr
+    version: ~> 0.1
   # For S3Storage; until taylorfinnell/awscr-s3#168 (S3::Exception#status) is released.
   awscr-s3:
     github: trans/awscr-s3
