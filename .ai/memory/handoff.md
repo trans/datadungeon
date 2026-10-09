@@ -90,7 +90,16 @@ Next:
   Key = what it is; image fields = real columns; links = who and where;
   link data = placement. Views and light stored as unit vectors (Thomas
   agreed), shown as side/yaw/pitch/roll in quarter turns. Includes
-  `@curio`'s link-name prefixes (`boardwalk.*`) and `cycles:`.
+  `@curio`'s link-name prefixes (`boardwalk.*`) and `cycles:`. Thomas
+  settled its first questions the same day (content box measured; named
+  directions, but no field in any key; animation as time-0 `image_meta`
+  plus keyframes). Reviewed by `@curio`, `@overlore` and `@mj` the same
+  day; Thomas then decided: 3D real size, light in the picture's frame,
+  keys as an index (the app defines pools; supersede, copy uses,
+  `reinstate`, app-called pruning), storing a held file errors except an
+  exact repeat, provenance in `generation`, soft newest-first preference,
+  `dominant_color`. Replies sent to all three. **Next:** build 0.11 from the
+  doc once Thomas has read it through.
 - Memo stays in DD's SQLite file for now; working first, then optimize.
 
 ## Where we stopped (2026-10-04)
