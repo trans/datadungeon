@@ -272,7 +272,7 @@ From `@curio`'s and `@mj`'s review:
   asset current) returns the existing asset. Within a type only: the same
   picture can be a `backdrop` and a `room`.
 - Prefer is soft: it never outranks a better match, only orders otherwise
-  equal candidates, newest first (`created_at`, or the generation date).
+  equal candidates, newest first by `made_at` (below).
   `@mj`'s `version` is provenance, not a rank: it, `pool` and the model go
   in the `generation` JSON, with nothing ranked on them.
 - View and light mean "as asked"; correction in curio.
@@ -286,20 +286,23 @@ being unique. **The application defines what a pool is, not DataDungeon**:
 a pool is whatever an app's query asks for, the assets whose traits are
 these. Cattacula asks with bit, beat, voice and format, so its pool is the
 takes of one line in one voice; another app could ask the same store with
-the bit alone. A registration's trait order only says which traits the index
-puts first, for speed. Nothing is replaced, so everything is kept. Durable
+the bit alone. Nothing is replaced, so everything is kept. Durable
 references are the row id (and the content hash for bytes), never the key
 string; the docs say so.
 
-**Superseding.** A type that is single-best today keeps its meaning this
-way: storing a new take adds it with a `supersedes` link to the current one,
-which stays but drops out of `get`, listings, best match and search. That
-is the one behaviour a type still declares: whether storing a new match
-retires the current ones (today's single-best, perhaps renamed
-`supersede: true`) or adds beside them (today's `pool: true`).
+**Superseding is by id** (Thomas, 2026-10-09): `store(…, supersedes: id)`
+adds the new take with a `supersedes` link to the one named, which stays but
+drops out of `get`, listings, best match and search. Only the app knows
+which take it is redoing, and views and sizes are fields, not traits, so
+"every take with the same traits" would be too wide: the blimp's right-side
+view would retire its left-side view, and a hand-made 16 px icon its 512 px
+master (`@curio`, 2026-10-09). No type retires anything by itself
+(Thomas): the single-best and `pool:` flags go, and every store adds.
 `get(type, traits)` finds the candidates by the key, skips superseded ones,
-and prefers the newest, so Cattacula's code doesn't change. Any app can
-supersede explicitly too (`store(…, supersede: true)`, or a link later).
+and prefers the newest, so an app that regenerates a take without naming the
+old one still plays the new one; naming it (`old = db.get(…)`, then
+`db.store(…, supersedes: old.id)`) keeps the history tidy. Cattacula and
+Pirateship will change their regeneration that way.
 
 - **Uses are copied** to the new take (Thomas): its predecessor keeps its
   `used-by` links (and their placement data), hidden with it, so its history
@@ -311,6 +314,76 @@ supersede explicitly too (`store(…, supersede: true)`, or a link later).
 - **Pruning is the app's call** (Thomas): a call deletes a type's superseded
   assets, optionally keeping the last N or those newer than a date; Overlore
   would keep voice takes and prune old comic PDFs.
+
+## Retiring, and the dates on an asset
+
+**`retired_at`** is the one "hidden" flag (Thomas, 2026-10-09): an asset
+with it set drops out of `get`, listings, best match and search, an
+indexed check rather than a link lookup. `store(…, supersedes: id)` sets it
+on the take named (and adds the `supersedes` link, kept as history);
+`retire(id)` sets it with no replacement, curio's everyday soft delete,
+where Delete is the rare final step (`@curio`); `reinstate(id)` clears it.
+Listings take `superseded=1` or `only`, and counts exclude retired assets,
+reporting how many there are.
+
+**`made_at`** is when the content was made, and the only date "newest
+first" uses: a batch or an import passes it (a batch drawn over hours and
+filed at once, or a re-filed library, would otherwise look brand new), and
+it defaults to the filing time. Reinstating never changes it (`@mj`,
+2026-10-09).
+
+The dates on an asset, each with one job (Thomas: keep an eye on how many):
+
+| Date | Job |
+|---|---|
+| `made_at` | when the content was made: recency, "prefer newest" |
+| `created_at` | when DataDungeon filed it: housekeeping |
+| `retired_at` | hidden since: superseded or retired |
+| `last_used_at` | last served (with `use_count`): eviction |
+
+## Indexes per consumer
+
+If the key is an index for a consumer's common queries, each consumer
+defines its own (Thomas, 2026-10-09), and changing one touches nobody
+else's: no more re-keying everyone's assets in a shared store.
+
+- **The type** is registered once, by its owner (the park store's
+  `types.cr`): its traits' names, how values are normalized, labels, sets,
+  scales, colours, weights. The shared vocabulary.
+- **An index** is registered by a consumer, with a name and a trait order.
+  Its identity includes the consumer, so consumers can't step on each
+  other: an app says who it is when it opens the store, and its
+  `register_index` calls create, change and re-key only its own.
+  ```crystal
+  db = DataDungeon::DB.new(path, consumer: "cattacula")
+  db.register_index("voice", "lines", traits: %w[bit beat voice fmt])
+  ```
+- **One table holds the keys**: `asset_keys (index_id, key, asset_id)`,
+  indexed on `(index_id, key)`, one row per asset per index of its type. A
+  prefix lookup is one range scan, as fast as today's `pool_key` column.
+  Every write recomputes an asset's keys in its type's indexes.
+- **Reads can use any consumer's index**: an index is only a faster path to
+  the same assets.
+- **Today's `pool_key`** becomes the type's default index (the order its
+  owner registered), so existing data and callers keep working; the API
+  keeps showing it, documented as derived.
+
+**Apps just ask with traits; DD picks the path**, as an SQL planner does
+(and as DD already does with one key):
+
+1. Each index's usable prefix is the longest run of its leading traits the
+   query fixes: index `bit beat voice fmt`, asked for bit, beat and voice,
+   gives a prefix of three, one range scan.
+2. DD counts each candidate range (capped, so it's cheap), the prefixes and
+   each single tag, and starts from the smallest: a long prefix of common
+   values ("rating pg") can match more than one rare tag.
+3. Every other condition (traits, search words, links, fields) is checked
+   on each candidate, by an indexed lookup.
+
+A prefix needs the index's first trait: an index `art-style rating gender`
+helps a query on rating and gender only if art style is fixed too. So a
+consumer orders its indexes as it usually asks, and with no index fitting,
+DD starts from the rarest tag, still fast whenever a condition is selective.
 
 ## Who decides what a trait says
 
