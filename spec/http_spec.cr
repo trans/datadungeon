@@ -169,6 +169,11 @@ describe DataDungeon::API do
       call(api, "GET", "/dd/assets?view=north", "r").status_code.should eq 400
 
       json(call(api, "POST", "/dd/maintenance/measure", "w", {type: "backdrop", all: true}))["measured"].should eq 2
+      json(call(api, "GET", "/dd/types/backdrop/views", "r")).should eq({"back-left" => 1})
+      rows = json(call(api, "GET", "/dd/assets?type=backdrop&meta=1", "r"))["assets"].as_a
+      rows.map { |row| row["view"].raw.nil? ? nil : row["view"]["name"].as_s }.should eq [nil, "back-left"]
+      rows[1]["meta"]["world_height"].should eq 3.0
+      json(call(api, "GET", "/dd/assets?type=backdrop", "r"))["assets"][1]["meta"].raw.should be_nil # only on request
 
       db.update_asset(a.id, image: DataDungeon::ImageMeta.new(animation: DataDungeon::ImageAnimation.new(frame_count: 2, duration_ms: 500)))
       set = json(call(api, "PUT", "/dd/assets/#{a.id}/keyframes", "w", [{at_ms: 250, view: {side: "back", yaw: 0}}]))

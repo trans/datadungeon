@@ -19,12 +19,14 @@ module DataDungeon
   #                                          and every consumer's indexes
   #     GET    /types/:type/tags           tag names and how many assets carry each
   #     GET    /types/:type/tags/:key      a tag's values, most frequent first (?limit=)
+  #     GET    /types/:type/views          how many pictures are seen from each named direction
   #     GET    /assets                     a page of assets with their tags, newest first:
   #                                          ?type= &q= (whole words, catt* for a start)
   #                                          &tag.<key>= &link.<rel>=<name> (or <name>.*
   #                                          for it and the names under it, <start>*)
   #                                          &unlinked=<rel> &limit= &page=<n> or &before=<id>
-  #                                          &count=1 (a total)
+  #                                          &count=1 (a total), &meta=1 (each picture's fields,
+  #                                          and its view readably)
   #                                          picture fields: &field.<name>=<low>..<high> (either
   #                                          end open), &view=<named direction>, &view.side=
   #                                          &view.yaw= &view.pitch= &view.within=<degrees>,
@@ -91,6 +93,8 @@ module DataDungeon
         })
       elsif method == "GET" && parts.size == 3 && parts[0] == "types" && parts[2] == "tags"
         respond(context, @db.tag_keys(parts[1], retired: retired_param(context)))
+      elsif method == "GET" && parts.size == 3 && parts[0] == "types" && parts[2] == "views"
+        respond(context, @db.view_counts(parts[1], retired: retired_param(context)))
       elsif method == "GET" && parts.size == 4 && parts[0] == "types" && parts[2] == "tags"
         respond(context, @db.tag_values(parts[1], parts[3], page_param(context, "limit", 100), retired: retired_param(context)))
       elsif method == "GET" && parts.size == 3 && parts[0] == "types" && parts[2] == "matches"
@@ -169,11 +173,16 @@ module DataDungeon
       assets = @db.list_assets(type, tags, q: q, links: links, unlinked: unlinked, limit: limit,
         offset: (page - 1) * limit, before: before, retired: retired, image: image)
       tags_by_id = @db.load_tags_batch(assets.map(&.id))
+      metas = params["meta"]? == "1" ? @db.load_image_meta_batch(assets.map(&.id)) : nil
       respond(context, {
-        assets: assets.map { |rec| {asset: rec, tags: tags_by_id[rec.id]? || {} of String => String} },
-        page:   page,
-        next:   assets.size == limit ? assets.last?.try(&.id) : nil,
-        total:  params["count"]? == "1" ? @db.count_assets(type, tags, q: q, links: links, unlinked: unlinked, retired: retired, image: image) : nil,
+        assets: assets.map do |rec|
+          meta = metas.try(&.[rec.id]?)
+          {asset: rec, tags: tags_by_id[rec.id]? || {} of String => String,
+           meta: meta, view: meta.try(&.view).try { |view| readable(view) }}
+        end,
+        page:  page,
+        next:  assets.size == limit ? assets.last?.try(&.id) : nil,
+        total: params["count"]? == "1" ? @db.count_assets(type, tags, q: q, links: links, unlinked: unlinked, retired: retired, image: image) : nil,
       })
     end
 

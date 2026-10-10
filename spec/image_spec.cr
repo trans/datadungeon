@@ -313,6 +313,55 @@ describe "Image fields" do
     end
   end
 
+  it "counts a type's pictures by named direction, kept through every change" do
+    with_db("dd-image-view-counts") do |db|
+      view = ->(side : String, yaw : Float64, pitch : Float64) { DataDungeon::ImageMeta.new(view: DataDungeon::Direction.new(side, yaw, pitch)) }
+      a = db.store("prop", {"thing" => "a"}, bytes: png(1, 1) { RED }, content_type: "image/png", image: view.call("front", 0.0, 0.0))
+      b = db.store("prop", {"thing" => "b"}, bytes: png(2, 1) { RED }, content_type: "image/png", image: view.call("back", -0.5, 0.5))
+      c = db.store("prop", {"thing" => "c"}, bytes: png(3, 1) { RED }, content_type: "image/png", image: view.call("front", 0.0, 1.0))
+      db.store("prop", {"thing" => "d"}, bytes: png(4, 1) { RED }, content_type: "image/png") # no view
+      db.view_counts("prop").should eq({"back-left" => 1, "from-above" => 1, "front" => 1, "top-down" => 1})
+
+      db.retire(b.id)
+      db.view_counts("prop").should eq({"front" => 1, "top-down" => 1})
+      db.view_counts("prop", retired: true).should eq({"back-left" => 1, "from-above" => 1})
+      db.update_asset(a.id, image: view.call("back", -0.5, 0.0))
+      db.view_counts("prop").should eq({"back-left" => 1, "top-down" => 1})
+      db.delete_asset(c.id)
+      db.rename_type("prop", "thing")
+      db.view_counts("thing", retired: nil).should eq({"back-left" => 2, "from-above" => 1})
+      db.view_counts("prop").should be_empty
+      db.tag_keys("thing").keys.should eq ["thing"] # the counts aren't tags
+      kept = db.connection.query_all("SELECT * FROM asset_tag_counts ORDER BY 1, 2, 3", as: {String, String, String, Int64, Int64})
+      fresh = DataDungeon::DB::COUNT_TAGS.flat_map do |sql|
+        db.connection.query_all(sql.sub(/\A\s*INSERT INTO[^\n]*\n/, ""), as: {String, String, String, Int64, Int64})
+      end
+      kept.should eq fresh.sort # as counted afresh
+
+      expect_raises(ArgumentError, /@ are DataDungeon's/) do
+        db.store("prop", {"@view" => "front"}, bytes: png(5, 1) { RED }, content_type: "image/png")
+      end
+      expect_raises(ArgumentError, /@ are DataDungeon's/) { db.rename_tag("thing", "thing", "@thing") }
+    end
+  end
+
+  it "names an older store's views, and counts them" do
+    with_db("dd-image-view-names") do |db|
+      db.store("prop", {"thing" => "a"}, bytes: png(1, 1) { RED }, content_type: "image/png",
+        image: DataDungeon::ImageMeta.new(view: DataDungeon::Direction.new("front", 0.5)))
+      # As 0.11.1 left it: no names, no view counts, no triggers for them.
+      DataDungeon::DB::TAG_COUNT_TRIGGER_NAMES.each { |name| db.connection.exec("DROP TRIGGER #{name}") }
+      db.connection.exec("DELETE FROM asset_tag_counts WHERE tag_key = '@view'")
+      db.connection.exec("ALTER TABLE image_meta DROP COLUMN view_name")
+      reopened = DataDungeon::DB.new(db.path)
+      begin
+        reopened.view_counts("prop").should eq({"front-right" => 1})
+      ensure
+        reopened.close
+      end
+    end
+  end
+
   it "keeps an animation's checkpoints, measuring the content box at each" do
     with_db("dd-image-keyframes") do |db|
       frames = [0, 1, 2].map { |n| rgba(16, 16) { |x, y| x < 4 + n * 4 && y < 8 ? RED : CLEAR } }

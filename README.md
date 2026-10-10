@@ -224,8 +224,10 @@ light are written readably, as `Direction`: `side` front or back, `yaw`
 toward the right (+1) or left, `pitch` from above (+1) or below, in quarter
 turns. A profile facing left in the picture shows the thing's right side,
 yaw +1. Each view has a name, `back-left` or `front from-above` or
-`top-down`, which is also a search word; the `image_views` SQL view shows
-views readably at the sqlite3 prompt.
+`top-down`, which is also a search word; `view_counts(type)` counts a
+type's pictures by each word of their names (kept as the tag counts are,
+so instant), and the `image_views` SQL view shows views readably at the
+sqlite3 prompt. Tag names starting with `@` are DataDungeon's.
 
 ```crystal
 db.store("prop", {"thing" => "lamp"}, bytes: png, content_type: "image/png",
@@ -340,7 +342,8 @@ HTTP::Server.new([api, app_handler])
 |---|---|
 | `GET /types` | types, counts (current and retired), registrations and indexes |
 | `GET /types/:type/tags[/:key]` | tag names, or one tag's values, with counts |
-| `GET /assets?type=&q=&tag.<key>=&link.<rel>=&unlinked=&limit=&page=&before=&count=1` | a page of assets with their tags, and `next` |
+| `GET /types/:type/views` | how many pictures are seen from each named direction |
+| `GET /assets?type=&q=&tag.<key>=&link.<rel>=&unlinked=&limit=&page=&before=&count=1` | a page of assets with their tags, and `next` (`&meta=1`: each picture's fields and view too) |
 | `…?retired=only` or `=include` | retired assets, or all, in listings and counts |
 | `…?field.<name>=<low>..<high>&view=back-left&view.side=&view.yaw=&view.pitch=&view.within=` | by picture fields (and `light.` alike) |
 | `GET /assets/:id`, `/assets/:id/object`, `/assets/:id/links` | an asset with its tags, metadata and links; its bytes; its links |

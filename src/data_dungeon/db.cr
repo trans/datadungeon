@@ -205,7 +205,7 @@ module DataDungeon
     SQL
 
     # Counted from the tables once, when the counts are new.
-    COUNT_TAGS = [<<-SQL, <<-SQL]
+    COUNT_TAGS = [<<-SQL, <<-SQL, <<-SQL]
       INSERT INTO asset_tag_counts (asset_type, tag_key, tag_value, current, retired)
       SELECT t.asset_type, t.tag_key, t.tag_value, SUM(a.retired_at IS NULL), SUM(a.retired_at IS NOT NULL)
       FROM asset_tags t JOIN assets a ON a.id = t.asset_id
@@ -215,6 +215,37 @@ module DataDungeon
       SELECT asset_type, '', '', SUM(retired_at IS NULL), SUM(retired_at IS NOT NULL)
       FROM assets GROUP BY asset_type
     SQL
+      INSERT INTO asset_tag_counts (asset_type, tag_key, tag_value, current, retired)
+      SELECT asset_type, '@view', word, SUM(retired_at IS NULL), SUM(retired_at IS NOT NULL) FROM (
+        SELECT a.asset_type, a.retired_at, CASE WHEN instr(im.view_name, ' ') > 0
+          THEN substr(im.view_name, 1, instr(im.view_name, ' ') - 1) ELSE im.view_name END AS word
+        FROM image_meta im JOIN assets a ON a.id = im.asset_id WHERE im.view_name IS NOT NULL
+        UNION ALL
+        SELECT a.asset_type, a.retired_at, substr(im.view_name, instr(im.view_name, ' ') + 1)
+        FROM image_meta im JOIN assets a ON a.id = im.asset_id WHERE instr(im.view_name, ' ') > 0
+      ) GROUP BY asset_type, word
+    SQL
+
+    # The words of a view's name (`back-left from-above`), one or two, as a
+    # subquery giving `word`; none for no name.
+    private def self.view_words(name : String) : String
+      "SELECT word FROM (SELECT CASE WHEN instr(#{name}, ' ') > 0 THEN substr(#{name}, 1, instr(#{name}, ' ') - 1) " \
+      "ELSE #{name} END AS word UNION ALL SELECT substr(#{name}, instr(#{name}, ' ') + 1) WHERE instr(#{name}, ' ') > 0) " \
+      "WHERE word IS NOT NULL"
+    end
+
+    # Trigger SQL adding a view's words to its type's `@view` counts, or with
+    # `taking` taking them away.
+    private def self.view_count_sql(name : String, type : String, current : String, retired : String,
+                                    taking = false) : String
+      words = view_words(name)
+      return "INSERT INTO asset_tag_counts (asset_type, tag_key, tag_value, current, retired) " \
+             "SELECT #{type}, '@view', word, #{current}, #{retired} FROM (#{words}) WHERE #{type} IS NOT NULL " \
+             "ON CONFLICT DO UPDATE SET current = current + excluded.current, retired = retired + excluded.retired;" unless taking
+      "UPDATE asset_tag_counts SET current = current - (#{current}), retired = retired - (#{retired}) " \
+      "WHERE asset_type = #{type} AND tag_key = '@view' AND tag_value IN (#{words}); " \
+      "DELETE FROM asset_tag_counts WHERE asset_type = #{type} AND tag_key = '@view' AND current = 0 AND retired = 0;"
+    end
 
     # Trigger SQL adding `current` and `retired` (each 1 or 0) to a count,
     # or with `taking` taking them away and dropping the count at 0.
@@ -231,8 +262,9 @@ module DataDungeon
 
     # A tag counts as its asset does, current or retired. An asset's tags go
     # before the asset itself, while it still says which they counted as.
-    # A database keeps the triggers it was given, so changing one here needs
-    # a DROP TRIGGER in setup_schema too.
+    # A picture's view counts too, under the tag `@view`, once for each word
+    # of its name (`back-left`, `from-above`). setup_schema recreates the
+    # triggers on every read-write open, so a database has these ones.
     TAG_COUNT_TRIGGERS = [
       <<-SQL,
         CREATE TRIGGER IF NOT EXISTS asset_tags_counted AFTER INSERT ON asset_tags BEGIN
@@ -266,6 +298,7 @@ module DataDungeon
       <<-SQL,
         CREATE TRIGGER IF NOT EXISTS assets_uncounted BEFORE DELETE ON assets BEGIN
           DELETE FROM asset_tags WHERE asset_id = old.id;
+          DELETE FROM image_meta WHERE asset_id = old.id;
           #{count_sql("old.asset_type", "''", "''", "old.retired_at IS NULL", "old.retired_at IS NOT NULL", taking: true)}
         END
       SQL
@@ -274,6 +307,10 @@ module DataDungeon
         WHEN old.asset_type <> new.asset_type BEGIN
           #{count_sql("old.asset_type", "''", "''", "old.retired_at IS NULL", "old.retired_at IS NOT NULL", taking: true)}
           #{count_sql("new.asset_type", "''", "''", "new.retired_at IS NULL", "new.retired_at IS NOT NULL")}
+          #{view_count_sql("(SELECT view_name FROM image_meta WHERE asset_id = new.id)", "old.asset_type",
+              "old.retired_at IS NULL", "old.retired_at IS NOT NULL", taking: true)}
+          #{view_count_sql("(SELECT view_name FROM image_meta WHERE asset_id = new.id)", "new.asset_type",
+              "new.retired_at IS NULL", "new.retired_at IS NOT NULL")}
         END
       SQL
       <<-SQL,
@@ -283,12 +320,44 @@ module DataDungeon
           SET current = current + iif(new.retired_at IS NULL, 1, -1),
               retired = retired - iif(new.retired_at IS NULL, 1, -1)
           FROM (SELECT asset_type, tag_key, tag_value FROM asset_tags WHERE asset_id = new.id
-                UNION ALL SELECT new.asset_type, '', '') AS t
+                UNION ALL SELECT new.asset_type, '', ''
+                UNION ALL SELECT new.asset_type, '@view', word
+                  FROM (#{view_words("(SELECT view_name FROM image_meta WHERE asset_id = new.id)")})) AS t
           WHERE asset_tag_counts.asset_type = t.asset_type AND asset_tag_counts.tag_key = t.tag_key
             AND asset_tag_counts.tag_value = t.tag_value;
         END
       SQL
+      <<-SQL,
+        CREATE TRIGGER IF NOT EXISTS image_view_counted AFTER INSERT ON image_meta
+        WHEN new.view_name IS NOT NULL BEGIN
+          #{view_count_sql("new.view_name", "(SELECT asset_type FROM assets WHERE id = new.asset_id)",
+              "(SELECT retired_at IS NULL FROM assets WHERE id = new.asset_id)",
+              "(SELECT retired_at IS NOT NULL FROM assets WHERE id = new.asset_id)")}
+        END
+      SQL
+      <<-SQL,
+        CREATE TRIGGER IF NOT EXISTS image_view_recounted AFTER UPDATE OF view_name ON image_meta
+        WHEN old.view_name IS NOT new.view_name BEGIN
+          #{view_count_sql("old.view_name", "(SELECT asset_type FROM assets WHERE id = old.asset_id)",
+              "(SELECT retired_at IS NULL FROM assets WHERE id = old.asset_id)",
+              "(SELECT retired_at IS NOT NULL FROM assets WHERE id = old.asset_id)", taking: true)}
+          #{view_count_sql("new.view_name", "(SELECT asset_type FROM assets WHERE id = new.asset_id)",
+              "(SELECT retired_at IS NULL FROM assets WHERE id = new.asset_id)",
+              "(SELECT retired_at IS NOT NULL FROM assets WHERE id = new.asset_id)")}
+        END
+      SQL
+      <<-SQL,
+        CREATE TRIGGER IF NOT EXISTS image_view_uncounted AFTER DELETE ON image_meta
+        WHEN old.view_name IS NOT NULL BEGIN
+          #{view_count_sql("old.view_name", "(SELECT asset_type FROM assets WHERE id = old.asset_id)",
+              "(SELECT retired_at IS NULL FROM assets WHERE id = old.asset_id)",
+              "(SELECT retired_at IS NOT NULL FROM assets WHERE id = old.asset_id)", taking: true)}
+        END
+      SQL
     ]
+
+    # The triggers' names, for recreating them.
+    TAG_COUNT_TRIGGER_NAMES = TAG_COUNT_TRIGGERS.map { |sql| sql[/TRIGGER IF NOT EXISTS (\w+)/, 1] }
 
     # The indexes consumers keep on types (register_index), and each asset's
     # key in every index of its type, so a lookup by an index's leading
@@ -398,11 +467,14 @@ module DataDungeon
         world_width    REAL,
         world_height   REAL,
         world_depth    REAL,
+        view_name      TEXT,
         FOREIGN KEY (asset_id) REFERENCES assets(id) ON DELETE CASCADE
       )
     SQL
 
     # The image_meta columns in table order, after asset_id, with their types.
+    # (`view_name`, last, is the view's Direction#name, kept by DataDungeon
+    # so its words can be counted: see view_counts.)
     IMAGE_COLUMNS = {
       "width" => "INTEGER", "height" => "INTEGER", "usage_class" => "TEXT", "compression" => "TEXT",
       "quality_floor" => "INTEGER", "max_colors" => "INTEGER", "target_format" => "TEXT", "presentation" => "TEXT",
@@ -515,6 +587,7 @@ module DataDungeon
       # and sidecar row; the pragma only changes outside a transaction.
       rebuilt = false
       search_missing = false
+      views_unnamed = false
       @db.using_connection do |conn|
         conn.exec("PRAGMA foreign_keys=OFF")
         begin
@@ -553,7 +626,7 @@ module DataDungeon
             conn.exec(IMAGE_META_SCHEMA)
             conn.exec(IMAGE_ANIMATION_SCHEMA)
             conn.exec(IMAGE_KEYFRAMES_SCHEMA)
-            migrate_image_meta(conn)
+            views_unnamed = migrate_image_meta(conn)
             conn.exec(AUDIO_META_SCHEMA)
             conn.exec(VIDEO_META_SCHEMA)
             conn.exec(TEXT_META_SCHEMA)
@@ -566,7 +639,9 @@ module DataDungeon
             counts_missing = table_columns(conn, "asset_tag_counts").empty?
             conn.exec(ASSET_TAG_COUNTS_SCHEMA)
             COUNT_TAGS.each { |sql| conn.exec(sql) } if counts_missing
+            TAG_COUNT_TRIGGER_NAMES.each { |name| conn.exec("DROP TRIGGER IF EXISTS #{name}") }
             TAG_COUNT_TRIGGERS.each { |sql| conn.exec(sql) }
+            name_views(conn) if views_unnamed # counted by the triggers as they're named
             conn.exec(ASSET_INDEXES_SCHEMA)
             ASSET_KEYS_SCHEMA.split(";").each { |sql| conn.exec(sql.strip) unless sql.strip.empty? }
             search_missing = table_columns(conn, "asset_search").empty?
@@ -664,12 +739,15 @@ module DataDungeon
 
     # Before 0.11.1 image_meta lacked the measured and application fields,
     # and kept an animation's frames itself: those move to image_animation.
-    private def migrate_image_meta(conn : ::DB::Connection) : Nil
+    # Returns whether the views have just gained their names (0.11.2).
+    private def migrate_image_meta(conn : ::DB::Connection) : Bool
       columns = table_columns(conn, "image_meta")
       relabel_media(conn) unless columns.has_key?("measured") # once, upgrading to 0.11.1
       IMAGE_COLUMNS.each do |column, type|
         conn.exec("ALTER TABLE image_meta ADD COLUMN #{column} #{type}") unless columns.has_key?(column)
       end
+      unnamed = !columns.has_key?("view_name")
+      conn.exec("ALTER TABLE image_meta ADD COLUMN view_name TEXT") if unnamed
       if columns.has_key?("animated")
         conn.exec(<<-SQL)
           INSERT OR IGNORE INTO image_animation (asset_id, frame_count, duration_ms)
@@ -691,6 +769,16 @@ module DataDungeon
         false
       end
       conn.exec(IMAGE_VIEWS) if math
+      unnamed
+    end
+
+    # Name every view stored before views had names.
+    private def name_views(conn : ::DB::Connection) : Nil
+      views = conn.query_all("SELECT asset_id, view_x, view_y, view_z FROM image_meta WHERE view_x IS NOT NULL",
+        as: {Int64, Float64, Float64, Float64})
+      views.each do |(id, x, y, z)|
+        conn.exec("UPDATE image_meta SET view_name = ? WHERE asset_id = ?", Direction.name(x, y, z), id)
+      end
     end
 
     # Before 0.11.1 a content type DataDungeon didn't know (JSON, a PDF) was
@@ -896,7 +984,7 @@ module DataDungeon
       unless (unknown = custom - tags.keys).empty?
         raise ArgumentError.new("custom names #{unknown.join(", ")}, which have no tag")
       end
-      raise ArgumentError.new("a tag's name must not be empty") if tags.has_key?("")
+      check_tag_names(tags)
 
       # Invariant: the sidecar payload must match the media column that
       # get_with_meta later dispatches on. Only the struct matching `media`
@@ -1041,6 +1129,7 @@ module DataDungeon
         "view_roll" => im.view_roll, "light_x" => light.try(&.[0]), "light_y" => light.try(&.[1]),
         "light_z" => light.try(&.[2]), "anchor_x" => im.anchor_x, "anchor_y" => im.anchor_y,
         "world_width" => im.world_width, "world_height" => im.world_height, "world_depth" => im.world_depth,
+        "view_name" => view.try { |(x, y, z)| Direction.name(x, y, z) },
       } of String => ::DB::Any
     end
 
@@ -1231,7 +1320,7 @@ module DataDungeon
           conn.exec("UPDATE assets SET rating = ? WHERE id = ?", rating, id) unless rating.nil?
           replace_tags(conn, rec, tags) if tags
           if im = image
-            values = image_values(im).select(ImageMeta::SET_FIELDS).reject { |_, value| value.nil? }
+            values = image_values(im).select(ImageMeta::SET_FIELDS + ["view_name"]).reject { |_, value| value.nil? }
             conn.exec("INSERT OR IGNORE INTO image_meta (asset_id) VALUES (?)", id)
             unless values.empty?
               conn.exec("UPDATE image_meta SET #{values.keys.map { |column| "#{column} = ?" }.join(", ")} WHERE asset_id = ?",
@@ -1246,7 +1335,17 @@ module DataDungeon
       find_asset_by_id(id).not_nil!
     end
 
+    # Tag names are the application's, except the empty one and those
+    # starting with `@`, which DataDungeon keeps for counts of its own.
+    private def check_tag_names(tags : Hash(String, String)) : Nil
+      raise ArgumentError.new("a tag's name must not be empty") if tags.has_key?("")
+      if reserved = tags.keys.find(&.starts_with?('@'))
+        raise ArgumentError.new("tag #{reserved.inspect}: names starting with @ are DataDungeon's")
+      end
+    end
+
     private def replace_tags(conn, rec : AssetRecord, tags : Hash(String, String)) : Nil
+      check_tag_names(tags)
       if type = @types[rec.asset_type]?
         tags = normalize_traits(type, tags)
         conn.exec("UPDATE assets SET pool_key = ? WHERE id = ?", type.key(tags), rec.id)
@@ -1557,7 +1656,8 @@ module DataDungeon
     def tag_keys(asset_type : String, retired : Bool? = false) : Hash(String, Int32)
       counts = {} of String => Int32
       @db.query(<<-SQL, asset_type) do |rs|
-        SELECT tag_key, SUM(#{counted(retired)}) FROM asset_tag_counts WHERE asset_type = ? AND tag_key <> ''
+        SELECT tag_key, SUM(#{counted(retired)}) FROM asset_tag_counts
+        WHERE asset_type = ? AND tag_key <> '' AND tag_key NOT LIKE '@%'
         GROUP BY tag_key HAVING SUM(#{counted(retired)}) > 0 ORDER BY tag_key
       SQL
         rs.each { counts[rs.read(String)] = rs.read(Int64).to_i32 }
@@ -1573,6 +1673,20 @@ module DataDungeon
       @db.query(<<-SQL, asset_type, tag_key, limit) do |rs|
         SELECT tag_value, #{counted(retired)} AS n FROM asset_tag_counts
         WHERE asset_type = ? AND tag_key = ? AND n > 0 ORDER BY n DESC, tag_value LIMIT ?
+      SQL
+        rs.each { counts[rs.read(String)] = rs.read(Int64).to_i32 }
+      end
+      counts
+    end
+
+    # How many of a type's current pictures (or, with `retired`, others) are
+    # seen from each named direction, most first. Each word of a view's name
+    # counts (`back-left`, `from-above`), as the `view=` filter takes them.
+    def view_counts(asset_type : String, retired : Bool? = false) : Hash(String, Int32)
+      counts = {} of String => Int32
+      @db.query(<<-SQL, asset_type) do |rs|
+        SELECT tag_value, #{counted(retired)} AS n FROM asset_tag_counts
+        WHERE asset_type = ? AND tag_key = '@view' AND n > 0 ORDER BY n DESC, tag_value
       SQL
         rs.each { counts[rs.read(String)] = rs.read(Int64).to_i32 }
       end
@@ -2234,6 +2348,7 @@ module DataDungeon
     def rename_tag(asset_type : String, from : String, to : String) : Int32
       writable!
       return 0 if from == to
+      check_tag_names({to => ""})
       renamed = [] of Int64
       rekeyed = [] of Int64
       @object_lock.synchronize do
@@ -2673,6 +2788,21 @@ module DataDungeon
     end
 
     # ── Media Meta ──
+
+    # The image fields of these assets, those that have them, in one query.
+    def load_image_meta_batch(ids : Array(Int64)) : Hash(Int64, ImageMeta)
+      found = {} of Int64 => ImageMeta
+      ids.each_slice(500) do |batch|
+        @db.query(<<-SQL, args: batch.map(&.as(::DB::Any))) do |rs|
+          SELECT im.asset_id, #{IMAGE_SELECT} FROM image_meta im
+          LEFT JOIN image_animation ia ON ia.asset_id = im.asset_id
+          WHERE im.asset_id IN (#{Array.new(batch.size, "?").join(", ")})
+        SQL
+          rs.each { found[rs.read(Int64)] = read_image_meta_join(rs).not_nil! }
+        end
+      end
+      found
+    end
 
     def load_image_meta(asset_id : Int64) : ImageMeta?
       @db.query_one?(<<-SQL, asset_id) { |rs| read_image_meta_join(rs) }
