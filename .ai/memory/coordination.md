@@ -31,6 +31,18 @@
   `version`, then higher `quality`. Thomas wants "favour newer" easy in DD
   (**Open**: how DD should support that ordering).
 
+## From `@mj` (2026-10-10)
+
+- `view` and `light` are live on `shoot`: it takes the vector or the
+  readable form, checked against our worked cases, and renders them into
+  the prompt as words (expect 10-20 degrees off). Nothing is added when
+  neither is asked; passing a default view everywhere would cost quality.
+- Pass its `generated_at` as `made_at`; keep its `staging_prompt` (what the
+  model was told) in the `generation` JSON.
+- A third pool, `google` (`dnano`, `dlite`, the fastest at ~2.8 s); every
+  result carries `pool`. `format` now describes the bytes (it re-encodes
+  Google's JPEGs). `usd_estimated` is false only for `klein`.
+
 ## Every outbound message needs Thomas's go-ahead
 
 Don't send Arcana messages to other agents on your own. Thomas invites each

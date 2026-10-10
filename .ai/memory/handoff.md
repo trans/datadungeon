@@ -60,6 +60,16 @@ store: scripts became text, in a 0.04 s open). **Open:** field filters are
 checks on each candidate, not starts: a listing by fields alone walks the
 type.
 
+**0.11.2 (released 2026-10-10):** two items from `@curio`'s API
+list that we told it we'd adopted (2026-10-09) but the design doc never
+recorded, so 0.11.1 missed them: picture fields in list rows
+(`GET /assets?meta=1`, `load_image_meta_batch`) and counts per named
+direction (`view_counts`, `GET /types/:type/views`). Views keep their name
+(`image_meta.view_name`), counted under the reserved tag `@view` in
+`asset_tag_counts` by triggers, which every read-write open now recreates;
+tag names starting with `@` are refused. Lesson: put a consumer's
+accepted asks into the design doc when accepting them.
+
 **TODO 0.12 (Thomas, 2026-10-09): fold `pool_key` into the index table,
 with the registration requirement.** Storing requires a registered type;
 the type's own trait order becomes its entry in `asset_indexes` (its
