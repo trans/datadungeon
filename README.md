@@ -180,7 +180,10 @@ of its bytes under a directory named for the first two hex characters, with an
 extension from its content type (`ab/ab12….webp`). Identical bytes are stored
 once and shared by every asset that holds them (of different types), and
 deleting or pruning an asset unlinks its object only when no other asset
-still uses it. Existing rows keep the keys they were stored under. `DB#store_asset`
+still uses it. An asset's `media` comes from its content type unless given: its
+top-level type (image, audio, video, text, model, font), JSON, XML and YAML
+counting as text, and anything else (a PDF, raw bytes) `data`.
+Existing rows keep the keys they were stored under. `DB#store_asset`
 indexes a file whose path the caller already owns. Existing SQLite asset tables
 are upgraded when DataDungeon opens the database.
 
@@ -456,7 +459,7 @@ embedding models or query lengths, so choose a threshold per decision: offering
 a player choices may need none, while reusing an asset outright needs one
 tested against real queries.
 
-Search can also filter `media: "image"`, `"audio"`, `"text"`, or `"video"`.
+Search can also filter by `media` (`"image"`, `"audio"`, `"text"`, `"video"`, …).
 
 For a registered type, `pool_key:` ranks only one pool's assets and
 `key_prefix:` only those whose leading traits match, such as every picture of

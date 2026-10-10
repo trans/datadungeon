@@ -666,6 +666,7 @@ module DataDungeon
     # and kept an animation's frames itself: those move to image_animation.
     private def migrate_image_meta(conn : ::DB::Connection) : Nil
       columns = table_columns(conn, "image_meta")
+      relabel_media(conn) unless columns.has_key?("measured") # once, upgrading to 0.11.1
       IMAGE_COLUMNS.each do |column, type|
         conn.exec("ALTER TABLE image_meta ADD COLUMN #{column} #{type}") unless columns.has_key?(column)
       end
@@ -690,6 +691,17 @@ module DataDungeon
         false
       end
       conn.exec(IMAGE_VIEWS) if math
+    end
+
+    # Before 0.11.1 a content type DataDungeon didn't know (JSON, a PDF) was
+    # given the medium "image". Those rows take the one media_of gives.
+    private def relabel_media(conn : ::DB::Connection) : Nil
+      wrong = conn.query_all("SELECT id, content_type FROM assets WHERE media = 'image' AND content_type NOT LIKE 'image/%'",
+        as: {Int64, String})
+      wrong.each do |(id, content_type)|
+        conn.exec("UPDATE assets SET media = ? WHERE id = ?", DB.media_of(content_type), id)
+        conn.exec("DELETE FROM image_meta WHERE asset_id = ?", id)
+      end
     end
 
     # Each image's view in readable form (Direction), for people.
@@ -948,7 +960,7 @@ module DataDungeon
       end
       pool_key ||= canonical_key
       ct = content_type
-      m = media || infer_media(ct)
+      m = media || DB.media_of(ct)
       # Reject bad arguments before writing, so a refused store leaves no object.
       validate_store(asset_type, m, tags, pool_key, pool, custom, image, audio, video, text)
 
@@ -1435,13 +1447,22 @@ module DataDungeon
       end
     end
 
-    private def infer_media(content_type : String) : String
-      case content_type.downcase
-      when .starts_with?("image/") then "image"
-      when .starts_with?("audio/") then "audio"
-      when .starts_with?("video/") then "video"
-      when .starts_with?("text/")  then "text"
-      else                              "image"
+    # Application types that are text to read.
+    STRUCTURED_TEXT = %w[application/json application/xml application/yaml application/x-yaml application/toml]
+
+    # A content type's medium, when the caller gives none: its top-level
+    # type (image, audio, video, text, model, font), with JSON, XML and YAML
+    # counted as text, and any other type (a PDF, raw bytes) "data".
+    def self.media_of(content_type : String) : String
+      type = content_type.downcase.split(';').first.strip
+      top, _, sub = type.partition('/')
+      case top
+      when "image", "audio", "video", "text", "model", "font"
+        top
+      when "application"
+        STRUCTURED_TEXT.includes?(type) || sub.ends_with?("+json") || sub.ends_with?("+xml") ? "text" : "data"
+      else
+        "data"
       end
     end
 

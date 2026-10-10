@@ -168,6 +168,40 @@ describe DataDungeon::ImageProbe do
   end
 end
 
+describe "Media" do
+  it "takes an asset's medium from its content type" do
+    {
+      "image/png" => "image", "image/svg+xml" => "image", "audio/mpeg" => "audio", "video/webm" => "video",
+      "text/plain; charset=utf-8" => "text", "application/json" => "text", "application/ld+json" => "text",
+      "application/xml" => "text", "model/gltf-binary" => "model", "font/woff2" => "font",
+      "application/pdf" => "data", "application/octet-stream" => "data",
+    }.each { |content_type, media| DataDungeon::DB.media_of(content_type).should eq media }
+  end
+
+  it "relabels an older store's assets it had called pictures" do
+    dir = File.tempname("dd-media-relabel")
+    Dir.mkdir_p(dir)
+    path = File.join(dir, "assets.db")
+    raw = ::DB.open("sqlite3://#{path}")
+    raw.exec(DataDungeon::DB::ASSETS_SCHEMA)
+    raw.exec("CREATE TABLE image_meta (asset_id INTEGER PRIMARY KEY, width INTEGER, height INTEGER, usage_class TEXT, " \
+             "compression TEXT DEFAULT 'original', quality_floor INTEGER, max_colors INTEGER, target_format TEXT, presentation TEXT)")
+    {1 => "application/json", 2 => "application/pdf", 3 => "image/webp"}.each do |id, content_type|
+      raw.exec("INSERT INTO assets (id, asset_type, media, content_type, file_path, created_at) VALUES (?, 'x', 'image', ?, ?, '2026-01-01 00:00:00')",
+        id, content_type, "f#{id}")
+      raw.exec("INSERT INTO image_meta (asset_id) VALUES (?)", id)
+    end
+    raw.close
+
+    db = DataDungeon::DB.new(path)
+    db.connection.query_all("SELECT media FROM assets ORDER BY id", as: String).should eq %w[text data image]
+    db.connection.query_all("SELECT asset_id FROM image_meta", as: Int64).should eq [3_i64]
+  ensure
+    db.try(&.close)
+    FileUtils.rm_rf(dir) if dir
+  end
+end
+
 describe DataDungeon::Direction do
   it "turns readable views into vectors and back" do
     {
@@ -327,7 +361,7 @@ describe "Image fields" do
 
       script = db.store("script", bytes: %({"lines":[]}).to_slice, content_type: "application/json")
       db.measure_images.should eq 2
-      db.measure_images.should eq 0 # nothing left
+      db.measure_images.should eq 0               # nothing left
       db.load_image_meta(script.id).should be_nil # not a picture, whatever its media says
       meta = db.load_image_meta(rec.id).not_nil!
       {meta.content_w, meta.dominant_color, meta.measured?}.should eq({3, 0x00FF00, true})

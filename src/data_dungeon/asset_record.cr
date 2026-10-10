@@ -79,7 +79,9 @@ module DataDungeon
     getter name : String
     getter pool_traits : Array(String)
     getter group_traits : Array(String)
-    getter pool : Bool
+    # Deprecated since 0.11 and always false, so a registration given with
+    # or without `pool:` (or stored by 0.10 with it) compares equal.
+    getter pool : Bool = false
     # Suffixes that make some traits' key segments readable (`tan-skin`).
     getter labels : Hash(String, String)
     # Traits whose value is a set (`lantern,sword`), matched as a whole.
@@ -106,7 +108,7 @@ module DataDungeon
     # view's roll around a circle, the dominant colour by appearance.
     MATCH_FIELDS = %w[view light roll dominant-color]
 
-    def initialize(@name : String, @pool_traits : Array(String), @group_traits : Array(String), @pool : Bool,
+    def initialize(@name : String, @pool_traits : Array(String), @group_traits : Array(String), pool : Bool,
                    @labels : Hash(String, String) = {} of String => String,
                    @sets : Array(String) = [] of String,
                    @facets : Hash(String, Array(String)) = {} of String => Array(String),

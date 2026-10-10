@@ -106,7 +106,6 @@ describe "DataDungeon::DB type registry" do
       rec.pool_key.should eq db.pool_key_for("portrait", portrait)
       db.group_key_for("portrait", portrait).should eq "portrait.golden.pg.f."
       db.group_key_for("portrait", portrait, 4).should eq "portrait.golden.pg.f.human."
-      rec.pool.should be_true
       db.load_tags(rec.id).should eq portrait.merge({"note" => "Keep As Is"}) # traits normalized, other tags not
 
       db.pool_key_for("portrait", portrait(facial_hair: "Braided Beard")).should eq "portrait.golden.pg.f.human.red-hair.braided-beard"
@@ -259,6 +258,19 @@ describe "DataDungeon::DB type registry" do
     FileUtils.rm_rf(dir) if dir
   end
 
+  it "ignores the deprecated pool flag when a registration is compared" do
+    with_db("dd-reg-pool-flag") do |db|
+      db.register_type("decree", pool_traits: %w[game], pool: true)
+      db.connection.exec("UPDATE asset_types SET pool = 1") # as 0.10 stored it
+      reopened = DataDungeon::DB.new(db.path)
+      begin
+        reopened.register_type("decree", pool_traits: %w[game]).pool.should be_false # no rekey needed
+      ensure
+        reopened.close
+      end
+    end
+  end
+
   it "keeps every take of a key and gets the newest" do
     with_db("dd-reg-takes") do |db|
       db.register_type("voice", pool_traits: %w[bit beat voice])
@@ -365,7 +377,6 @@ describe "DataDungeon::DB type registry" do
       register_portraits(db)
       rekeyed = db.find_asset_by_id(old.id).not_nil!
       rekeyed.pool_key.should eq "portrait.golden.pg.f.human.red-hair."
-      rekeyed.pool.should be_true
       db.load_tags(old.id)["art_style"].should eq "golden"
 
       # Same definition again: nothing changes.
