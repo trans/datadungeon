@@ -1,6 +1,6 @@
 # Performance
 
-*Updated 2026-10-08*
+*Updated 2026-10-09*
 
 What each structure costs as a store grows, measured on this project's dev
 machine (single-threaded), so a design can be judged at scale (see
@@ -55,3 +55,23 @@ the search, hence DD's own `asset_search_terms`.
 
 Offset (numbered pages, 100 a page): page 100 in 0.1-0.25 ms, page 1,000 in
 1.6-1.9 ms, linear in the skip. Cursor (`before`): 0.05 ms anywhere.
+
+## Lookups by tags through the planner, at 1M (0.11)
+
+`bench/keys_and_indexes.cr` (Cattacula-like voices, a tenth retired). A
+page of 50: by a consumer's index or the type's key 0.04-0.06 ms; one
+common trait 0.5 ms and two common together 0.2-2.6 ms, walking the
+newest; a rare tag 3.8 ms; a rare tag with others about 20 ms (10,000 rows
+checked any way: an index on those traits is the fix). Before the kept
+counts and the walk, the same pages took 55-320 ms (a whole range read and
+sorted). Counting is linear (16-174 ms). `asset_types` 0.9 ms, `tag_keys`
+2.5 ms, `tag_values` 0.01 ms from `asset_tag_counts` (4 s and 1 s when
+joined to the assets). The counts' triggers add about 23 us a store (102 to
+125 us at 200k); registering an index over 1M assets takes 4.7 s.
+
+## Never splice values into SQL
+
+crystal-db caches a prepared statement per distinct SQL text for each
+connection's life, so `IN (#{ids.join})` leaked one per call: 2.7 GB after
+1M stores (found 2026-10-09, in `index_search`, there since search was
+added). Placeholders fixed it (36 MB). Interpolate only fixed fragments.
