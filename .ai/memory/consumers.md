@@ -40,6 +40,18 @@ rename, when a half-edited tree would have broken a collaborator's build.
 Pirateship installs from GitHub, so it only sees tagged releases (see
 release.md).
 
+## 0.11 (keys as an index), for each consumer
+
+- Every store adds, so code that re-stores to replace an asset must name it
+  (`supersedes: old.id`), and raw SQL picking work must skip retired rows
+  (`retired_at IS NULL`). Overlore's `level_voices` and `voices_to_mp3` do
+  both kinds of thing (see handoff.md); Cattacula only stores what's
+  missing, so nothing changes for it.
+- Storing bytes the type already holds raises `AlreadyStored`, unless it's
+  an exact repeat. Neither live store had such a pair (2026-10-09).
+- The first read-write open re-keys (scheme 4), counts the tags and fills
+  `made_at`; a read-only open (dd-serve) of an older store fails until then.
+
 ## Where each stands
 
 - **Cattacula** registers `voice` (traits `bit beat voice fmt`) and reads

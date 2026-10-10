@@ -11,12 +11,12 @@ Read these before starting work; update them when something here changes.
 | [principles.md](principles.md) | DD stays generic, the plain design comes first, working before optimizing |
 | [consumers.md](consumers.md) | Infocomic, Cattacula, Pirateship and Silicon Circus: how each builds against DD, and what's left |
 | [release.md](release.md) | Tagging releases, the awscr-s3 fork, the local Memo override |
-| [performance.md](performance.md) | What keys, tags, vectors, search and paging cost at 1M assets, and which benchmark measures each |
+| [performance.md](performance.md) | What keys, tags, vectors, search, paging and the tag planner cost at 1M assets, which benchmark measures each, and why SQL never splices values |
 | [coordination.md](coordination.md) | Arcana identity, peers, and the per-message sign-off rule |
 
 Design documents are at the repo root: `DESIGN.md`, `DESIGN-store.md`,
-`DESIGN-best-match.md` (built in 0.10.0), `DESIGN-image-fields.md` (the
-0.11 draft), `NOTES-delete-orphans.md` and `NOTES-list-keys-scope.md`.
+`DESIGN-best-match.md` (built in 0.10.0), `DESIGN-image-fields.md` (0.11:
+part 1, keys as an index, built 2026-10-09; part 2, image fields, next), `NOTES-delete-orphans.md` and `NOTES-list-keys-scope.md`.
 
 Keep each note short and dated (`*Updated YYYY-MM-DD*`), with absolute
 dates and commit hashes. Check the code or `git log` before acting on

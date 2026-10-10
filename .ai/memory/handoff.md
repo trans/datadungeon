@@ -1,5 +1,40 @@
 # DataDungeon handoff
 
+## 0.11 part 1: keys as an index (2026-10-09, not merged)
+
+Built on branch `keys-and-retiring`, in a scratchpad worktree, from
+`DESIGN-image-fields.md` ("Keys as an index", "Retiring", "Indexes per
+consumer"); 118 specs pass, S3 specs pass against Garage, Overlore and
+Cattacula type-check against it, and copies of both live stores upgrade
+cleanly. What it does:
+
+- Every store adds; `get` prefers the newest current take by `made_at`.
+  `store(…, supersedes: id)` / `supersede`, `retire`, `reinstate` (down a
+  chain of takes too), `prune(type, keep_last:, retired_before:)`.
+  `AlreadyStored` for bytes the type holds, except an exact repeat. `pool:`
+  is deprecated and ignored. `TraitKey::SCHEME` 4 re-keys once on open, so
+  every asset of a registered type has a key (single-best collisions had
+  left some without).
+- Per-consumer indexes: `DB.new(…, consumer:)`, `register_index`,
+  `unregister_index`, `indexes`; tables `asset_indexes`, `asset_keys`.
+- `asset_tag_counts`, kept by SQLite triggers: browse counts and the tag
+  planner's sizes. The planner starts from the smallest of the type's key
+  range, each consumer index's range and each tag, or for a page walks
+  the newest assets when that costs less (performance.md).
+- Links carry JSON `data`; name filters take `x.*` and `x*`. HTTP: retire,
+  reinstate, prune, `retired=only|include`, retired counts and indexes in
+  `/types`.
+- Retired assets leave listings, counts, MatchIndex and SemanticIndex.
+
+**Blocks merging:** Overlore's startup migrations (`level_voices`,
+`voices_to_mp3` in `store_migration.cr`, `6f83d76`) re-store clips and rely
+on the store replacing in place; 757 clips were pending in its live store on
+2026-10-09. Under 0.11 they'd need `supersedes: id` and `retired_at IS
+NULL` in their queries, or to run under 0.10 first. Tell `@overlore`
+(with Thomas's go-ahead) before merging, since it builds from this checkout.
+
+**Next:** part 2, image fields (the rest of `DESIGN-image-fields.md`).
+
 ## Current state (2026-10-07)
 
 Everything below "Where we stopped (2026-10-04)" predates this week and is
