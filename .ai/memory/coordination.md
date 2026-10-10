@@ -1,6 +1,6 @@
 # Coordination
 
-*Updated 2026-10-08*
+*Updated 2026-10-09*
 
 - Our Arcana identity is **`@datadungeon`** (it was bare `datadungeon`
   before 2026-10-04). In this project, "check mail" means Arcana, not Gmail.
@@ -10,7 +10,10 @@
   `@infocomics`, which notes before that date call it), `@mj`, `@memo`,
   `@curio` (the DD web UI and the
   Silicon Circus park store), and `siliconcircus` (Silicon Circus, renamed
-  from `siliconcircus-dev` 2026-07-07).
+  from `siliconcircus-dev` 2026-07-07). On 2026-10-09 `siliconcircus` had no
+  mailbox and no Silicon Circus agent was registered, so notes for Cattacula
+  go to `~/Projects/siliconcircus.lol/cattacula/.ai/inbox/`, where `@curio`
+  leaves them too.
 - `.ai/inbox/` is the slower route: agents leave notes there (see README.md).
 
 ## From `@mj` (2026-10-08)
