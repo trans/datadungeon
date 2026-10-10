@@ -15,14 +15,18 @@ module DataDungeon
   # Writes need `write_token`; with none, there are no writes. The write
   # token reads too. A read-only DB refuses writes whatever the token.
   #
-  #     GET    /types                      types, counts and registrations
+  #     GET    /types                      types, counts (current and retired), registrations
+  #                                          and every consumer's indexes
   #     GET    /types/:type/tags           tag names and how many assets carry each
   #     GET    /types/:type/tags/:key      a tag's values, most frequent first (?limit=)
   #     GET    /assets                     a page of assets with their tags, newest first:
   #                                          ?type= &q= (whole words, catt* for a start)
-  #                                          &tag.<key>= &link.<rel>=<name>
+  #                                          &tag.<key>= &link.<rel>=<name> (or <name>.*
+  #                                          for it and the names under it, <start>*)
   #                                          &unlinked=<rel> &limit= &page=<n> or &before=<id>
   #                                          &count=1 (a total)
+  #                                        Listings and counts take current assets, or with
+  #                                          ?retired=only retired ones, =include both
   #     GET    /assets/:id                 an asset, its tags, custom tags, metadata and links
   #     GET    /assets/:id/object          its bytes, streamed from the storage
   #     GET    /assets/:id/links           its links, and the links to it
@@ -33,8 +37,12 @@ module DataDungeon
   #
   #     PATCH  /assets/:id                 {tags, description, flagged, rating}: update_asset
   #     DELETE /assets/:id
-  #     POST   /assets/:id/links           {rel, to (an asset id) or name}: link
+  #     POST   /assets/:id/links           {rel, to (an asset id) or name, data}: link
+  #                                          (rel supersedes: supersede)
   #     DELETE /assets/:id/links           ?rel= &to= or &name=: unlink
+  #     POST   /assets/:id/retire          retire: hidden, kept, reversible
+  #     POST   /assets/:id/reinstate       reinstate
+  #     POST   /maintenance/prune          {type, keep_last, retired_before}: delete retired assets
   #     POST   /types/:type/promote        {trait, value}: promote
   #     POST   /maintenance/vacuum         {delete_missing_rows, delete_orphan_objects}
   class API
@@ -56,7 +64,7 @@ module DataDungeon
       write = method.in?("PATCH", "DELETE") || (method == "POST" && parts != ["maintenance", "check"])
       return unless authorized?(context, write)
       route(context, method, parts)
-    rescue ex : ArgumentError | JSON::ParseException | TypeCastError | KeyError
+    rescue ex : ArgumentError | JSON::ParseException | TypeCastError | KeyError | Time::Format::Error
       error(context, 400, ex.message)
     rescue ex : ReadOnlyError
       error(context, 409, ex.message)
@@ -65,13 +73,15 @@ module DataDungeon
     private def route(context, method : String, parts : Array(String)) : Nil
       id = parts[1]?.try(&.to_i64?)
       if method == "GET" && parts == ["types"]
+        retired = @db.asset_types(retired: true)
         respond(context, @db.asset_types.map { |name, count|
-          {name: name, count: count, registration: @db.registration(name)}
+          {name: name, count: count, retired: retired[name]? || 0, registration: @db.registration(name),
+           indexes: @db.indexes(name)}
         })
       elsif method == "GET" && parts.size == 3 && parts[0] == "types" && parts[2] == "tags"
-        respond(context, @db.tag_keys(parts[1]))
+        respond(context, @db.tag_keys(parts[1], retired: retired_param(context)))
       elsif method == "GET" && parts.size == 4 && parts[0] == "types" && parts[2] == "tags"
-        respond(context, @db.tag_values(parts[1], parts[3], page_param(context, "limit", 100)))
+        respond(context, @db.tag_values(parts[1], parts[3], page_param(context, "limit", 100), retired: retired_param(context)))
       elsif method == "GET" && parts.size == 3 && parts[0] == "types" && parts[2] == "matches"
         matches(context) { |matcher, required, weights, limit|
           picks = prefixed(context.request.query_params, "trait.")
@@ -95,6 +105,12 @@ module DataDungeon
         end
       elsif method == "GET" && parts.size == 3 && parts[0] == "assets" && parts[2] == "object" && id
         object(context, id)
+      elsif method == "POST" && parts.size == 3 && parts[0] == "assets" && parts[2] == "retire" && id
+        @db.find_asset_by_id(id) || return error(context, 404, "No asset #{id}")
+        respond(context, {retired: @db.retire(id)})
+      elsif method == "POST" && parts.size == 3 && parts[0] == "assets" && parts[2] == "reinstate" && id
+        @db.find_asset_by_id(id) || return error(context, 404, "No asset #{id}")
+        respond(context, {reinstated: @db.reinstate(id)})
       elsif parts.size == 3 && parts[0] == "assets" && parts[2] == "links" && id
         case method
         when "GET"    then respond(context, {from: @db.links_from(id), to: @db.links_to(id)})
@@ -104,6 +120,11 @@ module DataDungeon
         end
       elsif method == "POST" && parts == ["maintenance", "check"]
         respond(context, @db.check_consistency)
+      elsif method == "POST" && parts == ["maintenance", "prune"]
+        body = JSON.parse(context.request.body.try(&.gets_to_end) || "{}")
+        before = body["retired_before"]?.try { |date| Time.parse_utc(date.as_s, date.as_s.size == 10 ? "%F" : DB::TIME_FORMAT) }
+        respond(context, {pruned: @db.prune(body["type"].as_s, keep_last: body["keep_last"]?.try(&.as_i) || 0,
+          retired_before: before)})
       elsif method == "POST" && parts == ["maintenance", "vacuum"]
         body = JSON.parse(context.request.body.try(&.gets_to_end) || "{}")
         respond(context, @db.vacuum(delete_missing_rows: body["delete_missing_rows"]?.try(&.as_bool) || false,
@@ -125,14 +146,15 @@ module DataDungeon
       page = page_param(context, "page", 1, max: Int32::MAX // MAX_PAGE)
       raise ArgumentError.new("page counts from 1") if page < 1
       before = params["before"]?.try { |value| value.to_i64? || raise ArgumentError.new("before must be an asset id") }
+      retired = retired_param(context)
       assets = @db.list_assets(type, tags, q: q, links: links, unlinked: unlinked, limit: limit,
-        offset: (page - 1) * limit, before: before)
+        offset: (page - 1) * limit, before: before, retired: retired)
       tags_by_id = @db.load_tags_batch(assets.map(&.id))
       respond(context, {
         assets: assets.map { |rec| {asset: rec, tags: tags_by_id[rec.id]? || {} of String => String} },
         page:   page,
         next:   assets.size == limit ? assets.last?.try(&.id) : nil,
-        total:  params["count"]? == "1" ? @db.count_assets(type, tags, q: q, links: links, unlinked: unlinked) : nil,
+        total:  params["count"]? == "1" ? @db.count_assets(type, tags, q: q, links: links, unlinked: unlinked, retired: retired) : nil,
       })
     end
 
@@ -148,6 +170,16 @@ module DataDungeon
       respond(context, {matches: found.map { |match| {asset: match.asset, tags: tags[match.asset.id]? || {} of String => String, score: match.score} }})
     end
 
+    # `retired=only` for retired assets, `include` for all, current by default.
+    private def retired_param(context) : Bool?
+      case value = context.request.query_params["retired"]?
+      when nil       then false
+      when "only"    then true
+      when "include" then nil
+      else                raise ArgumentError.new("retired is only or include, not #{value}")
+      end
+    end
+
     private def prefixed(params : URI::Params, prefix : String) : Hash(String, String)
       found = {} of String => String
       params.each { |name, value| found[name.lchop(prefix)] = value if name.starts_with?(prefix) }
@@ -156,7 +188,8 @@ module DataDungeon
 
     private def link(context, id : Int64) : Nil
       body = JSON.parse(context.request.body.try(&.gets_to_end) || "{}")
-      @db.link(id, body["rel"].as_s, link_target(body["to"]?.try(&.as_i64), body["name"]?.try(&.as_s)))
+      data = body["data"]?.try { |value| value.raw.nil? ? nil : value.to_json }
+      @db.link(id, body["rel"].as_s, link_target(body["to"]?.try(&.as_i64), body["name"]?.try(&.as_s)), data)
       respond(context, {from: @db.links_from(id)})
     end
 

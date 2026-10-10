@@ -177,6 +177,46 @@ describe "DataDungeon::DB browsing" do
     end
   end
 
+  it "keeps data on a link, and filters names by a user and what's under it" do
+    with_db("dd-browse-link-data") do |db|
+      lamp = db.store("prop", {"thing" => "lamp"}, bytes: "l".to_slice, content_type: "image/webp")
+      sign = db.store("prop", {"thing" => "sign"}, bytes: "s".to_slice, content_type: "image/webp")
+      bench = db.store("prop", {"thing" => "bench"}, bytes: "b".to_slice, content_type: "image/webp")
+      db.link(lamp.id, "used-by", "boardwalk.holidayland", %({"at":[0.2,0.7],"layer":2}))
+      db.link(sign.id, "used-by", "boardwalk")
+      db.link(bench.id, "used-by", "boardwalk-annex")
+
+      placed = db.links_from(lamp.id).first
+      placed.data.not_nil!["layer"].as_i.should eq 2
+      db.link(lamp.id, "used-by", "boardwalk.holidayland") # no data: kept
+      db.links_from(lamp.id).first.data.not_nil!["at"].as_a.size.should eq 2
+      db.link(lamp.id, "used-by", "boardwalk.holidayland", %({"layer":3}))
+      db.links_from(lamp.id).first.data.should eq JSON.parse(%({"layer":3}))
+      db.links_from(sign.id).first.data.should be_nil
+
+      db.list_assets(links: {"used-by" => "boardwalk.holidayland"}).map(&.id).should eq [lamp.id]
+      db.list_assets(links: {"used-by" => "boardwalk.*"}).map(&.id).should eq [sign.id, lamp.id]
+      db.list_assets(links: {"used-by" => "boardwalk*"}).map(&.id).should eq [bench.id, sign.id, lamp.id]
+      db.count_assets(links: {"used-by" => "board*"}).should eq 3
+      db.links_to("boardwalk.*", "used-by").map(&.from_id).should eq [lamp.id, sign.id]
+      db.links_to("boardwalk.*", "derived-from").should be_empty
+
+      expect_raises(ArgumentError, /must be JSON/) { db.link(sign.id, "used-by", "x", "{nope") }
+      expect_raises(ArgumentError, /can't hold '\*'/) { db.link(sign.id, "used-by", "x*") }
+      expect_raises(ArgumentError, /needs a name before/) { db.links_to(".*") }
+    end
+  end
+
+  it "makes a supersedes link by superseding" do
+    with_db("dd-browse-link-supersede") do |db|
+      old = db.store("prop", {"thing" => "lamp"}, bytes: "1".to_slice, content_type: "image/webp")
+      redo = db.store("prop", {"thing" => "lamp"}, bytes: "2".to_slice, content_type: "image/webp")
+      db.link(redo.id, "supersedes", old.id)
+      db.find_asset_by_id(old.id).not_nil!.retired?.should be_true
+      expect_raises(ArgumentError, /not a name/) { db.link(redo.id, "supersedes", "lamp") }
+    end
+  end
+
   it "edits an asset in place, re-deriving its key and keeping unchanged custom flags" do
     with_db("dd-browse-update") do |db|
       db.register_type("portrait", pool_traits: %w[art-style race])
@@ -198,10 +238,8 @@ describe "DataDungeon::DB browsing" do
 
       other = db.store("portrait", {"art-style" => "golden", "race" => "elf"}, bytes: "e".to_slice,
         content_type: "image/webp")
-      expect_raises(ArgumentError, /already has the key portrait.silver.ape/) do
-        db.update_asset(other.id, tags: {"art-style" => "silver", "race" => "ape"})
-      end
-      db.load_tags(other.id).should eq({"art-style" => "golden", "race" => "elf"}) # nothing changed
+      db.update_asset(other.id, tags: {"art-style" => "silver", "race" => "ape"}).pool_key.should eq moved.pool_key
+      db.find_pool("portrait", {"art-style" => "silver", "race" => "ape"}).map(&.id).should eq [rec.id, other.id]
       expect_raises(ArgumentError, /No asset/) { db.update_asset(999_i64, flagged: true) }
     end
   end

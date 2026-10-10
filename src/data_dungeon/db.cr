@@ -8,6 +8,19 @@ module DataDungeon
   class ReadOnlyError < Exception
   end
 
+  # Raised by `store` for a file its type already holds: an asset is its
+  # bytes, so change its traits with `update_asset`, or bring a retired one
+  # back with `reinstate`.
+  class AlreadyStored < Exception
+    getter asset_id : Int64
+    getter? retired : Bool
+
+    def initialize(@asset_id : Int64, @retired : Bool)
+      super("Already stored as asset #{@asset_id}#{" (retired)" if @retired}: " \
+            "change its traits with update_asset#{", or bring it back with reinstate" if @retired}")
+    end
+  end
+
   class DB
     TIME_FORMAT = "%F %T"
 
@@ -24,6 +37,9 @@ module DataDungeon
     getter? read_only = false
     # The database file.
     getter path : String
+    # Who is using the store (`"cattacula"`), which says whose indexes
+    # `register_index` creates and changes.
+    getter consumer : String?
 
     # Shared connection for extensions that keep their tables in the asset DB.
     def connection : ::DB::Database
@@ -39,7 +55,12 @@ module DataDungeon
     # upgraded or re-keyed, every connection refuses writes (PRAGMA
     # query_only), and the methods that write raise ReadOnlyError. A database
     # an older DataDungeon wrote must be opened read-write once first.
-    def initialize(@path : String, storage : Storage? = nil, cache_root : String? = nil, *, read_only : Bool = false)
+    # `consumer` names the application, for its own indexes (register_index).
+    def initialize(@path : String, storage : Storage? = nil, cache_root : String? = nil, *, read_only : Bool = false,
+                   @consumer : String? = nil)
+      if (name = @consumer) && !name.matches?(LABEL)
+        raise ArgumentError.new("consumer #{name.inspect} must be lowercase words joined by '-'")
+      end
       @read_only = read_only
       if read_only
         raise ReadOnlyError.new("No database at #{path}") unless File.file?(path)
@@ -93,18 +114,20 @@ module DataDungeon
         description   TEXT,
         generated     INTEGER NOT NULL DEFAULT 0,
         rating        INTEGER,
-        flagged       INTEGER DEFAULT 0
+        flagged       INTEGER DEFAULT 0,
+        made_at       TEXT,
+        retired_at    TEXT
       )
     SQL
 
+    # Keys are an index, not names: several current assets can share one.
     ASSETS_INDEXES = <<-SQL
       CREATE INDEX IF NOT EXISTS idx_assets_pool_key
         ON assets(pool_key);
-      CREATE UNIQUE INDEX IF NOT EXISTS idx_assets_single_key
-        ON assets(asset_type, pool_key)
-        WHERE pool_key IS NOT NULL AND pool = 0;
       CREATE INDEX IF NOT EXISTS idx_assets_type
         ON assets(asset_type);
+      CREATE INDEX IF NOT EXISTS idx_assets_retired
+        ON assets(asset_type, id) WHERE retired_at IS NOT NULL;
       CREATE INDEX IF NOT EXISTS idx_assets_file_path
         ON assets(file_path);
       CREATE INDEX IF NOT EXISTS idx_assets_file_hash
@@ -150,6 +173,7 @@ module DataDungeon
         to_id      INTEGER REFERENCES assets(id) ON DELETE CASCADE,
         to_name    TEXT,
         created_at TEXT NOT NULL,
+        data       TEXT,
         CHECK ((to_id IS NULL) <> (to_name IS NULL))
       )
     SQL
@@ -163,6 +187,133 @@ module DataDungeon
         ON asset_links(to_id, rel);
       CREATE INDEX IF NOT EXISTS idx_links_to_name
         ON asset_links(rel, to_name, from_id)
+    SQL
+
+    # How many assets of a type carry each tag value, current and retired,
+    # and (under the empty tag) how many assets the type has: for browsing
+    # counts, and for planning a lookup by tags. Triggers keep them, so
+    # every write keeps them right. An empty tag name is refused for that.
+    ASSET_TAG_COUNTS_SCHEMA = <<-SQL
+      CREATE TABLE IF NOT EXISTS asset_tag_counts (
+        asset_type TEXT NOT NULL,
+        tag_key    TEXT NOT NULL,
+        tag_value  TEXT NOT NULL,
+        current    INTEGER NOT NULL DEFAULT 0,
+        retired    INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (asset_type, tag_key, tag_value)
+      ) WITHOUT ROWID
+    SQL
+
+    # Counted from the tables once, when the counts are new.
+    COUNT_TAGS = [<<-SQL, <<-SQL]
+      INSERT INTO asset_tag_counts (asset_type, tag_key, tag_value, current, retired)
+      SELECT t.asset_type, t.tag_key, t.tag_value, SUM(a.retired_at IS NULL), SUM(a.retired_at IS NOT NULL)
+      FROM asset_tags t JOIN assets a ON a.id = t.asset_id
+      GROUP BY t.asset_type, t.tag_key, t.tag_value
+    SQL
+      INSERT INTO asset_tag_counts (asset_type, tag_key, tag_value, current, retired)
+      SELECT asset_type, '', '', SUM(retired_at IS NULL), SUM(retired_at IS NOT NULL)
+      FROM assets GROUP BY asset_type
+    SQL
+
+    # Trigger SQL adding `current` and `retired` (each 1 or 0) to a count,
+    # or with `taking` taking them away and dropping the count at 0.
+    private def self.count_sql(type : String, key : String, value : String, current : String, retired : String,
+                               taking = false) : String
+      return "INSERT INTO asset_tag_counts (asset_type, tag_key, tag_value, current, retired) " \
+             "VALUES (#{type}, #{key}, #{value}, #{current}, #{retired}) " \
+             "ON CONFLICT DO UPDATE SET current = current + excluded.current, retired = retired + excluded.retired;" unless taking
+      "UPDATE asset_tag_counts SET current = current - (#{current}), retired = retired - (#{retired}) " \
+      "WHERE asset_type = #{type} AND tag_key = #{key} AND tag_value = #{value}; " \
+      "DELETE FROM asset_tag_counts WHERE asset_type = #{type} AND tag_key = #{key} " \
+      "AND tag_value = #{value} AND current = 0 AND retired = 0;"
+    end
+
+    # A tag counts as its asset does, current or retired. An asset's tags go
+    # before the asset itself, while it still says which they counted as.
+    # A database keeps the triggers it was given, so changing one here needs
+    # a DROP TRIGGER in setup_schema too.
+    TAG_COUNT_TRIGGERS = [
+      <<-SQL,
+        CREATE TRIGGER IF NOT EXISTS asset_tags_counted AFTER INSERT ON asset_tags BEGIN
+          #{count_sql("new.asset_type", "new.tag_key", "new.tag_value",
+              "ifnull((SELECT retired_at IS NULL FROM assets WHERE id = new.asset_id), 1)",
+              "ifnull((SELECT retired_at IS NOT NULL FROM assets WHERE id = new.asset_id), 0)")}
+        END
+      SQL
+      <<-SQL,
+        CREATE TRIGGER IF NOT EXISTS asset_tags_uncounted AFTER DELETE ON asset_tags BEGIN
+          #{count_sql("old.asset_type", "old.tag_key", "old.tag_value",
+              "ifnull((SELECT retired_at IS NULL FROM assets WHERE id = old.asset_id), 1)",
+              "ifnull((SELECT retired_at IS NOT NULL FROM assets WHERE id = old.asset_id), 0)", taking: true)}
+        END
+      SQL
+      <<-SQL,
+        CREATE TRIGGER IF NOT EXISTS asset_tags_recounted AFTER UPDATE OF asset_type, tag_key, tag_value ON asset_tags BEGIN
+          #{count_sql("old.asset_type", "old.tag_key", "old.tag_value",
+              "ifnull((SELECT retired_at IS NULL FROM assets WHERE id = old.asset_id), 1)",
+              "ifnull((SELECT retired_at IS NOT NULL FROM assets WHERE id = old.asset_id), 0)", taking: true)}
+          #{count_sql("new.asset_type", "new.tag_key", "new.tag_value",
+              "ifnull((SELECT retired_at IS NULL FROM assets WHERE id = new.asset_id), 1)",
+              "ifnull((SELECT retired_at IS NOT NULL FROM assets WHERE id = new.asset_id), 0)")}
+        END
+      SQL
+      <<-SQL,
+        CREATE TRIGGER IF NOT EXISTS assets_counted AFTER INSERT ON assets BEGIN
+          #{count_sql("new.asset_type", "''", "''", "new.retired_at IS NULL", "new.retired_at IS NOT NULL")}
+        END
+      SQL
+      <<-SQL,
+        CREATE TRIGGER IF NOT EXISTS assets_uncounted BEFORE DELETE ON assets BEGIN
+          DELETE FROM asset_tags WHERE asset_id = old.id;
+          #{count_sql("old.asset_type", "''", "''", "old.retired_at IS NULL", "old.retired_at IS NOT NULL", taking: true)}
+        END
+      SQL
+      <<-SQL,
+        CREATE TRIGGER IF NOT EXISTS assets_type_recounted AFTER UPDATE OF asset_type ON assets
+        WHEN old.asset_type <> new.asset_type BEGIN
+          #{count_sql("old.asset_type", "''", "''", "old.retired_at IS NULL", "old.retired_at IS NOT NULL", taking: true)}
+          #{count_sql("new.asset_type", "''", "''", "new.retired_at IS NULL", "new.retired_at IS NOT NULL")}
+        END
+      SQL
+      <<-SQL,
+        CREATE TRIGGER IF NOT EXISTS assets_retired_recounted AFTER UPDATE OF retired_at ON assets
+        WHEN (old.retired_at IS NULL) <> (new.retired_at IS NULL) BEGIN
+          UPDATE asset_tag_counts
+          SET current = current + iif(new.retired_at IS NULL, 1, -1),
+              retired = retired - iif(new.retired_at IS NULL, 1, -1)
+          FROM (SELECT asset_type, tag_key, tag_value FROM asset_tags WHERE asset_id = new.id
+                UNION ALL SELECT new.asset_type, '', '') AS t
+          WHERE asset_tag_counts.asset_type = t.asset_type AND asset_tag_counts.tag_key = t.tag_key
+            AND asset_tag_counts.tag_value = t.tag_value;
+        END
+      SQL
+    ]
+
+    # The indexes consumers keep on types (register_index), and each asset's
+    # key in every index of its type, so a lookup by an index's leading
+    # traits is one range scan. A consumer's index is its own: the consumer
+    # is part of its name.
+    ASSET_INDEXES_SCHEMA = <<-SQL
+      CREATE TABLE IF NOT EXISTS asset_indexes (
+        id         INTEGER PRIMARY KEY,
+        asset_type TEXT NOT NULL,
+        consumer   TEXT NOT NULL,
+        name       TEXT NOT NULL,
+        traits     TEXT NOT NULL,
+        UNIQUE (asset_type, consumer, name)
+      )
+    SQL
+
+    ASSET_KEYS_SCHEMA = <<-SQL
+      CREATE TABLE IF NOT EXISTS asset_keys (
+        asset_id INTEGER NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+        index_id INTEGER NOT NULL REFERENCES asset_indexes(id) ON DELETE CASCADE,
+        key      TEXT NOT NULL,
+        PRIMARY KEY (asset_id, index_id)
+      ) WITHOUT ROWID;
+      CREATE INDEX IF NOT EXISTS idx_asset_keys_key
+        ON asset_keys(index_id, key)
     SQL
 
     # Each asset's type and tag values as words, for `list_assets(q:)`:
@@ -287,6 +438,12 @@ module DataDungeon
           immediate(conn) do
             conn.exec(ASSETS_SCHEMA)
             rebuilt = migrate_assets_schema(conn)
+            assets_columns = table_columns(conn, "assets")
+            {"made_at", "retired_at"}.each do |column|
+              conn.exec("ALTER TABLE assets ADD COLUMN #{column} TEXT") unless assets_columns.has_key?(column)
+            end
+            conn.exec("UPDATE assets SET made_at = created_at WHERE made_at IS NULL")
+            conn.exec("DROP INDEX IF EXISTS idx_assets_single_key") # keys stopped being unique in 0.11
             ASSETS_INDEXES.split(";").each { |sql| conn.exec(sql.strip) unless sql.strip.empty? }
             conn.exec("DROP INDEX IF EXISTS idx_assets_lookup") # keys now name their type
             conn.exec(ASSET_TAGS_SCHEMA)
@@ -316,7 +473,16 @@ module DataDungeon
             conn.exec(TEXT_META_SCHEMA)
             conn.exec(ASSET_TAGS_KV_INDEX)
             conn.exec(ASSET_LINKS_SCHEMA)
+            unless table_columns(conn, "asset_links").has_key?("data")
+              conn.exec("ALTER TABLE asset_links ADD COLUMN data TEXT")
+            end
             ASSET_LINKS_INDEXES.split(";").each { |sql| conn.exec(sql.strip) unless sql.strip.empty? }
+            counts_missing = table_columns(conn, "asset_tag_counts").empty?
+            conn.exec(ASSET_TAG_COUNTS_SCHEMA)
+            COUNT_TAGS.each { |sql| conn.exec(sql) } if counts_missing
+            TAG_COUNT_TRIGGERS.each { |sql| conn.exec(sql) }
+            conn.exec(ASSET_INDEXES_SCHEMA)
+            ASSET_KEYS_SCHEMA.split(";").each { |sql| conn.exec(sql.strip) unless sql.strip.empty? }
             search_missing = table_columns(conn, "asset_search").empty?
             conn.exec(ASSET_SEARCH_SCHEMA)
             conn.exec(ASSET_SEARCH_TERMS_SCHEMA)
@@ -333,7 +499,7 @@ module DataDungeon
       # A database from before search gets its words once; labels come from
       # the registrations, so after load_types.
       if search_missing
-        write_transaction { |conn| index_search(conn, conn.query_all("SELECT id FROM assets", as: Int64)) }
+        write_transaction { |conn| reindex(conn, conn.query_all("SELECT id FROM assets", as: Int64)) }
       end
     end
 
@@ -345,9 +511,11 @@ module DataDungeon
         tags = table_columns(conn, "asset_tags")
         types = table_columns(conn, "asset_types")
         current = assets["pool_key"]? == 0 && assets.has_key?("description") && assets.has_key?("generated") &&
+                  assets.has_key?("made_at") && assets.has_key?("retired_at") &&
                   !unique_file_path?(conn) && tags.has_key?("custom") && tags.has_key?("asset_type") &&
                   types.has_key?("sets") && types.has_key?("facets") && types.has_key?("weights") &&
-                  %w[image_meta audio_meta video_meta text_meta asset_links asset_search asset_search_terms asset_changes].none? { |table| table_columns(conn, table).empty? }
+                  %w[image_meta audio_meta video_meta text_meta asset_links asset_search asset_search_terms asset_changes
+                    asset_indexes asset_keys asset_tag_counts].none? { |table| table_columns(conn, table).empty? }
         raise ReadOnlyError.new("The database needs upgrading: open it read-write once first") unless current
       end
     end
@@ -485,6 +653,8 @@ module DataDungeon
       video : VideoMeta? = nil,
       text : TextMeta? = nil,
       custom : Array(String) = [] of String,
+      made_at : Time? = nil,
+      supersedes : Int64? = nil,
       canonical_key : String? = nil, # deprecated: use pool_key
     ) : Int64
       writable!
@@ -498,49 +668,23 @@ module DataDungeon
       end
 
       now = Time.utc.to_s(TIME_FORMAT)
-      old_path : String? = nil
       asset_id = 0_i64
 
       @object_lock.synchronize do
         write_transaction do |conn|
-          existing = if pool_key && !pooled
-                       conn.query_one?(
-                         "SELECT id, file_path FROM assets WHERE asset_type = ? AND pool_key = ? AND pool = 0 LIMIT 1",
-                         asset_type, pool_key
-                       ) { |rs| {rs.read(Int64), rs.read(String)} }
-                     end
-
-          if existing
-            asset_id, old_path = existing
-            conn.exec(
-              <<-SQL,
-              UPDATE assets SET media = ?, content_type = ?, file_path = ?, file_hash = ?,
-                last_used_at = ?, permanent = ?, generator = ?, generation = ?,
-                description = ?, generated = ? WHERE id = ?
-            SQL
-              media, content_type, file_path, file_hash, now, permanent ? 1 : 0,
-              generator, generation, description, generated ? 1 : 0, asset_id
-            )
-            conn.exec("DELETE FROM asset_tags WHERE asset_id = ?", asset_id)
-            conn.exec("DELETE FROM image_meta WHERE asset_id = ?", asset_id)
-            conn.exec("DELETE FROM audio_meta WHERE asset_id = ?", asset_id)
-            conn.exec("DELETE FROM video_meta WHERE asset_id = ?", asset_id)
-            conn.exec("DELETE FROM text_meta WHERE asset_id = ?", asset_id)
-          else
-            conn.exec(
-              <<-SQL,
-              INSERT INTO assets
-              (asset_type, media, content_type, file_path, pool_key, file_hash,
-               created_at, last_used_at, use_count, permanent, pool,
-               generator, generation, description, generated, rating, flagged)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, NULL, 0)
-            SQL
-              asset_type, media, content_type, file_path, pool_key, file_hash,
-              now, now, permanent ? 1 : 0, pooled ? 1 : 0,
-              generator, generation, description, generated ? 1 : 0
-            )
-            asset_id = conn.scalar("SELECT last_insert_rowid()").as(Int64)
-          end
+          conn.exec(
+            <<-SQL,
+            INSERT INTO assets
+            (asset_type, media, content_type, file_path, pool_key, file_hash,
+             created_at, last_used_at, use_count, permanent, pool,
+             generator, generation, description, generated, rating, flagged, made_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, NULL, 0, ?)
+          SQL
+            asset_type, media, content_type, file_path, pool_key, file_hash,
+            now, now, permanent ? 1 : 0, pooled ? 1 : 0,
+            generator, generation, description, generated ? 1 : 0, made_at.try(&.to_s(TIME_FORMAT)) || now
+          )
+          asset_id = conn.scalar("SELECT last_insert_rowid()").as(Int64)
 
           tags.each do |k, v|
             conn.exec(
@@ -548,7 +692,7 @@ module DataDungeon
               asset_id, asset_type, k, v, custom.includes?(k) ? 1 : 0
             )
           end
-          index_search(conn, [asset_id])
+          reindex(conn, [asset_id])
 
           # Store media-specific metadata
           if im = image
@@ -601,10 +745,8 @@ module DataDungeon
             )
           end
         end
-        if (superseded = old_path) && superseded != file_path
-          release_object(superseded)
-        end
       end
+      supersede(asset_id, supersedes) if supersedes
       @indexer.try(&.enqueue_asset(asset_id))
       asset_id
     end
@@ -618,13 +760,11 @@ module DataDungeon
         if pool_key
           raise ArgumentError.new("#{asset_type} is registered: DataDungeon derives its pool_key from its traits")
         end
-        unless pool.nil?
-          raise ArgumentError.new("#{asset_type} is registered: whether it pools comes from its registration")
-        end
       end
       unless (unknown = custom - tags.keys).empty?
         raise ArgumentError.new("custom names #{unknown.join(", ")}, which have no tag")
       end
+      raise ArgumentError.new("a tag's name must not be empty") if tags.has_key?("")
 
       # Invariant: the sidecar payload must match the media column that
       # get_with_meta later dispatches on. Only the struct matching `media`
@@ -650,6 +790,12 @@ module DataDungeon
     # (`<first two hex chars>/<sha256>.<ext>`), then index the row. Identical
     # bytes share one object. Returns the stored AssetRecord.
     #
+    # Every store adds an asset. `supersedes` names a take this one replaces
+    # (see `supersede`), and `made_at` when the content was made, if not
+    # now. Bytes the type already holds raise AlreadyStored, unless storing
+    # them is an exact repeat (the same traits, the asset current), which
+    # returns that asset.
+    #
     # Provide the source as exactly one of `source_path` or `bytes`.
     def store(
       asset_type : String,
@@ -671,6 +817,8 @@ module DataDungeon
       video : VideoMeta? = nil,
       text : TextMeta? = nil,
       custom : Array(String) = [] of String,
+      made_at : Time? = nil,
+      supersedes : Int64? = nil,
       canonical_key : String? = nil, # deprecated: use pool_key
     ) : AssetRecord
       writable!
@@ -693,6 +841,9 @@ module DataDungeon
 
       file_hash = Digest::SHA256.hexdigest(data)
       storage_key = object_key(file_hash, ct)
+      if held = held_asset(asset_type, file_hash, tags)
+        return held
+      end
 
       id = @object_lock.synchronize do
         wrote = !store.exists?(storage_key)
@@ -717,6 +868,8 @@ module DataDungeon
             audio: audio,
             video: video,
             text: text,
+            made_at: made_at,
+            supersedes: supersedes,
           )
         rescue ex
           release_object(storage_key) if wrote # no row will own it
@@ -727,16 +880,120 @@ module DataDungeon
       find_asset_by_id(id).not_nil!
     end
 
+    # The asset of this type already holding these bytes, when storing them
+    # again is an exact repeat (the same traits, the asset current), so a
+    # retry is safe; any other holder raises AlreadyStored.
+    private def held_asset(asset_type : String, file_hash : String, tags : Hash(String, String)) : AssetRecord?
+      held = @db.query_one?("SELECT * FROM assets WHERE file_hash = ? AND +asset_type = ? ORDER BY id LIMIT 1",
+        file_hash, asset_type) { |rs| read_asset_record(rs) }
+      return nil unless held
+      repeat = !held.retired? && load_tags(held.id) == normalize_tags(asset_type, tags)
+      repeat ? held : raise AlreadyStored.new(held.id, held.retired?)
+    end
+
+    # ── Retiring ──
+
+    # `new_id` replaces `old_id`: the old take is retired (kept, but out of
+    # get, listings, best match and search), `new_id supersedes old_id` is
+    # linked as its history, and the old take's other links are copied to
+    # the new one, placement data and all.
+    def supersede(new_id : Int64, old_id : Int64) : Nil
+      writable!
+      raise ArgumentError.new("An asset can't supersede itself") if new_id == old_id
+      new_rec = find_asset_by_id(new_id) || raise ArgumentError.new("No asset #{new_id}")
+      old_rec = find_asset_by_id(old_id) || raise ArgumentError.new("No asset #{old_id}")
+      unless new_rec.asset_type == old_rec.asset_type
+        raise ArgumentError.new("Asset #{new_id} is a #{new_rec.asset_type}, #{old_id} a #{old_rec.asset_type}")
+      end
+      write_transaction do |conn|
+        now = Time.utc.to_s(TIME_FORMAT)
+        conn.exec("UPDATE assets SET retired_at = ? WHERE id = ? AND retired_at IS NULL", now, old_id)
+        conn.exec(<<-SQL, new_id, old_id)
+          INSERT OR IGNORE INTO asset_links (from_id, rel, to_id, to_name, created_at, data)
+          SELECT ?, rel, to_id, to_name, created_at, data FROM asset_links WHERE from_id = ? AND rel <> 'supersedes'
+          ORDER BY rowid
+        SQL
+        conn.exec("INSERT OR IGNORE INTO asset_links (from_id, rel, to_id, created_at) VALUES (?, 'supersedes', ?, ?)",
+          new_id, old_id, now)
+        log_change(conn, old_id)
+        log_change(conn, new_id)
+      end
+      @indexer.try(&.enqueue_asset(old_id))
+    end
+
+    # Retire an asset with nothing replacing it: a soft, reversible delete.
+    # Returns whether it was current.
+    def retire(id : Int64) : Bool
+      writable!
+      retired = write_transaction do |conn|
+        changed = conn.exec("UPDATE assets SET retired_at = ? WHERE id = ? AND retired_at IS NULL",
+          Time.utc.to_s(TIME_FORMAT), id).rows_affected > 0
+        log_change(conn, id) if changed
+        changed
+      end
+      @indexer.try(&.enqueue_asset(id)) if retired
+      retired
+    end
+
+    # Make a retired asset current again. If takes superseded it, it
+    # supersedes in turn the current take they led to (directly, or down a
+    # chain of takes): that take is retired, and the links superseding this
+    # one go. Returns whether it was retired; a current asset is left as it is.
+    def reinstate(id : Int64) : Bool
+      writable!
+      successors = [] of Int64
+      was_retired = write_transaction do |conn|
+        now = Time.utc.to_s(TIME_FORMAT)
+        next false if conn.exec("UPDATE assets SET retired_at = NULL WHERE id = ? AND retired_at IS NOT NULL", id)
+                        .rows_affected == 0
+        successors = conn.query_all(<<-SQL, id, as: Int64)
+          WITH RECURSIVE later(id) AS (
+            SELECT from_id FROM asset_links WHERE rel = 'supersedes' AND to_id = ?
+            UNION
+            SELECT l.from_id FROM asset_links l JOIN later ON l.to_id = later.id WHERE l.rel = 'supersedes'
+          )
+          SELECT a.id FROM later JOIN assets a ON a.id = later.id WHERE a.retired_at IS NULL
+        SQL
+        conn.exec("DELETE FROM asset_links WHERE rel = 'supersedes' AND to_id = ?", id)
+        successors.each do |successor|
+          conn.exec("UPDATE assets SET retired_at = ? WHERE id = ?", now, successor)
+          conn.exec("INSERT OR IGNORE INTO asset_links (from_id, rel, to_id, created_at) VALUES (?, 'supersedes', ?, ?)",
+            id, successor, now)
+          log_change(conn, successor)
+        end
+        log_change(conn, id)
+        true
+      end
+      ([id] + successors).each { |changed| @indexer.try(&.enqueue_asset(changed)) } if was_retired
+      was_retired
+    end
+
+    # Delete a type's retired assets: all, or keeping each key's
+    # `keep_last` most recently retired, and only those retired before
+    # `retired_before`. When to prune is the application's call. Returns how
+    # many were deleted.
+    def prune(asset_type : String, keep_last : Int32 = 0, retired_before : Time? = nil) : Int32
+      writable!
+      ids = @db.query_all(<<-SQL, asset_type, keep_last, retired_before.try(&.to_s(TIME_FORMAT)), as: Int64)
+        SELECT id FROM (
+          SELECT id, retired_at, ROW_NUMBER() OVER (PARTITION BY ifnull(pool_key, id) ORDER BY retired_at DESC, id DESC) AS rank
+          FROM assets WHERE asset_type = ? AND retired_at IS NOT NULL
+        ) WHERE rank > ? AND (?3 IS NULL OR retired_at < ?3)
+      SQL
+      ids.each { |id| delete_asset(id) }
+      ids.size
+    end
+
     # The assets holding these bytes, by their SHA-256, oldest first.
     # Identical bytes share one object, so several assets can hold it.
     def find_by_hash(file_hash : String) : Array(AssetRecord)
-      query_assets("a.file_hash = ?", [file_hash] of ::DB::Any)
+      query_assets("a.file_hash = ?", [file_hash] of ::DB::Any, retired: true)
     end
 
     # The rows that index a file outside the store: those `store_asset`
     # recorded by an absolute path the caller owns. `adopt` moves them in.
     def outside_store : Array(AssetRecord)
-      query_assets("a.file_path LIKE '/%'", [] of ::DB::Any)
+      query_assets("a.file_path LIKE '/%'", [] of ::DB::Any, retired: true)
     end
 
     # Move a row from `outside_store` into the store: copy its file's bytes
@@ -774,8 +1031,7 @@ module DataDungeon
     # Edit an asset in place, without storing its bytes again: replace its
     # tags, or change its description, flag or rating. Arguments left nil
     # stay as they are. A registered type's traits are normalized and its key
-    # derived again; in a single-best type, a key another asset holds
-    # raises. A tag stays custom while its value is unchanged.
+    # derived again. A tag stays custom while its value is unchanged.
     def update_asset(id : Int64, *, tags : Hash(String, String)? = nil, description : String? = nil,
                      flagged : Bool? = nil, rating : Int32? = nil) : AssetRecord
       writable!
@@ -787,7 +1043,7 @@ module DataDungeon
           conn.exec("UPDATE assets SET rating = ? WHERE id = ?", rating, id) unless rating.nil?
           if tags
             replace_tags(conn, rec, tags)
-            index_search(conn, [id])
+            reindex(conn, [id])
           end
         end
       end
@@ -798,13 +1054,7 @@ module DataDungeon
     private def replace_tags(conn, rec : AssetRecord, tags : Hash(String, String)) : Nil
       if type = @types[rec.asset_type]?
         tags = normalize_traits(type, tags)
-        key = type.key(tags)
-        unless type.pool
-          holder = conn.query_one?("SELECT id FROM assets WHERE asset_type = ? AND pool_key = ? AND pool = 0 AND id != ?",
-            rec.asset_type, key, rec.id, as: Int64)
-          raise ArgumentError.new("Asset #{holder} already has the key #{key}") if holder
-        end
-        conn.exec("UPDATE assets SET pool_key = ? WHERE id = ?", key, rec.id)
+        conn.exec("UPDATE assets SET pool_key = ? WHERE id = ?", type.key(tags), rec.id)
       end
       custom = {} of String => String
       conn.query("SELECT tag_key, tag_value FROM asset_tags WHERE asset_id = ? AND custom = 1", rec.id) do |rs|
@@ -817,10 +1067,10 @@ module DataDungeon
       end
     end
 
-    # High-level lookup: verifies the backing file still exists (self-heals a
-    # stale row to a miss), touches usage, and returns the record. Retires the
-    # caller-side File.exists? cache-gate. Single-best assets only; a pool's
-    # members come from find_pool.
+    # High-level lookup: of the current assets with this key, the newest
+    # (by made_at); verifies the backing file still exists (self-heals a
+    # stale row to a miss), touches usage, and returns the record. Every
+    # current asset with the key comes from find_pool.
     def get(asset_type : String, pool_key : String, touch : Bool = true) : AssetRecord?
       rec = find_asset(asset_type, pool_key)
       return nil unless rec
@@ -839,7 +1089,7 @@ module DataDungeon
     # `get` by a registered type's key alone; the key names its type.
     def get(pool_key : String, touch : Bool = true) : AssetRecord?
       rec = @db.query_one?(
-        "SELECT * FROM assets WHERE pool_key = ? AND pool = 0 LIMIT 1", pool_key
+        "SELECT * FROM assets WHERE pool_key = ? AND retired_at IS NULL #{NEWEST} LIMIT 1", pool_key
       ) { |rs| read_asset_record(rs) }
       return nil unless rec
       if (store = @storage) && store.local?
@@ -873,7 +1123,7 @@ module DataDungeon
       touch : Bool = true,
     ) : {AssetRecord, AssetMeta?}?
       lookup_with_meta(
-        "a.asset_type = ? AND a.pool_key = ? AND a.pool = 0",
+        "+a.asset_type = ? AND a.pool_key = ? AND a.retired_at IS NULL",
         [asset_type, pool_key] of ::DB::Any,
         touch
       )
@@ -890,7 +1140,7 @@ module DataDungeon
 
     # `get_with_meta` by a registered type's key alone.
     def get_with_meta(pool_key : String, touch : Bool = true) : {AssetRecord, AssetMeta?}?
-      lookup_with_meta("a.pool_key = ? AND a.pool = 0", [pool_key] of ::DB::Any, touch)
+      lookup_with_meta("a.pool_key = ? AND a.retired_at IS NULL", [pool_key] of ::DB::Any, touch)
     end
 
     def get_with_meta_by_id(id : Int64, touch : Bool = true) : {AssetRecord, AssetMeta?}?
@@ -916,6 +1166,7 @@ module DataDungeon
           LEFT JOIN video_meta vm ON vm.asset_id = a.id
           LEFT JOIN text_meta  tm ON tm.asset_id = a.id
           WHERE #{where_clause}
+          ORDER BY a.made_at DESC, a.id DESC
           LIMIT 1
         SQL
 
@@ -1043,12 +1294,16 @@ module DataDungeon
 
     # ── Find ──
 
+    # Of the current assets with this key, the newest (by made_at).
     def find_asset(asset_type : String, pool_key : String) : AssetRecord?
       @db.query_one?(
-        "SELECT * FROM assets WHERE asset_type = ? AND pool_key = ? AND pool = 0 LIMIT 1",
+        "SELECT * FROM assets WHERE +asset_type = ? AND pool_key = ? AND retired_at IS NULL #{NEWEST} LIMIT 1",
         asset_type, pool_key
       ) { |rs| read_asset_record(rs) }
     end
+
+    # Which of several candidates to prefer: the newest made, then filed.
+    NEWEST = "ORDER BY made_at DESC, id DESC"
 
     def find_asset_by_id(id : Int64) : AssetRecord?
       @db.query_one?(
@@ -1063,7 +1318,7 @@ module DataDungeon
       from, where, args = tag_filter(asset_type, filter_tags) || return [] of AssetRecord
 
       results = [] of AssetRecord
-      @db.query("SELECT a.* FROM #{from} WHERE #{where} ORDER BY a.id", args: args) do |rs|
+      @db.query("SELECT a.* FROM #{from} WHERE #{where} AND a.retired_at IS NULL ORDER BY a.id", args: args) do |rs|
         rs.each { results << read_asset_record(rs) }
       end
       results
@@ -1071,45 +1326,70 @@ module DataDungeon
 
     # ── Browse ──
 
-    # Every asset type with how many assets it has, by name. Registered types
+    # Every asset type with how many current assets it has (with
+    # `retired: true`, how many retired ones), by name. Registered types
     # are listed even with none.
-    def asset_types : Hash(String, Int32)
+    def asset_types(retired : Bool = false) : Hash(String, Int32)
       counts = {} of String => Int32
       @types.each_key { |name| counts[name] = 0 }
-      @db.query("SELECT asset_type, COUNT(*) FROM assets GROUP BY asset_type") do |rs|
+      @db.query("SELECT asset_type, #{retired ? "retired" : "current"} FROM asset_tag_counts " \
+                "WHERE tag_key = '' AND tag_value = ''") do |rs|
         rs.each { counts[rs.read(String)] = rs.read(Int64).to_i32 }
       end
       counts.to_a.sort_by!(&.[0]).to_h
     end
 
-    # A type's tag names, each with how many of its assets carry it.
-    def tag_keys(asset_type : String) : Hash(String, Int32)
+    # A type's tag names, each with how many of its current assets (or,
+    # with `retired`, as list_assets takes it, others) carry it.
+    def tag_keys(asset_type : String, retired : Bool? = false) : Hash(String, Int32)
       counts = {} of String => Int32
       @db.query(<<-SQL, asset_type) do |rs|
-        SELECT tag_key, COUNT(*) FROM asset_tags WHERE asset_type = ?
-        GROUP BY tag_key ORDER BY tag_key
+        SELECT tag_key, SUM(#{counted(retired)}) FROM asset_tag_counts WHERE asset_type = ? AND tag_key <> ''
+        GROUP BY tag_key HAVING SUM(#{counted(retired)}) > 0 ORDER BY tag_key
       SQL
         rs.each { counts[rs.read(String)] = rs.read(Int64).to_i32 }
       end
       counts
     end
 
-    # The values one tag takes across a type's assets, most frequent first,
-    # each with how many assets carry it.
-    def tag_values(asset_type : String, tag_key : String, limit : Int32 = 100) : Hash(String, Int32)
+    # The values one tag takes across a type's current assets (or, with
+    # `retired`, others), most frequent first, each with how many carry it.
+    def tag_values(asset_type : String, tag_key : String, limit : Int32 = 100,
+                   retired : Bool? = false) : Hash(String, Int32)
       counts = {} of String => Int32
       @db.query(<<-SQL, asset_type, tag_key, limit) do |rs|
-        SELECT tag_value, COUNT(*) FROM asset_tags WHERE asset_type = ? AND tag_key = ?
-        GROUP BY tag_value ORDER BY COUNT(*) DESC, tag_value LIMIT ?
+        SELECT tag_value, #{counted(retired)} AS n FROM asset_tag_counts
+        WHERE asset_type = ? AND tag_key = ? AND n > 0 ORDER BY n DESC, tag_value LIMIT ?
       SQL
         rs.each { counts[rs.read(String)] = rs.read(Int64).to_i32 }
       end
       counts
     end
 
-    # A page of assets, newest first: of one type or of all, carrying every
+    # The kept count a listing's `retired` takes.
+    private def counted(retired : Bool?) : String
+      case retired
+      in false then "current"
+      in true  then "retired"
+      in nil   then "current + retired"
+      end
+    end
+
+    # Which assets a listing takes: current ones (`false`, the default),
+    # retired ones (`true`), or both (`nil`).
+    private def retired_clause(retired : Bool?) : String
+      case retired
+      in false then "a.retired_at IS NULL"
+      in true  then "a.retired_at IS NOT NULL"
+      in nil   then "1 = 1"
+      end
+    end
+
+    # A page of current assets (with `retired: true` retired ones, with
+    # `nil` both), newest filed first: of one type or of all, carrying every
     # one of `tags` (normalized for a registered type), matching every word
-    # of `q`, linked by each relation in `links` to its name, and with no
+    # of `q`, linked by each relation in `links` to a name (or a pattern:
+    # `boardwalk.*`, `boardwalk*`, see `links_to`), and with no
     # `unlinked` link. Each word of `q` is the type or a tag value (or a part
     # of one), in any order, as in a search box: `cattacula night` finds
     # `front.boardwalk.cattacula.night`; `catt*` matches the start of a
@@ -1120,8 +1400,8 @@ module DataDungeon
     def list_assets(asset_type : String? = nil, tags : Hash(String, String) = {} of String => String, *,
                     q : String? = nil, links : Hash(String, String) = {} of String => String,
                     unlinked : String? = nil, limit : Int32 = 50, offset : Int32 = 0,
-                    before : Int64? = nil) : Array(AssetRecord)
-      from, where, args, order = asset_filter(asset_type, tags, q, links, unlinked, limit + offset) || return [] of AssetRecord
+                    before : Int64? = nil, retired : Bool? = false) : Array(AssetRecord)
+      from, where, args, order = asset_filter(asset_type, tags, q, links, unlinked, retired, limit + offset) || return [] of AssetRecord
       if before
         where += " AND #{order} < ?"
         args << before
@@ -1138,8 +1418,8 @@ module DataDungeon
     # page. It reads every match, so ask only when the total is wanted.
     def count_assets(asset_type : String? = nil, tags : Hash(String, String) = {} of String => String, *,
                      q : String? = nil, links : Hash(String, String) = {} of String => String,
-                     unlinked : String? = nil) : Int64
-      from, where, args, _ = asset_filter(asset_type, tags, q, links, unlinked, nil) || return 0_i64
+                     unlinked : String? = nil, retired : Bool? = false) : Int64
+      from, where, args, _ = asset_filter(asset_type, tags, q, links, unlinked, retired, nil) || return 0_i64
       @db.scalar("SELECT COUNT(*) FROM #{from} WHERE #{where}", args: args).as(Int64)
     end
 
@@ -1157,10 +1437,10 @@ module DataDungeon
     #   (about 0.44 us an asset), not with the store: for common words.
     # Counting every match never walks.
     private def asset_filter(asset_type : String?, tags : Hash(String, String), q : String?,
-                             links : Hash(String, String), unlinked : String?,
+                             links : Hash(String, String), unlinked : String?, retired : Bool?,
                              reach : Int32?) : {String, String, Array(::DB::Any), String}?
       tags = normalize_tags(asset_type, tags) if asset_type
-      clauses = [] of String
+      clauses = [retired_clause(retired)]
       args = [] of ::DB::Any
       from, order, id = "assets a", "a.id", "a.id"
       words = search_terms(q)
@@ -1187,7 +1467,7 @@ module DataDungeon
         end
       end
       if asset_type && !tags.empty? && words.empty?
-        tag_from, tag_where, tag_args = tag_filter(asset_type, tags) || return nil
+        tag_from, tag_where, tag_args = tag_filter(asset_type, tags, reach) || return nil
         from = tag_from
         clauses << tag_where
         args.concat(tag_args)
@@ -1202,14 +1482,15 @@ module DataDungeon
         end
       end
       links.each do |rel, name|
-        clauses << "#{id} IN (SELECT from_id FROM asset_links WHERE rel = ? AND to_name = ?)"
-        args << rel << name
+        match, match_args = name_match("to_name", name)
+        clauses << "#{id} IN (SELECT from_id FROM asset_links WHERE rel = ? AND #{match})"
+        args << rel
+        args.concat(match_args)
       end
       if rel = unlinked
         clauses << "NOT EXISTS (SELECT 1 FROM asset_links l WHERE l.from_id = #{id} AND l.rel = ?)"
         args << rel
       end
-      clauses << "1 = 1" if clauses.empty?
       {from, clauses.join(" AND "), args, order}
     end
 
@@ -1267,13 +1548,19 @@ module DataDungeon
       {costs.min_by(&.[1])[0], rarest}
     end
 
-    # Refresh the search words of these assets (or drop them, for assets
-    # gone), and the counts of their words. Run inside the write that
-    # changed them.
-    private def index_search(conn, ids : Array(Int64)) : Nil
+    # Refresh what is derived from these assets' tags, or drop it for assets
+    # gone: their search words (and the counts of their words) and their
+    # keys in the indexes on their types. Run inside the write that changed
+    # them. The indexes are read here, not remembered, so one another
+    # process registered since this one opened is kept too.
+    private def reindex(conn, ids : Array(Int64)) : Nil
+      indexes = query_indexes(conn, "1 = 1", [] of ::DB::Any).group_by(&.asset_type)
       ids.each_slice(500) do |batch|
         types = {} of Int64 => String
-        conn.query("SELECT id, asset_type FROM assets WHERE id IN (#{batch.join(", ")})") do |rs|
+        # Placeholders, not the ids: each distinct SQL text stays cached as a
+        # prepared statement for the connection's life.
+        conn.query("SELECT id, asset_type FROM assets WHERE id IN (#{Array.new(batch.size, "?").join(", ")})",
+          args: batch.map(&.as(::DB::Any))) do |rs|
           rs.each { types[rs.read(Int64)] = rs.read(String) }
         end
         tags = tags_batch(conn, batch)
@@ -1281,11 +1568,35 @@ module DataDungeon
           unindex_search(conn, id)
           log_change(conn, id)
           next unless type = types[id]?
-          words = search_words(type, tags[id]? || {} of String => String)
+          asset_tags = tags[id]? || {} of String => String
+          words = search_words(type, asset_tags)
           conn.exec("INSERT INTO asset_search (rowid, words) VALUES (?, ?)", id, words)
           count_terms(conn, words, 1)
+          indexes[type]?.try &.each { |index| put_key(conn, index, id, asset_tags) }
         end
       end
+    end
+
+    # An asset's key in an index: the same form as a type's own keys
+    # (TraitKey), over the index's traits.
+    private def put_key(conn, index : AssetIndex, asset_id : Int64, tags : Hash(String, String)) : Nil
+      conn.exec(<<-SQL, asset_id, index.id, index_key(conn, index, tags))
+        INSERT INTO asset_keys (asset_id, index_id, key) VALUES (?, ?, ?)
+        ON CONFLICT (asset_id, index_id) DO UPDATE SET key = excluded.key
+      SQL
+    end
+
+    private def index_key(db, index : AssetIndex, values : Hash(String, String)) : String
+      TraitKey.key(index.asset_type, index.traits, values, type_labels(db, index.asset_type))
+    end
+
+    # A registered type's labels, as registered even by another process
+    # since this one opened.
+    private def type_labels(db, asset_type : String) : Hash(String, String)
+      @types[asset_type]?.try(&.labels) ||
+        db.query_one?("SELECT labels FROM asset_types WHERE asset_type = ?", asset_type) do |rs|
+          Hash(String, String).from_json(rs.read(String))
+        end || {} of String => String
     end
 
     private def unindex_search(conn, id : Int64) : Nil
@@ -1304,8 +1615,8 @@ module DataDungeon
       conn.exec("DELETE FROM asset_search_terms WHERE docs <= 0 AND term <> ''") if by < 0
     end
 
-    private def index_type_search(conn, asset_type : String) : Nil
-      index_search(conn, conn.query_all("SELECT id FROM assets WHERE asset_type = ?", asset_type, as: Int64))
+    private def reindex_type(conn, asset_type : String) : Nil
+      reindex(conn, conn.query_all("SELECT id FROM assets WHERE asset_type = ?", asset_type, as: Int64))
     end
 
     # The type and every tag value, each with its parts, and a labelled
@@ -1325,36 +1636,57 @@ module DataDungeon
       parts.size > 1 ? [text] + parts : [text]
     end
 
+    # Whether a current asset has this key.
     def asset_exists?(asset_type : String, pool_key : String) : Bool
-      result = @db.scalar(
-        "SELECT COUNT(*) FROM assets WHERE asset_type = ? AND pool_key = ?",
-        asset_type, pool_key
-      )
-      result.as(Int64) > 0
+      !@db.query_one?(
+        "SELECT 1 FROM assets WHERE +asset_type = ? AND pool_key = ? AND retired_at IS NULL LIMIT 1",
+        asset_type, pool_key, as: Int64
+      ).nil?
     end
 
     # ── Links ──
 
-    # Relate an asset to another asset (`derived-from`, `supersedes`) or to a
-    # name (`used-by`, "boardwalk"). Relations are lowercase words joined by
-    # '-'. Linking twice changes nothing; links go when either asset does.
-    def link(from_id : Int64, rel : String, to : Int64 | String) : Nil
+    # Relate an asset to another asset (`derived-from`) or to a name
+    # (`used-by` "boardwalk.holidayland": a name nests under its user with
+    # dots, so filters can take a user and everything under it). Relations
+    # are lowercase words joined by '-'. `data` is JSON kept with the link,
+    # such as how the asset is placed in that use; linking again replaces it
+    # when given, and otherwise changes nothing. Links go when either asset
+    # does. A `supersedes` link is made by `supersede`, which also retires
+    # the old take.
+    def link(from_id : Int64, rel : String, to : Int64 | String, data : String? = nil) : Nil
       writable!
       raise ArgumentError.new("relation #{rel.inspect} must be lowercase words joined by '-'") unless rel.matches?(LABEL)
+      if rel == "supersedes"
+        raise ArgumentError.new("an asset supersedes another asset, not a name") unless to.is_a?(Int64)
+        raise ArgumentError.new("a supersedes link carries no data") if data
+        return supersede(from_id, to)
+      end
       raise ArgumentError.new("No asset #{from_id}") unless find_asset_by_id(from_id)
       case to
       in Int64
         raise ArgumentError.new("No asset #{to}") unless find_asset_by_id(to)
       in String
         raise ArgumentError.new("a link's name must not be empty") if to.strip.empty?
+        raise ArgumentError.new("a link's name can't hold '*', which filters read as a prefix") if to.includes?('*')
+      end
+      if data
+        begin
+          JSON.parse(data)
+        rescue ex : JSON::ParseException
+          raise ArgumentError.new("a link's data must be JSON: #{ex.message}")
+        end
       end
       write_transaction do |conn|
-        conn.exec("INSERT OR IGNORE INTO asset_links (from_id, rel, to_id, to_name, created_at) VALUES (?, ?, ?, ?, ?)",
-          from_id, rel, to.as?(Int64), to.as?(String), Time.utc.to_s(TIME_FORMAT))
+        conn.exec(<<-SQL, from_id, rel, to.as?(Int64), to.as?(String), Time.utc.to_s(TIME_FORMAT), data)
+          INSERT INTO asset_links (from_id, rel, to_id, to_name, created_at, data) VALUES (?, ?, ?, ?, ?, ?)
+          ON CONFLICT (from_id, rel, ifnull(to_id, 0), ifnull(to_name, '')) DO UPDATE SET data = ifnull(excluded.data, data)
+        SQL
       end
     end
 
-    # Remove a link; returns whether there was one.
+    # Remove a link; returns whether there was one. Removing a `supersedes`
+    # link leaves the old take retired: `reinstate` brings it back.
     def unlink(from_id : Int64, rel : String, to : Int64 | String) : Bool
       writable!
       write_transaction do |conn|
@@ -1370,16 +1702,38 @@ module DataDungeon
       query_links("from_id = ?#{" AND rel = ?" if rel}", rel ? [id, rel] of ::DB::Any : [id] of ::DB::Any)
     end
 
-    # The links to an asset, or to a name, of one relation or of all.
+    # The links to an asset, or to names (a pattern, as `name_match` takes
+    # it), of one relation or of all.
     def links_to(to : Int64 | String, rel : String? = nil) : Array(Link)
-      column = to.is_a?(Int64) ? "to_id" : "to_name"
-      query_links("#{column} = ?#{" AND rel = ?" if rel}", rel ? [to, rel] of ::DB::Any : [to] of ::DB::Any)
+      where, args = to.is_a?(Int64) ? {"to_id = ?", [to] of ::DB::Any} : name_match("to_name", to)
+      if rel
+        where = "rel = ? AND #{where}"
+        args = [rel] of ::DB::Any + args
+      end
+      query_links(where, args)
+    end
+
+    # SQL matching a link's name to a pattern: `boardwalk.holidayland`
+    # exactly; `boardwalk.*` that name and every name under it, but not
+    # `boardwalk-annex`; `boardwalk*` every name starting so. Each reads
+    # only its range of the name index.
+    private def name_match(column : String, pattern : String) : {String, Array(::DB::Any)}
+      if base = pattern.rchop?(".*")
+        raise ArgumentError.new("#{pattern.inspect} needs a name before .*") if base.empty?
+        {"(#{column} = ? OR (#{column} >= ? AND #{column} < ?))", [base, "#{base}.", "#{base}/"] of ::DB::Any}
+      elsif start = pattern.rchop?('*')
+        raise ArgumentError.new("#{pattern.inspect} needs a start before *") if start.empty?
+        {"#{column} >= ? AND #{column} < ?", [start, start.rchop + start[-1].succ] of ::DB::Any}
+      else
+        {"#{column} = ?", [pattern] of ::DB::Any}
+      end
     end
 
     private def query_links(where : String, args : Array(::DB::Any)) : Array(Link)
-      @db.query_all("SELECT from_id, rel, to_id, to_name, created_at FROM asset_links WHERE #{where} ORDER BY created_at, rowid",
+      @db.query_all("SELECT from_id, rel, to_id, to_name, created_at, data FROM asset_links WHERE #{where} ORDER BY created_at, rowid",
         args: args) do |rs|
-        Link.new(rs.read(Int64), rs.read(String), rs.read(Int64?), rs.read(String?), rs.read(String))
+        Link.new(rs.read(Int64), rs.read(String), rs.read(Int64?), rs.read(String?), rs.read(String),
+          rs.read(String?).try { |data| JSON.parse(data) })
       end
     end
 
@@ -1407,8 +1761,8 @@ module DataDungeon
     # (`{"rating" => %w[g pg r x]}`), so near values count as close; `colors`
     # names traits whose values are colors (CSS names or hex codes),
     # compared by appearance; `weights` gives traits a default weight other
-    # than 1. With `pool: true` many interchangeable assets share a pool key;
-    # otherwise storing under a pool key replaces the asset there.
+    # than 1. `pool` is deprecated and ignored: since 0.11 a key is an index,
+    # several current assets can share one, and every store adds an asset.
     #
     # The registration is stored in the database. Registering a type again
     # with the same definition changes nothing. A different definition,
@@ -1445,13 +1799,86 @@ module DataDungeon
           write_transaction do |conn|
             save_type(conn, definition)
             changed = rekey(conn, definition)
-            index_type_search(conn, asset_type) # labels may have changed
+            reindex_type(conn, asset_type) # labels may have changed
           end
         end
         @types[asset_type] = definition
       end
       changed.each { |id| @indexer.try(&.enqueue_asset(id)) }
       definition
+    end
+
+    # Keep an index on a registered type for this consumer's common lookups:
+    # `traits` in the order it usually asks by. Apps just ask with traits:
+    # a lookup fixing the leading traits of any index on the type (the
+    # type's own key, or any consumer's index) can start from that range, and
+    # DataDungeon starts from the narrowest (see `tag_filter`). Each consumer
+    # names and changes only its own indexes, so open the store with
+    # `consumer:`. Registering an index again changes nothing; other traits
+    # raise unless `rekey: true`, which re-keys the type's assets in it.
+    def register_index(asset_type : String, name : String, *, traits : Array(String),
+                       rekey : Bool = false) : AssetIndex
+      writable!
+      consumer = own_consumer
+      type = registered(asset_type)
+      raise ArgumentError.new("index name #{name.inspect} must be lowercase words joined by '-'") unless name.matches?(LABEL)
+      raise ArgumentError.new("#{name}: traits must not be empty") if traits.empty?
+      raise ArgumentError.new("#{name}: a trait is listed twice") if traits.uniq.size != traits.size
+      unless (unknown = traits.reject { |trait| type.trait?(trait) }).empty?
+        raise ArgumentError.new("#{name}: #{unknown.join(", ")} are not traits of #{asset_type}")
+      end
+      @object_lock.synchronize do
+        write_transaction do |conn|
+          where, args = "asset_type = ? AND consumer = ? AND name = ?", [asset_type, consumer, name] of ::DB::Any
+          if existing = query_indexes(conn, where, args).first?
+            next existing if existing.traits == traits
+            unless rekey
+              raise ArgumentError.new("#{consumer}'s index #{name} on #{asset_type} is #{existing.traits.join(" ")}: " \
+                                      "pass rekey: true to change it and re-key its assets")
+            end
+          end
+          conn.exec(<<-SQL, asset_type, consumer, name, traits.to_json)
+            INSERT INTO asset_indexes (asset_type, consumer, name, traits) VALUES (?, ?, ?, ?)
+            ON CONFLICT (asset_type, consumer, name) DO UPDATE SET traits = excluded.traits
+          SQL
+          index = query_indexes(conn, where, args).first
+          conn.exec("DELETE FROM asset_keys WHERE index_id = ?", index.id)
+          ids = conn.query_all("SELECT id FROM assets WHERE asset_type = ?", asset_type, as: Int64)
+          ids.each_slice(500) do |batch|
+            tags = tags_batch(conn, batch)
+            batch.each { |id| put_key(conn, index, id, tags[id]? || {} of String => String) }
+          end
+          index
+        end
+      end
+    end
+
+    # Drop one of this consumer's indexes, and its keys. Returns whether
+    # there was one.
+    def unregister_index(asset_type : String, name : String) : Bool
+      writable!
+      consumer = own_consumer
+      write_transaction do |conn|
+        conn.exec("DELETE FROM asset_indexes WHERE asset_type = ? AND consumer = ? AND name = ?",
+          asset_type, consumer, name).rows_affected > 0
+      end
+    end
+
+    # Every consumer's indexes on a type.
+    def indexes(asset_type : String) : Array(AssetIndex)
+      query_indexes(@db, "asset_type = ?", [asset_type] of ::DB::Any)
+    end
+
+    private def query_indexes(db, where : String, args : Array(::DB::Any)) : Array(AssetIndex)
+      db.query_all("SELECT id, asset_type, consumer, name, traits FROM asset_indexes WHERE #{where} ORDER BY id",
+        args: args) do |rs|
+        AssetIndex.new(rs.read(Int64), rs.read(String), rs.read(String), rs.read(String),
+          Array(String).from_json(rs.read(String)))
+      end
+    end
+
+    private def own_consumer : String
+      @consumer || raise ArgumentError.new("Say which consumer this is: open the store with DB.new(path, consumer: \"...\")")
     end
 
     # The registration of an asset type, or nil when it has none.
@@ -1478,11 +1905,14 @@ module DataDungeon
           conn.exec("UPDATE assets SET asset_type = ? WHERE asset_type = ?", to, from)
           conn.exec("UPDATE asset_tags SET asset_type = ? WHERE asset_type = ?", to, from)
           conn.exec("DELETE FROM asset_types WHERE asset_type = ?", from)
+          # Indexes move too, except where `to` has one of the same consumer and name.
+          conn.exec("UPDATE OR IGNORE asset_indexes SET asset_type = ? WHERE asset_type = ?", to, from)
+          conn.exec("DELETE FROM asset_indexes WHERE asset_type = ?", from)
           if target
             save_type(conn, target)
             rekeyed = rekey(conn, target)
           end
-          index_type_search(conn, to)
+          reindex_type(conn, to)
         end
         @types.delete(from)
         @types[to] = target if target
@@ -1515,10 +1945,15 @@ module DataDungeon
           renamed = conn.query_all("SELECT asset_id FROM asset_tags WHERE asset_type = ? AND tag_key = ?",
             asset_type, from, as: Int64)
           conn.exec("UPDATE asset_tags SET tag_key = ? WHERE asset_type = ? AND tag_key = ?", to, asset_type, from)
+          query_indexes(conn, "asset_type = ?", [asset_type] of ::DB::Any).each do |index|
+            next unless index.traits.includes?(from)
+            conn.exec("UPDATE asset_indexes SET traits = ? WHERE id = ?",
+              index.traits.map { |trait| trait == from ? to : trait }.to_json, index.id)
+          end
           if updated
             save_type(conn, updated) if updated != type
             rekeyed = rekey(conn, updated)
-            index_search(conn, rekeyed)
+            reindex(conn, rekeyed)
           end
         end
         @types[asset_type] = updated if updated
@@ -1547,8 +1982,8 @@ module DataDungeon
       (type = @types[asset_type]?) ? normalize_traits(type, tags) : tags
     end
 
-    # Assets whose traits all equal these: a pool's members, or the one asset
-    # of a single-best type. Traits named in `custom` may differ, leaving the
+    # The current assets whose traits all equal these. Traits named in
+    # `custom` may differ, leaving the
     # caller to rank them (e.g. semantically); every other trait matches
     # exactly, and a trait absent from `traits` must be absent on the asset.
     # Without `custom` this is one key lookup. With it, the traits before the
@@ -1583,14 +2018,13 @@ module DataDungeon
       query_assets(clauses.join(" AND "), args)
     end
 
-    # Every asset with this key: a pool's members, or the one asset of a
-    # single-best key. A registered type's key names its type, so the key
-    # alone is enough.
+    # Every current asset with this key. A registered type's key names its
+    # type, so the key alone is enough.
     def find_pool(pool_key : String) : Array(AssetRecord)
       query_assets("a.pool_key = ?", [pool_key] of ::DB::Any)
     end
 
-    # Every asset of an unregistered type with this explicitly given key.
+    # Every current asset of an unregistered type with this explicitly given key.
     def find_pool(asset_type : String, pool_key : String) : Array(AssetRecord)
       query_assets("+a.asset_type = ? AND a.pool_key = ?", [asset_type, pool_key] of ::DB::Any)
     end
@@ -1649,7 +2083,8 @@ module DataDungeon
       size
     end
 
-    private def query_assets(where : String, args : Array(::DB::Any)) : Array(AssetRecord)
+    private def query_assets(where : String, args : Array(::DB::Any), retired : Bool = false) : Array(AssetRecord)
+      where = "(#{where}) AND a.retired_at IS NULL" unless retired
       results = [] of AssetRecord
       @db.query("SELECT a.* FROM assets a WHERE #{where} ORDER BY a.id", args: args) do |rs|
         rs.each { results << read_asset_record(rs) }
@@ -1824,18 +2259,16 @@ module DataDungeon
         unless scheme == TraitKey::SCHEME
           raise ReadOnlyError.new("#{type.name}'s keys need re-keying: open the database read-write once first") if @read_only
           write_transaction do |conn|
-            index_search(conn, rekey(conn, type))
+            reindex(conn, rekey(conn, type))
             conn.exec("UPDATE asset_types SET key_scheme = ? WHERE asset_type = ?", TraitKey::SCHEME, type.name)
           end
         end
       end
     end
 
-    # Re-derive both keys of every asset of a type from its tags, normalizing
-    # the stored trait values on the way. In a single-best type, assets that
-    # now share a pool key can't all keep it: the most recently used keeps it,
-    # and the others keep their rows and tags but no pool key. Returns the
-    # assets whose tags changed.
+    # Re-derive the key of every asset of a type from its tags, normalizing
+    # the stored trait values on the way. Returns the assets whose tags
+    # changed.
     private def rekey(conn, type : AssetType) : Array(Int64)
       ids = conn.query_all(
         "SELECT id FROM assets WHERE asset_type = ? ORDER BY last_used_at DESC, id DESC",
@@ -1845,7 +2278,6 @@ module DataDungeon
         "UPDATE assets SET pool_key = NULL, pool = ? WHERE asset_type = ?",
         type.pool ? 1 : 0, type.name
       )
-      claimed = Set(String).new
       changed = [] of Int64
       ids.each_slice(500) do |batch|
         stored = tags_batch(conn, batch)
@@ -1863,9 +2295,7 @@ module DataDungeon
             end
             changed << id unless changed.last? == id
           end
-          pool_key = type.key(normalized)
-          pool_key = nil unless type.pool || claimed.add?(pool_key)
-          conn.exec("UPDATE assets SET pool_key = ? WHERE id = ?", pool_key, id)
+          conn.exec("UPDATE assets SET pool_key = ? WHERE id = ?", type.key(normalized), id)
         end
       end
       changed
@@ -2092,10 +2522,10 @@ module DataDungeon
 
     def count_pool_assets(asset_type : String, filter_tags : Hash(String, String)) : Int32
       filter_tags = normalize_tags(asset_type, filter_tags)
-      return @db.scalar("SELECT COUNT(*) FROM assets WHERE asset_type = ?", asset_type).as(Int64).to_i32 if filter_tags.empty?
+      return @db.scalar("SELECT COUNT(*) FROM assets WHERE asset_type = ? AND retired_at IS NULL", asset_type).as(Int64).to_i32 if filter_tags.empty?
       from, where, args = tag_filter(asset_type, filter_tags) || return 0
 
-      @db.scalar("SELECT COUNT(*) FROM #{from} WHERE #{where}", args: args).as(Int64).to_i32
+      @db.scalar("SELECT COUNT(*) FROM #{from} WHERE #{where} AND a.retired_at IS NULL", args: args).as(Int64).to_i32
     end
 
     def random_pool_text(asset_type : String, filter_tags : Hash(String, String)) : String?
@@ -2105,7 +2535,7 @@ module DataDungeon
           <<-SQL,
             SELECT tm.content FROM assets a
             JOIN text_meta tm ON tm.asset_id = a.id
-            WHERE a.asset_type = ?
+            WHERE a.asset_type = ? AND a.retired_at IS NULL
             ORDER BY RANDOM() LIMIT 1
           SQL
           asset_type
@@ -2114,93 +2544,129 @@ module DataDungeon
       from, where, args = tag_filter(asset_type, filter_tags) || return nil
 
       @db.query_one?(
-        "SELECT tm.content FROM #{from} JOIN text_meta tm ON tm.asset_id = a.id WHERE #{where} ORDER BY RANDOM() LIMIT 1",
+        "SELECT tm.content FROM #{from} JOIN text_meta tm ON tm.asset_id = a.id WHERE #{where} AND a.retired_at IS NULL ORDER BY RANDOM() LIMIT 1",
         args: args
       ) { |rs| rs.read(String) }
     end
 
-    # How many index entries to count per filter tag when choosing the rarest
-    # one to start from; beyond this a tag is simply common.
+    # How many rows of a key range to count when judging where a tag filter
+    # starts; past this its size is estimated.
     RAREST_PROBE = 1000
 
-    # FROM and WHERE (alias `a`) for "assets of this type carrying every one
-    # of these normalized tags", or nil when some tag matches nothing. Rather
-    # than collect every tag row matching any of the tags, it starts from the
-    # narrowest index range it can find and checks each remaining tag on each
-    # candidate by primary key:
-    #
-    # - a registered type whose leading traits are all in the filter starts
-    #   from its pool-key prefix, unless some of its assets have no key;
-    # - otherwise it starts from the tag with the fewest matches.
-    private def tag_filter(asset_type : String, filter : Hash(String, String)) : {String, String, Array(::DB::Any)}?
-      clauses = [] of String
-      args = [] of ::DB::Any
-      checks = filter
-      id = "a.id"
+    # Where a tag filter starts reading: a range of keys in an index (the
+    # type's own `pool_key`, or a consumer's), one tag's rows, or the type's
+    # newest assets. The traits it covers need no other check; `rows` is
+    # how many rows it reads, when known without counting.
+    private record Start, table : String, where : String, args : Array(::DB::Any), id : String,
+      covered : Array(String), rows : Int64? = nil
 
-      if leading = key_prefix_for_filter(asset_type, filter)
-        key, covered = leading
-        from = "assets a" # the key names the type
-        if key.ends_with?(TraitKey::SEPARATOR)
-          key_prefix(clauses, args, key)
-        else # every trait given: the whole key
-          clauses << "a.pool_key = ?"
-          args << key
+    START_COST    =  1.9 # microseconds to read one row of a start, check it and sort it
+    TAG_WALK_COST = 0.75 # microseconds to check one asset on a walk through the newest
+
+    # FROM and WHERE (alias `a`) for "assets of this type carrying every one
+    # of these normalized tags", or nil when none can, for a listing that
+    # wants `reach` assets (nil: all of them). As a query planner would, it
+    # starts from whichever place reads fewest rows: the range of each index
+    # whose leading traits the filter fixes (the type's own key, and every
+    # consumer's), or one tag's rows (counts kept in asset_tag_counts), then
+    # checks the other tags on each asset there by primary key. For a page,
+    # walking the type's newest assets and checking every tag can cost
+    # less: tags common together fill a page soon. A long prefix of common
+    # values (`rating pg`) can hold more than one rare tag does, so ranges
+    # are counted too, capped so counting stays cheap.
+    private def tag_filter(asset_type : String, filter : Hash(String, String),
+                           reach : Int32? = nil) : {String, String, Array(::DB::Any)}?
+      total = tag_count(asset_type, "", "")
+      counts = filter.to_h { |key, value| {key, tag_count(asset_type, key, value)} }
+      return nil if counts.empty? || counts.values.any?(&.zero?) # some tag is on no asset
+
+      starts = filter_starts(asset_type, filter, counts)
+      sizes = starts.map { |start| start_size(start, counts, total) }
+      start, size = starts.zip(sizes).min_by(&.[1])
+      if reach
+        share = counts.values.product(1.0) { |count| count / total } # taking the tags as independent
+        if reach / share * TAG_WALK_COST < size * START_COST
+          start = Start.new("assets a", "a.asset_type = ?", [asset_type] of ::DB::Any, "a.id", [] of String)
         end
-        checks = filter.reject(covered) # the key already matches these
-      else
-        counts = tag_counts(asset_type, filter, RAREST_PROBE)
-        # Every tag is common: count them fully to find the rarest.
-        counts = tag_counts(asset_type, filter, nil) if counts.all? { |count| count[2] == RAREST_PROBE }
-        anchor_key, anchor_value, count = counts.min_by(&.[2])
-        return nil if count == 0
-        # CROSS JOIN keeps SQLite from reordering: the anchor tag's range drives.
-        from = "asset_tags x CROSS JOIN assets a"
-        clauses << "x.asset_type = ? AND x.tag_key = ? AND x.tag_value = ? AND a.id = x.asset_id"
-        args << asset_type << anchor_key << anchor_value
-        checks = filter.reject(anchor_key)
-        id = "x.asset_id" # checked from the tag row, before reading the asset
       end
 
-      checks.each do |key, value|
-        clauses << "EXISTS (SELECT 1 FROM asset_tags t WHERE t.asset_id = #{id} AND t.tag_key = ? AND t.tag_value = ?)"
+      from = start.table
+      clauses = [start.where]
+      args = start.args.dup
+      unless from == "assets a"
+        # CROSS JOIN keeps SQLite from reordering: the start's range drives.
+        from = "#{start.table} CROSS JOIN assets a"
+        clauses << "a.id = #{start.id}"
+      end
+      filter.each do |key, value|
+        next if start.covered.includes?(key)
+        # Checked from the start's row, before reading the asset.
+        clauses << "EXISTS (SELECT 1 FROM asset_tags t WHERE t.asset_id = #{start.id} AND t.tag_key = ? AND t.tag_value = ?)"
         args << key << value
       end
       {from, clauses.join(" AND "), args}
     end
 
-    # Each tag's number of matches among the type's assets, counted up to `cap`.
-    private def tag_counts(asset_type : String, filter : Hash(String, String), cap : Int32?) : Array({String, String, Int64})
-      filter.map do |key, value|
-        count = if cap
-                  @db.scalar(
-                    "SELECT COUNT(*) FROM (SELECT 1 FROM asset_tags WHERE asset_type = ? AND tag_key = ? AND tag_value = ? LIMIT ?)",
-                    asset_type, key, value, cap
-                  ).as(Int64)
-                else
-                  @db.scalar(
-                    "SELECT COUNT(*) FROM asset_tags WHERE asset_type = ? AND tag_key = ? AND tag_value = ?",
-                    asset_type, key, value
-                  ).as(Int64)
-                end
-        {key, value, count}
-      end
+    # How many of a type's assets, current and retired, carry this tag (the
+    # empty tag: how many the type has).
+    private def tag_count(asset_type : String, key : String, value : String) : Int64
+      @db.query_one?("SELECT current + retired FROM asset_tag_counts WHERE asset_type = ? AND tag_key = ? AND tag_value = ?",
+        asset_type, key, value, as: Int64) || 0_i64
     end
 
-    # The pool-key prefix covering a filter's leading traits (the whole key
-    # when it gives them all), and those traits, when the type is registered,
-    # the filter includes at least its first trait, and every one of its
-    # assets has a key (a key-less asset would be missed by a range).
-    private def key_prefix_for_filter(asset_type : String, filter : Hash(String, String)) : {String, Array(String)}?
-      type = @types[asset_type]? || return nil
-      lead = type.pool_traits.take_while { |trait| filter.has_key?(trait) }.size
+    private def filter_starts(asset_type : String, filter : Hash(String, String), counts : Hash(String, Int64)) : Array(Start)
+      starts = [] of Start
+      if type = @types[asset_type]?
+        key_start(type, type.pool_traits, filter, "assets a", "a.pool_key", "a.id").try { |start| starts << start }
+        indexes(asset_type).each do |index|
+          key_start(type, index.traits, filter, "asset_keys k", "k.key", "k.asset_id", "k.index_id = ?", index.id)
+            .try { |start| starts << start }
+        end
+      end
+      filter.each do |key, value|
+        starts << Start.new("asset_tags x", "x.asset_type = ? AND x.tag_key = ? AND x.tag_value = ?",
+          [asset_type, key, value] of ::DB::Any, "x.asset_id", [key], counts[key])
+      end
+      starts
+    end
+
+    # How many rows a start reads: known for a tag; for a range, counted up
+    # to RAREST_PROBE, and past that estimated from its traits' shares of the
+    # type, as if independent.
+    private def start_size(start : Start, counts : Hash(String, Int64), total : Int64) : Float64
+      if rows = start.rows
+        return rows.to_f
+      end
+      rows = start_count(start, RAREST_PROBE)
+      return rows.to_f if rows < RAREST_PROBE
+      Math.max(RAREST_PROBE.to_f, start.covered.product(total.to_f) { |trait| counts[trait] / total })
+    end
+
+    # The range of keys over `traits` holding the filter's values for as
+    # many leading traits as it fixes (the whole key when it fixes them
+    # all), or nil when it doesn't fix the first.
+    private def key_start(type : AssetType, traits : Array(String), filter : Hash(String, String),
+                          table : String, column : String, id : String,
+                          where : String? = nil, index_id : Int64? = nil) : Start?
+      lead = traits.take_while { |trait| filter.has_key?(trait) }.size
       return nil if lead == 0
-      return nil if @db.query_one?(
-                      "SELECT 1 FROM assets WHERE asset_type = ? AND pool_key IS NULL LIMIT 1",
-                      asset_type, as: Int64
-                    )
-      key = lead == type.pool_traits.size ? type.key(filter) : type.prefix(filter, lead)
-      {key, type.pool_traits[0, lead]}
+      clauses = where ? [where] : [] of String
+      args = index_id ? [index_id] of ::DB::Any : [] of ::DB::Any
+      if lead == traits.size
+        clauses << "#{column} = ?"
+        args << TraitKey.key(type.name, traits, filter, type.labels)
+      else
+        prefix = TraitKey.prefix(type.name, traits, filter, lead, type.labels)
+        clauses << "#{column} >= ? AND #{column} < ?"
+        args << prefix << prefix.rchop + TraitKey::SEPARATOR.succ
+      end
+      Start.new(table, clauses.join(" AND "), args, id, traits[0, lead])
+    end
+
+    # How many rows a start reads (retired assets too), counted up to `cap`.
+    private def start_count(start : Start, cap : Int32) : Int64
+      @db.scalar("SELECT COUNT(*) FROM (SELECT 1 FROM #{start.table} WHERE #{start.where} LIMIT ?)",
+        args: start.args + [cap] of ::DB::Any).as(Int64)
     end
 
     # ── Eviction helpers ──
@@ -2319,6 +2785,8 @@ module DataDungeon
         generated: (rs.read(Int32?) || 0) != 0,
         rating: rs.read(Int32?),
         flagged: (rs.read(Int32?) || 0) != 0,
+        made_at: rs.read(String?),
+        retired_at: rs.read(String?),
       )
     end
   end

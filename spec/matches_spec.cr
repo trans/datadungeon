@@ -161,6 +161,37 @@ describe DataDungeon::MatchIndex do
     end
   end
 
+  it "leaves retired assets out, and prefers the newest made among equals" do
+    with_store("dd-match-retired") do |db|
+      register(db)
+      older = db.store("portrait", {"race" => "elf"}, bytes: "1".to_slice, content_type: "image/webp",
+        made_at: Time.utc(2026, 1, 1))
+      newer = db.store("portrait", {"race" => "elf"}, bytes: "2".to_slice, content_type: "image/webp",
+        made_at: Time.utc(2026, 5, 1))
+      filed_last = db.store("portrait", {"race" => "elf"}, bytes: "3".to_slice, content_type: "image/webp",
+        made_at: Time.utc(2025, 1, 1))
+      index = DataDungeon::MatchIndex.new(db)
+      begin
+        ids(index.best_matches("portrait", {"race" => "elf"})).should eq [newer.id, older.id, filed_last.id]
+        db.retire(newer.id)
+        ids(index.best_matches("portrait", {"race" => "elf"})).should eq [older.id, filed_last.id]
+        db.store("portrait", {"race" => "elf"}, bytes: "4".to_slice, content_type: "image/webp",
+          made_at: Time.utc(2024, 1, 1), supersedes: older.id)
+        index.best_matches("portrait", {"race" => "elf"}).map(&.asset.id).should_not contain older.id
+        db.reinstate(newer.id)
+        ids(index.best_matches("portrait", {"race" => "elf"})).first.should eq newer.id
+      ensure
+        index.close
+      end
+      rebuilt = DataDungeon::MatchIndex.new(db) # from the saved file, then the tags
+      begin
+        rebuilt.best_matches("portrait", {"race" => "elf"}).map(&.asset.id).should_not contain older.id
+      ensure
+        rebuilt.close
+      end
+    end
+  end
+
   it "rebuilds when what the vectors mean changes, and lets one process own the files" do
     with_store("dd-match-rebuild") do |db|
       db.register_type("portrait", pool_traits: %w[rating race], pool: true)

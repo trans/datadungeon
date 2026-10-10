@@ -64,7 +64,7 @@ describe "DataDungeon::DB tag filters" do
     end
   end
 
-  it "uses a registered type's key prefix, and still finds an asset without a key" do
+  it "uses a registered type's key prefix, and keys an asset an older store left without one" do
     with_db("dd-tags-registered") do |db|
       db.register_type("portrait", pool_traits: %w[art_style rating gender race], pool: true)
       a = put(db, "portrait", {"art_style" => "golden", "rating" => "pg", "gender" => "f", "race" => "human"}, "a")
@@ -76,8 +76,14 @@ describe "DataDungeon::DB tag filters" do
       db.find_assets_by_tags("portrait", filter.merge({"race" => "elf"})).map(&.id).should eq [b.id]
       db.find_assets_by_tags("portrait", {"race" => "elf", "gender" => "f"}).map(&.id).should eq [b.id] # not leading
 
-      db.connection.exec("UPDATE assets SET pool_key = NULL WHERE id = ?", a.id) # e.g. lost a collision
-      db.find_assets_by_tags("portrait", filter).map(&.id).should eq [a.id, b.id]
+      # Before 0.11 an asset could lose its key to another (a single-best
+      # collision); opening such a store keys it again.
+      db.connection.exec("UPDATE assets SET pool_key = NULL WHERE id = ?", a.id)
+      db.connection.exec("UPDATE asset_types SET key_scheme = 3")
+      reopened = DataDungeon::DB.new(db.path)
+      reopened.find_asset_by_id(a.id).not_nil!.pool_key.should eq "portrait.golden.pg.f.human"
+      reopened.find_assets_by_tags("portrait", filter).map(&.id).should eq [a.id, b.id]
+      reopened.close
     end
   end
 end

@@ -43,16 +43,21 @@ describe DataDungeon::SemanticIndex do
     db.connection.scalar("SELECT SUM(match_count) FROM memo_chunks").as(Int64).should eq 0
     db.find_asset_by_id(red.id).not_nil!.use_count.should eq 0
 
-    updated = db.store("portrait", {"hair_color" => "black"},
-      pool_key: "red-portrait", bytes: "red-image".to_slice,
-      content_type: "image/webp", description: "A wandering knight", generated: true)
-    updated.id.should eq red.id
+    db.update_asset(red.id, tags: {"hair_color" => "black"}, description: "A wandering knight")
     index.process_queue.should eq 1
     new_text = db.connection.query_one(
       "SELECT t.content FROM memo_texts t JOIN memo_sources s ON s.id = t.source_id WHERE s.external_int = ?",
       red.id, as: String
     )
     new_text.should eq "A wandering knight\nhair color: black"
+
+    db.retire(red.id)
+    index.search("knight", asset_type: "portrait", min_score: 0.0)
+      .map(&.asset.id).should_not contain red.id
+    db.reinstate(red.id)
+    index.process_queue.should eq 1
+    index.search("knight", asset_type: "portrait", min_score: 0.0)
+      .map(&.asset.id).should contain red.id
 
     db.delete_asset(red.id)
     index.search("knight", asset_type: "portrait", min_score: 0.0)

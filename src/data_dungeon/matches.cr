@@ -133,9 +133,30 @@ module DataDungeon
         end
         ids.reject! { |id| id == exclude }
 
-        best = ids.map { |id| {id, score(ti, picks, weights, id)} }.sort_by! { |(id, s)| {-s, -id} }.first(limit)
+        # Equal scores: the newest made first, then the newest filed.
+        made = made_dates(ids)
+        best = ids.map { |id| {id, score(ti, picks, weights, id)} }
+          .sort! { |(a, a_score), (b, b_score)| {b_score, made[b]? || "", b} <=> {a_score, made[a]? || "", a} }
+          .first(limit)
         best.compact_map { |(id, s)| @db.find_asset_by_id(id).try { |rec| BestMatch.new(rec, s) } }
       end
+    end
+
+    # Placeholders for these ids, not the ids themselves: each distinct SQL
+    # text stays cached as a prepared statement for the connection's life.
+    private def placeholders(ids : Array(Int64)) : String
+      Array.new(ids.size, "?").join(", ")
+    end
+
+    private def made_dates(ids : Array(Int64)) : Hash(Int64, String)
+      made = {} of Int64 => String
+      ids.each_slice(500) do |batch|
+        @db.connection.query("SELECT id, made_at FROM assets WHERE id IN (#{placeholders(batch)})",
+          args: batch.map(&.as(::DB::Any))) do |rs|
+          rs.each { made[rs.read(Int64)] = rs.read(String?) || "" }
+        end
+      end
+      made
     end
 
     # The type's index, loaded or built, and caught up on changes.
@@ -176,7 +197,7 @@ module DataDungeon
     private def rebuild(type : AssetType, sig : String) : TypeIndex
       blocks = layout(type)
       index = USearch::Index.new(dimensions: blocks.sum(&.dims), metric: :ip, quantization: :f16)
-      count = @db.connection.scalar("SELECT COUNT(*) FROM assets WHERE asset_type = ?", type.name).as(Int64)
+      count = @db.connection.scalar("SELECT COUNT(*) FROM assets WHERE asset_type = ? AND retired_at IS NULL", type.name).as(Int64)
       index.reserve(Math.max(count + 1024, 1024))
       ti = TypeIndex.new(type, blocks, sig, index, latest_change) # read first: later writes replay
       added = 0
@@ -200,7 +221,9 @@ module DataDungeon
         ti.seq, latest, as: Int64)
       changed.each_slice(500) do |batch|
         types = {} of Int64 => String
-        @db.connection.query("SELECT id, asset_type FROM assets WHERE id IN (#{batch.join(", ")})") do |rs|
+        # A retired asset leaves the index, as a deleted one does.
+        @db.connection.query("SELECT id, asset_type FROM assets WHERE id IN (#{placeholders(batch)}) AND retired_at IS NULL",
+          args: batch.map(&.as(::DB::Any))) do |rs|
           rs.each { types[rs.read(Int64)] = rs.read(String) }
         end
         tags = @db.load_tags_batch(batch.select { |id| types[id]? == ti.type.name })
@@ -232,7 +255,7 @@ module DataDungeon
     private def each_asset(asset_type : String, &) : Nil
       last = 0_i64
       loop do
-        ids = @db.connection.query_all("SELECT id FROM assets WHERE asset_type = ? AND id > ? ORDER BY id LIMIT 1000",
+        ids = @db.connection.query_all("SELECT id FROM assets WHERE asset_type = ? AND id > ? AND retired_at IS NULL ORDER BY id LIMIT 1000",
           asset_type, last, as: Int64)
         break if ids.empty?
         tags = @db.load_tags_batch(ids)

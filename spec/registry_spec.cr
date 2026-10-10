@@ -114,14 +114,11 @@ describe "DataDungeon::DB type registry" do
     end
   end
 
-  it "rejects an explicit key or pool flag for a registered type, leaving no object" do
+  it "rejects an explicit key for a registered type, leaving no object" do
     with_db("dd-reg-explicit") do |db|
       register_portraits(db)
       expect_raises(ArgumentError, /derives its pool_key/) do
         db.store("portrait", portrait, pool_key: "mine", bytes: "a".to_slice, content_type: "image/webp")
-      end
-      expect_raises(ArgumentError, /registration/) do
-        db.store("portrait", portrait, pool: false, bytes: "a".to_slice, content_type: "image/webp")
       end
       expect_raises(ArgumentError, /no tag/) { store_portrait(db, portrait, "a", custom: %w[skin]) }
       db.storage.not_nil!.list_keys.should be_empty
@@ -262,20 +259,21 @@ describe "DataDungeon::DB type registry" do
     FileUtils.rm_rf(dir) if dir
   end
 
-  it "keeps one best asset per key for a single-best type" do
-    with_db("dd-reg-single") do |db|
+  it "keeps every take of a key and gets the newest" do
+    with_db("dd-reg-takes") do |db|
       db.register_type("voice", pool_traits: %w[bit beat voice])
       tags = {"bit" => "b1", "beat" => "0", "voice" => "fable"}
       first = db.store("voice", tags, bytes: "v1".to_slice, content_type: "audio/mpeg")
       second = db.store("voice", tags.merge({"voice" => "Fable"}), bytes: "v2".to_slice, content_type: "audio/mpeg")
 
-      second.id.should eq first.id
-      second.pool.should be_false
+      second.id.should_not eq first.id
+      second.pool_key.should eq first.pool_key
+      db.find_pool("voice", tags).map(&.id).should eq [first.id, second.id]
       got = db.get("voice", tags, touch: false).not_nil!
       File.read(db.path_for(got)).should eq "v2"
-      db.get_with_meta("voice", tags, touch: false).not_nil![0].id.should eq first.id
-      db.get(first.pool_key.not_nil!, touch: false).not_nil!.id.should eq first.id # the key alone
-      db.get_with_meta(first.pool_key.not_nil!, touch: false).not_nil![0].id.should eq first.id
+      db.get_with_meta("voice", tags, touch: false).not_nil![0].id.should eq second.id
+      db.get(first.pool_key.not_nil!, touch: false).not_nil!.id.should eq second.id # the key alone
+      db.get_with_meta(first.pool_key.not_nil!, touch: false).not_nil![0].id.should eq second.id
     end
   end
 
@@ -354,7 +352,7 @@ describe "DataDungeon::DB type registry" do
       c = db.store("decree", {"quest" => "zork"}, pool_key: "zork", pool: true, bytes: "c".to_slice, content_type: "text/plain")
       d = db.store("decree", {"quest" => "zork"}, pool_key: "zork", pool: true, bytes: "d".to_slice, content_type: "text/plain")
       db.find_pool("decree", "zork").map(&.id).should eq [c.id, d.id]
-      db.find_asset("decree", "zork").should be_nil # single-best lookup skips pools
+      db.find_asset("decree", "zork").not_nil!.id.should eq d.id # the newest; `pool:` changes nothing
     end
   end
 
@@ -403,19 +401,19 @@ describe "DataDungeon::DB type registry" do
     end
   end
 
-  it "lets the most recently used asset keep a key that now collides" do
+  it "gives assets the same key when a registration makes theirs equal" do
     with_db("dd-reg-collide") do |db|
       tags = {"bit" => "b1", "voice" => "fable"}
-      stale = db.store("voice", tags, pool_key: "k1", bytes: "1".to_slice, content_type: "audio/mpeg")
-      fresh = db.store("voice", tags.merge({"voice" => "FABLE"}), pool_key: "k2", bytes: "2".to_slice, content_type: "audio/mpeg")
-      db.connection.exec("UPDATE assets SET last_used_at = '2026-01-01 00:00:00' WHERE id = ?", stale.id)
-      db.connection.exec("UPDATE assets SET last_used_at = '2026-06-01 00:00:00' WHERE id = ?", fresh.id)
+      older = db.store("voice", tags, pool_key: "k1", bytes: "1".to_slice, content_type: "audio/mpeg",
+        made_at: Time.utc(2026, 1, 1))
+      newer = db.store("voice", tags.merge({"voice" => "FABLE"}), pool_key: "k2", bytes: "2".to_slice, content_type: "audio/mpeg",
+        made_at: Time.utc(2026, 6, 1))
 
       db.register_type("voice", pool_traits: %w[bit voice])
-      db.get("voice", tags, touch: false).not_nil!.id.should eq fresh.id
-      kept = db.find_asset_by_id(stale.id).not_nil!
-      kept.pool_key.should be_nil # row and tags kept, key given up
-      db.load_tags(stale.id).should eq tags
+      db.get("voice", tags, touch: false).not_nil!.id.should eq newer.id
+      db.find_asset_by_id(older.id).not_nil!.pool_key.should eq "voice.b1.fable"
+      db.find_pool("voice", tags).map(&.id).should eq [older.id, newer.id]
+      db.load_tags(older.id).should eq tags
     end
   end
 

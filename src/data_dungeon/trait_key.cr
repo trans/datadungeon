@@ -9,7 +9,9 @@ module DataDungeon
   # whose leading traits are equal.
   module TraitKey
     # Recorded with each registered type; changing the format re-derives keys.
-    SCHEME = 3 # 1 lacked the type prefix; 2 kept punctuation other than "." and ","
+    # 1 lacked the type prefix; 2 kept punctuation other than "." and ","; 3
+    # let assets of a single-best type lose a key another held.
+    SCHEME = 4
 
     SEPARATOR = '.'
     MEMBER    = ','

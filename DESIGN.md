@@ -303,6 +303,10 @@ backend. This keeps DataDungeon backend-agnostic.
 
 ## Pools vs Single-Best
 
+*Superseded in 0.11: keys are an index, every store adds, and `get`
+prefers the newest current take (see DESIGN-image-fields.md, "Keys as an
+index"). Kept for the history.*
+
 **Single-best** (`pool = 0`): one asset per canonical key. Storing a new
 asset with the same canonical key replaces the old one. Lookup by exact
 canonical key returns the one result.

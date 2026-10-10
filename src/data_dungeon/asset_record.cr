@@ -9,15 +9,17 @@ module DataDungeon
     getter media : String
     getter content_type : String
     getter file_path : String
-    # Key of the pool of interchangeable assets this one belongs to. For a
-    # registered type, its type and traits' values in order:
-    # `portrait.golden.pg.f.human`.
+    # The asset's key in its type's default index, derived from its traits:
+    # its type and traits' values in order, `portrait.golden.pg.f.human`.
+    # Several assets can share a key; the id is what names one durably.
     getter pool_key : String?
     getter file_hash : String?
     getter created_at : String
     getter last_used_at : String?
     getter use_count : Int32
     getter permanent : Bool
+    # Deprecated since 0.11: what the caller passed as `pool`, which no
+    # longer changes anything.
     getter pool : Bool
     getter generator : String?
     getter generation : String?
@@ -25,6 +27,16 @@ module DataDungeon
     getter generated : Bool
     getter rating : Int32?
     getter flagged : Bool
+    # When the content was made (by default, when it was filed): the date
+    # "newest first" prefers by.
+    getter made_at : String?
+    # When it was retired, by a newer take superseding it or on its own; a
+    # retired asset is kept but left out of lookups, listings and searches.
+    getter retired_at : String?
+
+    def retired? : Bool
+      !@retired_at.nil?
+    end
 
     def initialize(
       @id : Int64,
@@ -45,6 +57,8 @@ module DataDungeon
       @generated : Bool = false,
       @rating : Int32? = nil,
       @flagged : Bool = false,
+      @made_at : String? = nil,
+      @retired_at : String? = nil,
     )
     end
 
@@ -55,9 +69,8 @@ module DataDungeon
   end
 
   # How DataDungeon keys one asset type: its traits, most important first,
-  # whose values make up its pool key; the leading traits that form its group;
-  # and whether a pool key holds many interchangeable assets (`pool`) or one
-  # best asset.
+  # whose values make up its key; and the leading traits that form its
+  # group. (`pool` is deprecated since 0.11 and changes nothing.)
   struct AssetType
     include JSON::Serializable
 
@@ -124,6 +137,22 @@ module DataDungeon
     end
   end
 
+  # An index a consumer keeps on a registered type (`DB#register_index`):
+  # the traits it usually asks by, in that order, so a lookup fixing the
+  # leading ones is one range scan.
+  struct AssetIndex
+    include JSON::Serializable
+
+    getter id : Int64
+    getter asset_type : String
+    getter consumer : String
+    getter name : String
+    getter traits : Array(String)
+
+    def initialize(@id : Int64, @asset_type : String, @consumer : String, @name : String, @traits : Array(String))
+    end
+  end
+
   # Result of `DB#find`: the assets matching every trait that must match
   # (`pool`), and the rest of their group (`group`).
   struct Matches
@@ -153,8 +182,11 @@ module DataDungeon
     getter to_id : Int64?
     getter to_name : String?
     getter created_at : String
+    # What the link says about this use, such as how the asset is placed.
+    getter data : JSON::Any?
 
-    def initialize(@from_id : Int64, @rel : String, @to_id : Int64?, @to_name : String?, @created_at : String)
+    def initialize(@from_id : Int64, @rel : String, @to_id : Int64?, @to_name : String?, @created_at : String,
+                   @data : JSON::Any? = nil)
     end
   end
 

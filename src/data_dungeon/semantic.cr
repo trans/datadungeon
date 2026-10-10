@@ -88,10 +88,11 @@ module DataDungeon
 
     # Queues the asset's embedding and each facet's whose text changed, and
     # drops sources it no longer has (a facet removed, or one left with no
-    # text). Returns true when anything was queued.
+    # text). A retired asset is dropped, as a deleted one is, until it is
+    # reinstated. Returns true when anything was queued.
     def index_asset(id : Int64) : Bool
       asset = @assets.find_asset_by_id(id)
-      unless asset
+      if asset.nil? || asset.retired?
         delete_asset(id)
         return false
       end
@@ -266,7 +267,7 @@ module DataDungeon
         id = candidate.source_id.as?(Int64)
         next unless id && valid_ids.includes?(id) && seen.add?(id)
         asset = @assets.get_by_id(id, touch: false)
-        next unless asset
+        next unless asset && !asset.retired? # retired by a process without this index
         hits << Hit.new(asset, candidate.score)
         break if hits.size >= limit
       end

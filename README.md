@@ -9,18 +9,21 @@ and resolves stored objects through a `Storage` adapter.
 Each asset type the application registers names the traits that identify it,
 most important first. Traits are ordinary tags. DataDungeon derives the
 asset's `pool_key` from them: the asset type, then the trait values in that
-order, joined by dots. The key alone names its pool.
+order, joined by dots.
 
 ```
 portrait.golden.pg.f.human.tan-skin.red-hair
 ```
 
-Assets with the same pool key are interchangeable. In a pool type
-(`pool: true`) many assets share it; otherwise storing under an existing pool
-key replaces that asset. The leading `group_traits` form the type's group: the
-wider set of candidates that exact checks and ranking work within. Because a
-trait's position says which trait it is, a lookup on leading traits is a prefix
-match (`portrait.golden.pg.f.`), one index range scan, at any depth.
+The key is an index, not a name: it finds the assets whose traits are these,
+and any number can share it (takes of one voice line, say). Every store adds
+an asset; what a pool is (which traits an application asks with) is the
+application's call. The asset's id, and its bytes' SHA-256, are what name
+one asset durably, never the key. The leading `group_traits` form the type's
+group: the wider set of candidates that exact checks and ranking work
+within. Because a trait's position says which trait it is, a lookup on
+leading traits is a prefix match (`portrait.golden.pg.f.`), one index range
+scan, at any depth.
 
 Keys are canonical: every trait is present, in the registered order, with an
 empty segment for a trait the asset lacks (`portrait.golden.pg..human`). Values are
@@ -41,7 +44,7 @@ turns commas inside a value into `-`, so a key's only commas separate set
 members, and prefixes still stop at dots. Set traits can't be labelled.
 
 ```crystal
-db.register_type("poster", pool_traits: %w[style colors], sets: %w[colors], pool: true)
+db.register_type("poster", pool_traits: %w[style colors], sets: %w[colors])
 db.store("poster", {"style" => "art deco", "colors" => "Red, blue"}, ...)
 # pool_key: poster.art-deco.blue,red
 ```
@@ -56,8 +59,7 @@ db = DataDungeon::DB.new("assets.db", cache_root: "asset-files")
 db.register_type("portrait",
   pool_traits: %w[art-style rating gender race skin hair-color],
   group_traits: %w[art-style rating gender],
-  labels: {"skin" => "skin", "hair-color" => "hair"},
-  pool: true)
+  labels: {"skin" => "skin", "hair-color" => "hair"})
 
 traits = {"art-style" => "silver", "rating" => "pg", "gender" => "f",
           "race" => "ape", "skin" => "purple", "hair-color" => "red"}
@@ -72,7 +74,7 @@ record = db.store("portrait", traits, custom: %w[race],
 )
 record.pool_key                                     # "portrait.silver.pg.f.ape.purple-skin.red-hair"
 
-db.find_pool("portrait", traits)                    # every trait equal: interchangeable
+db.find_pool("portrait", traits)                    # every trait equal
 db.find_pool("portrait", traits, custom: %w[race])  # every trait equal but race; rank race yourself
 db.find_group("portrait", traits)                   # the group traits equal
 db.find_group("portrait", traits, 4)                # the first four traits equal
@@ -103,13 +105,65 @@ its registration; keys hold values, not names, so they normally stay the same.
 re-deriving their keys; if `to` already has assets, they join it under its
 registration.
 
-For a single-best type, `get(asset_type, traits)` and
-`get_with_meta(asset_type, traits)` return the one asset for those traits. The
-registration is stored in the database. Registering a type again with the
-same definition changes nothing; a different definition raises unless given
-`rekey: true`, which re-derives the keys of its assets from their tags. A
-store shared by several applications should register its types in one place. If two
-assets of a single-best type then share a key, the most recently used keeps it.
+The registration is stored in the database. Registering a type again with
+the same definition changes nothing; a different definition raises unless
+given `rekey: true`, which re-derives the keys of its assets from their tags.
+A store shared by several applications should register its types in one
+place. (`pool:` is deprecated and changes nothing.)
+
+## Takes, superseding and retiring
+
+`get(asset_type, traits)` and `get_with_meta(asset_type, traits)` return the
+newest current asset with those traits, newest by `made_at`: when the content
+was made, which a batch or an import passes (`store(…, made_at: time)`) and
+which defaults to when it was filed. `find_pool` returns every current one.
+
+Naming the take a new one replaces keeps the history tidy:
+`store(…, supersedes: old.id)` (or `supersede(new_id, old_id)`) retires the
+old take, links `new supersedes old`, and copies the old take's other links
+to the new one, data and all. A retired asset is kept, but leaves `get`,
+listings, counts, best matches and search; it's still there by id.
+`retire(id)` retires an asset with nothing replacing it, a soft delete, and
+`reinstate(id)` makes one current again (if a take superseded it, it
+supersedes that take in turn). Nothing retires anything by itself, and
+nothing is deleted until the application prunes:
+`prune(asset_type, keep_last: 2, retired_before: time)` deletes a type's
+retired assets, keeping each key's last few or the recent ones.
+
+```crystal
+old = db.get("voice", line)
+take = db.store("voice", line, bytes: audio, content_type: "audio/mpeg", supersedes: old.try(&.id))
+db.reinstate(old.not_nil!.id)   # the old take back
+db.prune("voice", keep_last: 3)
+```
+
+An asset is its bytes, so storing bytes its type already holds raises
+`AlreadyStored` (with the holder's `asset_id`): change that asset's traits
+with `update_asset`, or bring a retired one back with `reinstate`. Storing
+them again with the same traits, as a retry does, just returns the asset.
+
+## Indexes per consumer
+
+A type's own key serves the order its owner registered. An application
+asking in another order keeps its own index: it says who it is when it opens
+the store, and registers an index with a name and the traits it usually asks
+by, most selective first.
+
+```crystal
+db = DataDungeon::DB.new(path, consumer: "cattacula")
+db.register_index("voice", "lines", traits: %w[bit beat voice fmt])
+db.list_assets("voice", {"bit" => "b1", "beat" => "0"})   # one range of that index
+```
+
+Applications just ask with traits. A lookup by tags counts where it could
+start, capped so counting is cheap: the range of each index (the type's own,
+or any consumer's) whose leading traits the query fixes, and each tag's
+rows. It starts from the smallest and checks the other tags on each asset
+there. Each asset has a key in every index of its type, kept current on
+every write. A consumer changes only its own indexes: registering one again
+changes nothing, other traits raise unless `rekey: true`, and
+`unregister_index` drops one. `indexes(type)` lists everyone's. Every
+process writing a store with indexes must be DataDungeon 0.11 or later.
 
 An unregistered type may still pass an explicit `pool_key` (formerly
 `canonical_key`, still accepted for now), and assets without a key are
@@ -121,9 +175,9 @@ and JSON parameters.
 `DB#store` stores objects by content: each object's storage key is the SHA-256
 of its bytes under a directory named for the first two hex characters, with an
 extension from its content type (`ab/ab12….webp`). Identical bytes are stored
-once and shared by every asset that holds them, and deleting
-or replacing an asset unlinks its object only when no other asset still uses
-it. Existing rows keep the keys they were stored under. `DB#store_asset`
+once and shared by every asset that holds them (of different types), and
+deleting or pruning an asset unlinks its object only when no other asset
+still uses it. Existing rows keep the keys they were stored under. `DB#store_asset`
 indexes a file whose path the caller already owns. Existing SQLite asset tables
 are upgraded when DataDungeon opens the database.
 
@@ -180,10 +234,12 @@ Run the specs with `crystal spec`. The S3 specs need a server:
 
 ## Browsing, curating and the HTTP API
 
-`asset_types` lists every type with its asset count; `tag_keys(type)` a
-type's tag names and `tag_values(type, key)` one tag's values, each with a
-count. `list_assets` gives a page of assets, newest first, of one type or of
-all, filtered by tags, links and search words. `offset` numbers pages (about
+`asset_types` lists every type with its count of current assets
+(`retired: true`, of retired ones); `tag_keys(type)` a type's tag names and
+`tag_values(type, key)` one tag's values, each with a count. `list_assets`
+gives a page of assets, newest filed first, of one type or of all, filtered
+by tags, links and search words. Listings and counts take current assets,
+or with `retired: true` retired ones, `nil` both. `offset` numbers pages (about
 2 ms to skip 100,000 assets); to walk through them all, pass the last
 asset's id as `before` for the next page. `count_assets` counts them all:
 
@@ -193,7 +249,9 @@ db.list_assets(q: "cattacula night")          # the type or tag values (or parts
 db.list_assets(q: "catt* night")              # catt* matches the start of a word
 db.list_assets(q: "red-hair")                 # a labelled trait, only as keys spell it
 db.list_assets(links: {"used-by" => "boardwalk"}, limit: 50, before: last_id)
+db.list_assets(links: {"used-by" => "boardwalk.*"})   # boardwalk and names under it
 db.list_assets("prop", unlinked: "used-by")   # what nothing uses
+db.list_assets("voice", retired: true)        # what was retired or superseded
 ```
 
 Search words come from a full-text index (SQLite FTS5) of each asset's type
@@ -201,10 +259,15 @@ and tag values, kept current as assets change. `update_asset(id, tags:,
 description:, flagged:, rating:)` edits an asset in place without storing
 its bytes again.
 
-`link(from, rel, to)` relates an asset to another asset (`derived-from`,
-`supersedes`) or to a name (`used-by`, `"boardwalk"`), outside its key, so
-the link can change freely. `links_from` and `links_to` list them; they go
-when either asset is deleted. Opening with
+`link(from, rel, to, data)` relates an asset to another asset
+(`derived-from`) or to a name (`used-by`, `"boardwalk.holidayland"`),
+outside its key, so the link can change freely. Names nest under their user
+with dots. `data` is JSON kept with the link, such as how the asset is
+placed in that use; linking again replaces it. `links_from` and `links_to`
+list them, and name filters take `boardwalk.holidayland` exactly,
+`boardwalk.*` for it and every name under it (not `boardwalk-annex`), or
+`boardwalk*` for every name starting so. Links go when either asset is
+deleted; a `supersedes` link is made by superseding. Opening with
 `DB.new(path, storage, read_only: true)` changes nothing: no schema setup, no
 re-keying, writes refused by DataDungeon (`ReadOnlyError`) and by SQLite.
 
@@ -224,13 +287,16 @@ HTTP::Server.new([api, app_handler])
 
 | | |
 |---|---|
-| `GET /types` | types, counts and registrations |
+| `GET /types` | types, counts (current and retired), registrations and indexes |
 | `GET /types/:type/tags[/:key]` | tag names, or one tag's values, with counts |
 | `GET /assets?type=&q=&tag.<key>=&link.<rel>=&unlinked=&limit=&page=&before=&count=1` | a page of assets with their tags, and `next` |
+| `…?retired=only` or `=include` | retired assets, or all, in listings and counts |
 | `GET /assets/:id`, `/assets/:id/object`, `/assets/:id/links` | an asset with its tags, metadata and links; its bytes; its links |
 | `POST /maintenance/check` | the consistency report |
 | `PATCH`, `DELETE /assets/:id` | edit or delete (write token) |
-| `POST`, `DELETE /assets/:id/links` | link or unlink (write token) |
+| `POST`, `DELETE /assets/:id/links` | link (with `data`) or unlink (write token) |
+| `POST /assets/:id/retire`, `/assets/:id/reinstate` | retire or reinstate (write token) |
+| `POST /maintenance/prune` | `{type, keep_last, retired_before}`: delete retired assets (write token) |
 | `POST /types/:type/promote`, `/maintenance/vacuum` | (write token) |
 
 ## Best matches
@@ -241,7 +307,7 @@ closest to what was picked, even when none matches every pick, ranked by
 `score = Σ weight × similarity` over the traits asked for.
 
 ```crystal
-db.register_type("portrait", pool_traits: %w[art-style rating race hair skin items], pool: true,
+db.register_type("portrait", pool_traits: %w[art-style rating race hair skin items],
   scales: {"rating" => %w[g pg r x]},  # ordered: near values count as close
   colors: %w[hair skin],               # CSS names or hex codes, by appearance
   sets: %w[items],                     # by shared members

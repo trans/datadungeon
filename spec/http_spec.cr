@@ -104,6 +104,50 @@ describe DataDungeon::API do
     end
   end
 
+  it "retires, reinstates and prunes, and lists retired assets on request" do
+    with_api("dd-api-retire") do |api, db|
+      a = store_backdrop(db, "golden", "a")
+      b = store_backdrop(db, "silver", "b")
+
+      json(call(api, "POST", "/dd/assets/#{b.id}/retire", "w"))["retired"].should be_true
+      json(call(api, "POST", "/dd/assets/#{b.id}/retire", "w"))["retired"].should be_false
+      call(api, "POST", "/dd/assets/999/retire", "w").status_code.should eq 404
+      types = json(call(api, "GET", "/dd/types", "r"))
+      types[0]["count"].should eq 1
+      types[0]["retired"].should eq 1
+      json(call(api, "GET", "/dd/assets?type=backdrop&count=1", "r"))["total"].should eq 1
+      only = json(call(api, "GET", "/dd/assets?type=backdrop&retired=only", "r"))
+      only["assets"].as_a.map(&.["asset"]["id"]).should eq [b.id]
+      only["assets"][0]["asset"]["retired_at"].as_s.should_not be_empty
+      json(call(api, "GET", "/dd/assets?retired=include&count=1", "r"))["total"].should eq 2
+      json(call(api, "GET", "/dd/types/backdrop/tags/art-style?retired=only", "r")).should eq({"silver" => 1})
+      call(api, "GET", "/dd/assets?retired=yes", "r").status_code.should eq 400
+
+      json(call(api, "POST", "/dd/assets/#{b.id}/reinstate", "w"))["reinstated"].should be_true
+      c = store_backdrop(db, "golden", "c")
+      json(call(api, "POST", "/dd/assets/#{c.id}/links", "w", {rel: "supersedes", to: a.id}))
+      db.find_asset_by_id(a.id).not_nil!.retired?.should be_true
+      json(call(api, "POST", "/dd/maintenance/prune", "w", {type: "backdrop", retired_before: "2000-01-01"}))["pruned"].should eq 0
+      json(call(api, "POST", "/dd/maintenance/prune", "w", {type: "backdrop"}))["pruned"].should eq 1
+      db.find_asset_by_id(a.id).should be_nil
+      call(api, "POST", "/dd/maintenance/prune", "w", {type: "backdrop", retired_before: "soon"}).status_code.should eq 400
+    end
+  end
+
+  it "keeps a link's data, and filters by a name and what's under it" do
+    with_api("dd-api-link-data") do |api, db|
+      a = store_backdrop(db, "golden", "a")
+      store_backdrop(db, "silver", "b")
+      call(api, "POST", "/dd/assets/#{a.id}/links", "w",
+        {rel: "used-by", name: "boardwalk.holidayland", data: {at: [0.25, 0.5], layer: 2}}).status_code.should eq 200
+
+      links = json(call(api, "GET", "/dd/assets/#{a.id}/links", "r"))
+      links["from"][0]["data"]["layer"].should eq 2
+      json(call(api, "GET", "/dd/assets?link.used-by=boardwalk.*", "r"))["assets"].as_a.map(&.["asset"]["id"]).should eq [a.id]
+      json(call(api, "GET", "/dd/assets?link.used-by=boardwalk", "r"))["assets"].size.should eq 0
+    end
+  end
+
   it "needs the read token to read, and the write token to write" do
     with_api("dd-api-auth") do |api, db|
       rec = store_backdrop(db, "golden", "a")

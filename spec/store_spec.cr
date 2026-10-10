@@ -43,7 +43,7 @@ describe DataDungeon::DB do
     FileUtils.rm_rf(dir) if dir
   end
 
-  it "write-skips an identical single-best re-store (same id, no rewrite)" do
+  it "returns the asset already holding the bytes when a store is an exact repeat" do
     dir = File.tempname("dd-dedup")
     Dir.mkdir_p(dir)
     db = open_db(dir)
@@ -62,20 +62,23 @@ describe DataDungeon::DB do
     FileUtils.rm_rf(dir) if dir
   end
 
-  it "replaces a single-best asset when the bytes change" do
-    dir = File.tempname("dd-replace")
+  it "adds every take under a key and gets the newest made" do
+    dir = File.tempname("dd-takes")
     Dir.mkdir_p(dir)
     db = open_db(dir)
     tags = {"venue" => "arcade"}
 
-    a = db.store("venue", tags, pool_key: key_for(tags), bytes: "v1".to_slice, content_type: "image/webp",
-      image: DataDungeon::ImageMeta.new(compression: "original"))
-    b = db.store("venue", tags, pool_key: key_for(tags), bytes: "v2".to_slice, content_type: "image/webp",
-      image: DataDungeon::ImageMeta.new(compression: "original"))
+    a = db.store("venue", tags, pool_key: key_for(tags), bytes: "v1".to_slice, content_type: "image/webp")
+    b = db.store("venue", tags, pool_key: key_for(tags), bytes: "v2".to_slice, content_type: "image/webp")
+    c = db.store("venue", tags, pool_key: key_for(tags), bytes: "v3".to_slice, content_type: "image/webp",
+      made_at: Time.utc(2020, 1, 1)) # filed last, made first
 
-    b.id.should eq a.id
-    b.file_hash.should_not eq a.file_hash
-    db.find_asset_by_id(a.id).not_nil!.file_hash.should eq b.file_hash
+    b.id.should_not eq a.id
+    db.find_pool("venue", key_for(tags)).map(&.id).should eq [a.id, b.id, c.id]
+    db.get("venue", key_for(tags), touch: false).not_nil!.id.should eq b.id
+    db.get_with_meta("venue", key_for(tags), touch: false).not_nil![0].id.should eq b.id
+    c.made_at.should eq "2020-01-01 00:00:00"
+    c.created_at.should_not eq c.made_at
   ensure
     db.try(&.close)
     FileUtils.rm_rf(dir) if dir
@@ -206,7 +209,7 @@ describe DataDungeon::DB do
     FileUtils.rm_rf(dir) if dir
   end
 
-  it "keeps the asset readable after a re-store with different bytes (same tags)" do
+  it "keeps the newest take readable after another with different bytes" do
     dir = File.tempname("dd-restore")
     Dir.mkdir_p(dir)
     db = open_db(dir)
@@ -227,7 +230,7 @@ describe DataDungeon::DB do
     FileUtils.rm_rf(dir) if dir
   end
 
-  it "leaves no stray object when a re-store changes the bytes" do
+  it "supersedes a take by id, keeping it retired until pruned" do
     dir = File.tempname("dd-supersede")
     Dir.mkdir_p(dir)
     db = open_db(dir)
@@ -235,18 +238,22 @@ describe DataDungeon::DB do
 
     old = db.store("venue", tags, pool_key: key_for(tags), bytes: "png-bytes".to_slice,
       content_type: "image/png", image: DataDungeon::ImageMeta.new(compression: "original"))
-    old_path = db.path_for(old)
-    old_path.ends_with?(".png").should be_true
-
     new = db.store("venue", tags, pool_key: key_for(tags), bytes: "webp-bytes".to_slice,
-      content_type: "image/webp", image: DataDungeon::ImageMeta.new(compression: "original"))
-    new_path = db.path_for(new)
-    new_path.ends_with?(".webp").should be_true
+      content_type: "image/webp", image: DataDungeon::ImageMeta.new(compression: "original"),
+      supersedes: old.id)
 
-    new.content_type.should eq "image/webp"
-    new_path.should_not eq old_path
-    File.exists?(new_path).should be_true
-    File.exists?(old_path).should be_false # superseded object swept
+    retired = db.find_asset_by_id(old.id).not_nil!
+    retired.retired?.should be_true
+    new.retired?.should be_false
+    db.find_pool("venue", key_for(tags)).map(&.id).should eq [new.id]
+    db.get("venue", key_for(tags), touch: false).not_nil!.id.should eq new.id
+    db.links_from(new.id, "supersedes").map(&.to_id).should eq [old.id] # its history
+    File.exists?(db.path_for(old)).should be_true                       # kept
+
+    db.prune("venue").should eq 1
+    db.find_asset_by_id(old.id).should be_nil
+    File.exists?(db.path_for(old)).should be_false
+    File.exists?(db.path_for(new)).should be_true
     db.check_consistency.clean?.should be_true
   ensure
     db.try(&.close)
@@ -279,20 +286,21 @@ describe DataDungeon::DB do
     FileUtils.rm_rf(dir) if dir
   end
 
-  it "keeps a superseded object that another asset still uses" do
+  it "keeps a pruned take's object that another asset still uses" do
     dir = File.tempname("dd-shared-restore")
     Dir.mkdir_p(dir)
     db = open_db(dir)
 
     shared = db.store("venue", {"venue" => "arcade"}, pool_key: "arcade",
       bytes: "v1".to_slice, content_type: "image/webp")
-    other = db.store("venue", {"venue" => "diner"}, pool_key: "diner",
+    other = db.store("tile", {"room" => "arcade"}, pool_key: "arcade",
       bytes: "v1".to_slice, content_type: "image/webp")
     db.store("venue", {"venue" => "arcade"}, pool_key: "arcade",
-      bytes: "v2".to_slice, content_type: "image/webp")
+      bytes: "v2".to_slice, content_type: "image/webp", supersedes: shared.id)
+    db.prune("venue").should eq 1
 
     File.read(db.path_for(other)).should eq "v1"
-    db.get("venue", "diner", touch: false).not_nil!.file_path.should eq shared.file_path
+    db.get("tile", "arcade", touch: false).not_nil!.file_path.should eq shared.file_path
     File.read(db.path_for(db.get("venue", "arcade", touch: false).not_nil!)).should eq "v2"
     db.check_consistency.clean?.should be_true
   ensure
@@ -433,15 +441,14 @@ describe DataDungeon::DB do
     Dir.mkdir_p(dir)
     db = open_db(dir)
 
-    a = db.store("venue", {"style" => "silver"}, bytes: "same".to_slice,
+    a = db.store("venue", {"style" => "silver"}, bytes: "one".to_slice,
       content_type: "image/webp", image: DataDungeon::ImageMeta.new)
-    b = db.store("venue", {"style" => "silver"}, bytes: "same".to_slice,
+    b = db.store("venue", {"style" => "silver"}, bytes: "two".to_slice,
       content_type: "image/webp", image: DataDungeon::ImageMeta.new)
 
     a.pool_key.should be_nil
     b.pool_key.should be_nil
-    a.id.should_not eq b.id
-    a.file_path.should eq b.file_path # independent records, one shared object
+    a.id.should_not eq b.id # independent records
     db.get_by_id(a.id, touch: false).not_nil!.id.should eq a.id
     db.get_by_id(b.id, touch: false).not_nil!.id.should eq b.id
     record, meta = db.get_with_meta_by_id(a.id, touch: false).not_nil!
@@ -473,7 +480,7 @@ describe DataDungeon::DB do
     FileUtils.rm_rf(dir) if dir
   end
 
-  it "updates description, generation flag, tags and media metadata on re-store" do
+  it "refuses bytes its type already holds unless the store is an exact repeat" do
     dir = File.tempname("dd-provenance")
     Dir.mkdir_p(dir)
     db = open_db(dir)
@@ -486,18 +493,27 @@ describe DataDungeon::DB do
     first.generated.should be_true
     first.description.should eq "A red-haired adventurer"
     first.file_path.includes?("portrait-1").should be_false
-    second = db.store("portrait", {"hair_color" => "brown"}, pool_key: "portrait-1",
-      bytes: "same".to_slice, content_type: "image/webp",
-      description: "A brown-haired adventurer", generated: false,
-      image: DataDungeon::ImageMeta.new(usage_class: "icon"))
 
-    second.id.should eq first.id
-    second.file_path.should eq first.file_path
-    second.description.should eq "A brown-haired adventurer"
-    second.generated.should be_false
-    second.generator.should be_nil
-    db.load_tags(second.id).should eq({"hair_color" => "brown"})
-    db.load_image_meta(second.id).not_nil!.usage_class.should eq "icon"
+    again = db.store("portrait", {"hair_color" => "red"}, pool_key: "portrait-1",
+      bytes: "same".to_slice, content_type: "image/webp")
+    again.id.should eq first.id # a retry: the asset as it is
+    again.description.should eq "A red-haired adventurer"
+
+    error = expect_raises(DataDungeon::AlreadyStored, /asset #{first.id}: change its traits with update_asset/) do
+      db.store("portrait", {"hair_color" => "brown"}, pool_key: "portrait-1",
+        bytes: "same".to_slice, content_type: "image/webp")
+    end
+    error.asset_id.should eq first.id
+    error.retired?.should be_false
+    db.store("panel", {"hair_color" => "brown"}, bytes: "same".to_slice,
+      content_type: "image/webp").id.should_not eq first.id # another type may hold them
+
+    db.retire(first.id).should be_true
+    error = expect_raises(DataDungeon::AlreadyStored, /\(retired\).*reinstate/) do
+      db.store("portrait", {"hair_color" => "red"}, pool_key: "portrait-1",
+        bytes: "same".to_slice, content_type: "image/webp")
+    end
+    error.retired?.should be_true
   ensure
     db.try(&.close)
     FileUtils.rm_rf(dir) if dir
@@ -649,7 +665,8 @@ describe DataDungeon::DB do
     Dir.mkdir_p(dir)
     db = open_db(dir)
     one = db.store("venue", {"venue" => "diner"}, bytes: "same".to_slice, content_type: "image/webp")
-    two = db.store("venue", {"venue" => "arcade"}, bytes: "same".to_slice, content_type: "image/webp")
+    two = db.store("tile", {"room" => "arcade"}, bytes: "same".to_slice, content_type: "image/webp")
+    db.retire(two.id)
     db.store("venue", {"venue" => "mall"}, bytes: "other".to_slice, content_type: "image/webp")
 
     db.find_by_hash(Digest::SHA256.hexdigest("same")).map(&.id).should eq [one.id, two.id]

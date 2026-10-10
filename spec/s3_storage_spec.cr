@@ -91,9 +91,12 @@ describe DataDungeon::S3Storage do
     String.new(db.read(rec)).should eq "audio-1"
     db.check_consistency.clean?.should be_true
 
-    # Replacing the asset stores the new object and removes the old one.
-    newer = db.store("voice", traits, bytes: "audio-2".to_slice, content_type: "audio/mpeg", media: "audio")
+    # A new take superseding it keeps the old object until pruned.
+    newer = db.store("voice", traits, bytes: "audio-2".to_slice, content_type: "audio/mpeg", media: "audio",
+      supersedes: rec.id)
     String.new(db.read(newer)).should eq "audio-2"
+    storage.exists?(rec.file_path).should be_true
+    db.prune("voice").should eq 1
     storage.exists?(rec.file_path).should be_false
     db.check_consistency.clean?.should be_true
 
