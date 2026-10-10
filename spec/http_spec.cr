@@ -148,6 +148,36 @@ describe DataDungeon::API do
     end
   end
 
+  it "sets, shows and filters a picture's fields, and measures pictures" do
+    with_api("dd-api-image") do |api, db|
+      a = store_backdrop(db, "golden", "a")
+      store_backdrop(db, "silver", "b")
+      call(api, "PATCH", "/dd/assets/#{a.id}", "w",
+        {image: {view: {side: "back", yaw: -0.5}, light: {yaw: -0.5, pitch: 0.5}, world_height: 3, anchor_y: 1}}).status_code.should eq 200
+
+      shown = json(call(api, "GET", "/dd/assets/#{a.id}", "r"))
+      shown["view"]["name"].should eq "back-left"
+      shown["light"]["pitch"].should eq 0.5
+      shown["meta"]["world_height"].should eq 3.0
+      ids = ->(query : String) { json(call(api, "GET", "/dd/assets?#{query}", "r"))["assets"].as_a.map(&.["asset"]["id"]) }
+      ids.call("view=back-left").should eq [a.id]
+      ids.call("field.world_height=2..4").should eq [a.id]
+      ids.call("field.world_height=4..").should be_empty
+      ids.call("view.side=back&view.yaw=-0.5&view.within=10").should eq [a.id]
+      ids.call("light.yaw=0.5").should be_empty
+      call(api, "GET", "/dd/assets?field.world_height=tall", "r").status_code.should eq 400
+      call(api, "GET", "/dd/assets?view=north", "r").status_code.should eq 400
+
+      json(call(api, "POST", "/dd/maintenance/measure", "w", {type: "backdrop", all: true}))["measured"].should eq 2
+
+      db.update_asset(a.id, image: DataDungeon::ImageMeta.new(animation: DataDungeon::ImageAnimation.new(frame_count: 2, duration_ms: 500)))
+      set = json(call(api, "PUT", "/dd/assets/#{a.id}/keyframes", "w", [{at_ms: 250, view: {side: "back", yaw: 0}}]))
+      set["keyframes"][0]["at_ms"].should eq 250
+      json(call(api, "GET", "/dd/assets/#{a.id}", "r"))["keyframes"].size.should eq 1
+      call(api, "PUT", "/dd/assets/#{a.id}/keyframes", "r", [] of Int32).status_code.should eq 403
+    end
+  end
+
   it "needs the read token to read, and the write token to write" do
     with_api("dd-api-auth") do |api, db|
       rec = store_backdrop(db, "golden", "a")

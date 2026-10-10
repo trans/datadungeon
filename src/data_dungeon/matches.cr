@@ -28,7 +28,7 @@ module DataDungeon
     WORD_DIMS     =   16 # a word or set trait's block
     FALLBACK_DIMS =    8 # added to a scale's or color's block, for values it doesn't know
     SHORTLIST     =  200 # candidates USearch finds before exact scoring
-    ENCODING      =    2 # bump when vectors change meaning: rebuilds every file
+    ENCODING      =    3 # bump when vectors change meaning: rebuilds every file
     YIELD_EVERY   =  256 # a rebuild lets other fibers run this often
     COLOR_SIGMA   = 25.0
     ANCHOR_SIGMA  = 35.0
@@ -46,6 +46,9 @@ module DataDungeon
       Set
       Scale
       Color
+      Cycle  # a trait's values round a circle
+      Vector # a view or light: its unit vector
+      Circle # a roll: an angle
     end
 
     record Block, trait : String, kind : Kind, offset : Int32, dims : Int32
@@ -85,7 +88,8 @@ module DataDungeon
                 weights : Hash(String, Float64) = {} of String => Float64,
                 limit : Int32 = 10) : Array(BestMatch)
       rec = @db.find_asset_by_id(id) || raise ArgumentError.new("No asset #{id}")
-      search(rec.asset_type, @db.load_tags(id), required_traits, weights, limit, id)
+      own = @db.load_tags(id).merge(@db.match_field_values([id])[id]? || {} of String => String)
+      search(rec.asset_type, own, required_traits, weights, limit, id)
     end
 
     # Saves every file and releases the lock.
@@ -102,8 +106,13 @@ module DataDungeon
       @mutex.synchronize do
         ti = current(asset_type)
         type = ti.type
-        picks = @db.normalize_tags(asset_type, picks).select { |trait, _| type.trait?(trait) }
-        raise ArgumentError.new("Pick at least one of #{asset_type}'s traits: #{type.pool_traits.join(", ")}") if picks.empty?
+        fields = picks.select { |name, _| type.match_fields.includes?(name) }
+          .to_h { |name, value| {name, field_pick(name, value)} }
+        picks = @db.normalize_tags(asset_type, picks).select { |trait, _| type.trait?(trait) }.merge(fields)
+        if picks.empty?
+          raise ArgumentError.new("Pick at least one of #{asset_type}'s traits or match fields: " \
+                                  "#{(type.pool_traits + type.match_fields).join(", ")}")
+        end
         unless (unknown = required_traits - type.pool_traits).empty?
           raise ArgumentError.new("#{unknown.join(", ")}: not traits of #{asset_type}")
         end
@@ -226,7 +235,7 @@ module DataDungeon
           args: batch.map(&.as(::DB::Any))) do |rs|
           rs.each { types[rs.read(Int64)] = rs.read(String) }
         end
-        tags = @db.load_tags_batch(batch.select { |id| types[id]? == ti.type.name })
+        tags = values_of(ti.type, batch.select { |id| types[id]? == ti.type.name })
         batch.each do |id|
           ti.index.remove(id.to_u64) if ti.index.contains?(id.to_u64)
           ti.drop_values(id)
@@ -258,10 +267,20 @@ module DataDungeon
         ids = @db.connection.query_all("SELECT id FROM assets WHERE asset_type = ? AND id > ? AND retired_at IS NULL ORDER BY id LIMIT 1000",
           asset_type, last, as: Int64)
         break if ids.empty?
-        tags = @db.load_tags_batch(ids)
+        tags = values_of(@db.registration(asset_type).not_nil!, ids)
         ids.each { |id| yield id, tags[id]? || {} of String => String }
         last = ids.last
       end
+    end
+
+    # Each asset's tags, with its match fields' values when the type has any.
+    private def values_of(type : AssetType, ids : Array(Int64)) : Hash(Int64, Hash(String, String))
+      tags = @db.load_tags_batch(ids)
+      return tags if type.match_fields.empty?
+      @db.match_field_values(ids).each do |id, fields|
+        tags[id] = (tags[id]? || {} of String => String).merge(fields.select(type.match_fields))
+      end
+      tags
     end
 
     private def save(ti : TypeIndex) : Nil
@@ -279,22 +298,33 @@ module DataDungeon
 
     # ── Vectors ──
 
+    # One block per trait, then per match field.
     private def layout(type : AssetType) : Array(Block)
       offset = 0
-      type.pool_traits.map do |trait|
+      kinds = type.pool_traits.map do |trait|
         kind = if type.set?(trait)
                  Kind::Set
                elsif type.scales.has_key?(trait)
                  Kind::Scale
+               elsif type.cycles.has_key?(trait)
+                 Kind::Cycle
                elsif type.colors.includes?(trait)
                  Kind::Color
                else
                  Kind::Word
                end
+        {trait, kind}
+      end
+      type.match_fields.each do |field|
+        kinds << {field, field == "roll" ? Kind::Circle : (field == "dominant-color" ? Kind::Color : Kind::Vector)}
+      end
+      kinds.map do |(trait, kind)|
         dims = case kind
-               in .scale?       then 2 + FALLBACK_DIMS
-               in .color?       then ANCHORS.size + FALLBACK_DIMS
-               in .word?, .set? then WORD_DIMS
+               in .scale?, .cycle? then 2 + FALLBACK_DIMS
+               in .color?          then ANCHORS.size + FALLBACK_DIMS
+               in .word?, .set?    then WORD_DIMS
+               in .vector?         then 3
+               in .circle?         then 2
                end
         block = Block.new(trait, kind, offset, dims)
         offset += dims
@@ -305,7 +335,7 @@ module DataDungeon
     # What the vectors mean; a file built under another signature is rebuilt.
     private def signature(type : AssetType) : String
       Digest::SHA256.hexdigest({ENCODING, WORD_DIMS, FALLBACK_DIMS, type.pool_traits, type.sets, type.scales,
-                                type.colors}.to_json)
+                                type.colors, type.cycles, type.match_fields}.to_json)
     end
 
     # Each trait's block for these values, times its weight. A stored
@@ -350,7 +380,26 @@ module DataDungeon
         else
           Array(Float64).new(ANCHORS.size, 0.0) + word(value, FALLBACK_DIMS)
         end
+      in .cycle?
+        cycle = type.cycles[block.trait]
+        if position = cycle.index(value)
+          angle = 2 * Math::PI * position / cycle.size
+          [Math.cos(angle), Math.sin(angle)] + Array(Float64).new(FALLBACK_DIMS, 0.0)
+        else
+          [0.0, 0.0] + word(value, FALLBACK_DIMS)
+        end
+      in .vector?
+        MatchIndex.vector(value).to_a
+      in .circle?
+        angle = value.to_f64 * Math::PI / 2
+        [Math.cos(angle), Math.sin(angle)]
       end
+    end
+
+    # A field value `x,y,z` as its vector.
+    def self.vector(value : String) : {Float64, Float64, Float64}
+      x, y, z = value.split(',').map(&.to_f64)
+      {x, y, z}
     end
 
     # A word's direction in its trait's block: one of the block's own
@@ -405,7 +454,61 @@ module DataDungeon
         else
           a == b ? 1.0 : 0.0
         end
+      in .cycle?
+        cycle = type.cycles[block.trait]
+        i, j = cycle.index(a), cycle.index(b)
+        i && j ? (1 + Math.cos(2 * Math::PI * (i - j) / cycle.size)) / 2 : (a == b ? 1.0 : 0.0)
+      in .vector? # alike by the angle between them, nothing from 90 degrees apart
+        u, v = MatchIndex.vector(a), MatchIndex.vector(b)
+        Math.max(0.0, u[0] * v[0] + u[1] * v[1] + u[2] * v[2])
+      in .circle?
+        Math.max(0.0, Math.cos((a.to_f64 - b.to_f64) * Math::PI / 2))
       end
+    end
+
+    # A pick for a match field, as the field's stored values read: a view or
+    # light named (`back-left`, `front from-above`), given as
+    # `side,yaw,pitch`, or as its vector `x,y,z`; a colour as `rrggbb`.
+    private def field_pick(field : String, value : String) : String
+      case field
+      when "view", "light"
+        parts = value.split(',').map(&.strip)
+        x, y, z = if parts.size == 3 && parts[0].in?("front", "back")
+                    Direction.new(parts[0], parts[1].to_f64, parts[2].to_f64).vector
+                  elsif parts.size == 3
+                    Direction.unit(parts[0].to_f64, parts[1].to_f64, parts[2].to_f64)
+                  else
+                    MatchIndex.named(value)
+                  end
+        {x, y, z}.join(",") { |c| c.round(3) }
+      when "dominant-color"
+        rgb = MatchIndex.color(value.lchop('#').downcase) || raise ArgumentError.new("#{value} isn't a colour")
+        "%06x" % rgb
+      else
+        value.to_f64.to_s
+      end
+    rescue ex : ArgumentError
+      raise ArgumentError.new("#{field}: #{ex.message}")
+    end
+
+    # The middle of a named direction's sector (Direction#name).
+    def self.named(name : String) : {Float64, Float64, Float64}
+      words = name.split
+      elevation = 0.0
+      around = 0.0
+      words.each do |word|
+        case word
+        when "from-above" then elevation = 45.0
+        when "from-below" then elevation = -45.0
+        when "top-down"   then elevation = 90.0
+        when "bottom-up"  then elevation = -90.0
+        else
+          sector = Direction::AROUND.index(word) || raise ArgumentError.new("#{word.inspect} isn't a named direction")
+          around = sector * 45.0
+        end
+      end
+      e, a = elevation * Math::PI / 180, around * Math::PI / 180
+      {Math.cos(e) * Math.sin(a), Math.sin(e), Math.cos(e) * Math.cos(a)}
     end
 
     # ── Colors ──

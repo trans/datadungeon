@@ -96,6 +96,15 @@ module DataDungeon
     getter scales : Hash(String, Array(String))
     getter colors : Array(String)
     getter weights : Hash(String, Float64)
+    # Traits whose values go round a circle (`{"time" => %w[dawn day dusk night]}`),
+    # so night's nearest are dusk and dawn; and the image fields matched
+    # on beside the traits (MATCH_FIELDS).
+    getter cycles : Hash(String, Array(String))
+    getter match_fields : Array(String)
+
+    # Image fields best matches can use: a view or light by direction, the
+    # view's roll around a circle, the dominant colour by appearance.
+    MATCH_FIELDS = %w[view light roll dominant-color]
 
     def initialize(@name : String, @pool_traits : Array(String), @group_traits : Array(String), @pool : Bool,
                    @labels : Hash(String, String) = {} of String => String,
@@ -103,7 +112,9 @@ module DataDungeon
                    @facets : Hash(String, Array(String)) = {} of String => Array(String),
                    @scales : Hash(String, Array(String)) = {} of String => Array(String),
                    @colors : Array(String) = [] of String,
-                   @weights : Hash(String, Float64) = {} of String => Float64)
+                   @weights : Hash(String, Float64) = {} of String => Float64,
+                   @cycles : Hash(String, Array(String)) = {} of String => Array(String),
+                   @match_fields : Array(String) = [] of String)
     end
 
     def trait?(name : String) : Bool
@@ -116,7 +127,8 @@ module DataDungeon
 
     # This registration under another type name.
     def renamed(name : String) : AssetType
-      AssetType.new(name, @pool_traits, @group_traits, @pool, @labels, @sets, @facets, @scales, @colors, @weights)
+      AssetType.new(name, @pool_traits, @group_traits, @pool, @labels, @sets, @facets, @scales, @colors, @weights,
+        @cycles, @match_fields)
     end
 
     # This registration with a trait or facet tag renamed wherever it appears.
@@ -125,7 +137,8 @@ module DataDungeon
       AssetType.new(@name, @pool_traits.map(&swap), @group_traits.map(&swap), @pool,
         @labels.to_h { |trait, label| {swap.call(trait), label} }, @sets.map(&swap),
         @facets.transform_values(&.map(&swap)), @scales.to_h { |trait, values| {swap.call(trait), values} },
-        @colors.map(&swap), @weights.to_h { |trait, weight| {swap.call(trait), weight} })
+        @colors.map(&swap), @weights.to_h { |trait, weight| {swap.call(trait), weight} },
+        @cycles.to_h { |trait, values| {swap.call(trait), values} }, @match_fields)
     end
 
     # The pool key of these normalized values.
@@ -224,34 +237,340 @@ module DataDungeon
     end
   end
 
+  # Image fields (image_meta). `nil` means not known, never zero.
+  #
+  # Measured by DataDungeon from the stored bytes: `width`, `height`,
+  # `transparent` (any pixel not fully opaque), `dominant_color` (0xRRGGBB,
+  # hex in JSON), the content box around the visible pixels (`content_*`),
+  # and an animation's frames (`animation`). For an animation every field
+  # describes its first frame, and keyframes record what changes.
+  #
+  # Set by the application, usually from what it asked the generator for:
+  # the view (`view_x/y/z`, a unit vector from the thing toward the camera,
+  # in the thing's frame, and `view_roll` in quarter turns), the light
+  # (`light_x/y/z`, where it comes from, in the picture's frame), the anchor
+  # (`anchor_x/y`, 0 to 1 across and down, the point that sits on the
+  # ground or attaches), and the thing's real size in metres in its own
+  # frame (`world_width` across, `world_height` up, `world_depth` front to
+  # back). `view:` and `light:` take the readable form (Direction).
   struct ImageMeta < AssetMeta
     include JSON::Serializable
 
     getter width : Int32?
     getter height : Int32?
     getter usage_class : String?
-    getter animated : Bool
-    getter frame_count : Int32?
-    getter duration_ms : Int32?
     getter compression : String
     getter quality_floor : Int32?
     getter max_colors : Int32?
     getter target_format : String?
     getter presentation : String?
+    getter transparent : Bool?
+    @[JSON::Field(converter: DataDungeon::HexColor)]
+    getter dominant_color : Int32?
+    getter content_x : Int32?
+    getter content_y : Int32?
+    getter content_w : Int32?
+    getter content_h : Int32?
+    # Whether DataDungeon has read the bytes (measuring what their format allows).
+    getter? measured : Bool
+    getter view_x : Float64?
+    getter view_y : Float64?
+    getter view_z : Float64?
+    getter view_roll : Float64?
+    getter light_x : Float64?
+    getter light_y : Float64?
+    getter light_z : Float64?
+    getter anchor_x : Float64?
+    getter anchor_y : Float64?
+    getter world_width : Float64?
+    getter world_height : Float64?
+    getter world_depth : Float64?
+    getter animation : ImageAnimation?
+
+    # The fields the application sets, which `update_asset(image:)` changes.
+    SET_FIELDS = %w[usage_class presentation view_x view_y view_z view_roll light_x light_y light_z
+      anchor_x anchor_y world_width world_height world_depth]
 
     def initialize(
       @width : Int32? = nil,
       @height : Int32? = nil,
       @usage_class : String? = nil,
-      @animated : Bool = false,
-      @frame_count : Int32? = nil,
-      @duration_ms : Int32? = nil,
       @compression : String = "original",
       @quality_floor : Int32? = nil,
       @max_colors : Int32? = nil,
       @target_format : String? = nil,
       @presentation : String? = nil,
+      @transparent : Bool? = nil,
+      @dominant_color : Int32? = nil,
+      @content_x : Int32? = nil,
+      @content_y : Int32? = nil,
+      @content_w : Int32? = nil,
+      @content_h : Int32? = nil,
+      @measured : Bool = false,
+      @view_x : Float64? = nil,
+      @view_y : Float64? = nil,
+      @view_z : Float64? = nil,
+      @view_roll : Float64? = nil,
+      @light_x : Float64? = nil,
+      @light_y : Float64? = nil,
+      @light_z : Float64? = nil,
+      @anchor_x : Float64? = nil,
+      @anchor_y : Float64? = nil,
+      @world_width : Float64? = nil,
+      @world_height : Float64? = nil,
+      @world_depth : Float64? = nil,
+      @animation : ImageAnimation? = nil,
+      view : Direction? = nil,
+      light : Direction? = nil,
     )
+      if view
+        @view_x, @view_y, @view_z = view.vector
+        @view_roll ||= view.roll
+      end
+      if light
+        @light_x, @light_y, @light_z = light.vector
+      end
+    end
+
+    # The view in readable form, or nil when not known.
+    def view : Direction?
+      x, y, z = @view_x, @view_y, @view_z
+      Direction.from(x, y, z, @view_roll || 0.0) if x && y && z
+    end
+
+    # The light in readable form, or nil when not known.
+    def light : Direction?
+      x, y, z = @light_x, @light_y, @light_z
+      Direction.from(x, y, z) if x && y && z
+    end
+
+    # Whether it's an animation (see `animation`).
+    def animated : Bool
+      !@animation.nil?
+    end
+
+    # These fields with what DataDungeon measured in place of its own.
+    def measured(measurement : Measurement) : ImageMeta
+      copy = self
+      copy.measure!(measurement)
+      copy
+    end
+
+    # These fields marked as read, for bytes DataDungeon can't measure.
+    def tried : ImageMeta
+      copy = self
+      copy.mark_measured!
+      copy
+    end
+
+    protected def mark_measured! : Nil
+      @measured = true
+    end
+
+    protected def measure!(m : Measurement) : Nil
+      @measured = true
+      @width, @height = m.width, m.height
+      @transparent = m.transparent
+      @dominant_color = m.dominant_color
+      @content_x, @content_y, @content_w, @content_h = m.content || {nil, nil, nil, nil}
+      @animation = m.animation.try { |found| @animation.try(&.merged(found)) || found }
+    end
+  end
+
+  # An animated picture's frames: how many, how long all of them last, how
+  # many times it plays (0: forever), and for a sprite sheet the grid its
+  # frames sit in. One row of image_animation; a still picture has none.
+  struct ImageAnimation
+    include JSON::Serializable
+
+    getter frame_count : Int32?
+    getter duration_ms : Int32?
+    getter loop_count : Int32?
+    getter frame_w : Int32?
+    getter frame_h : Int32?
+    getter columns : Int32?
+
+    def initialize(@frame_count : Int32? = nil, @duration_ms : Int32? = nil, @loop_count : Int32? = nil,
+                   @frame_w : Int32? = nil, @frame_h : Int32? = nil, @columns : Int32? = nil)
+    end
+
+    # What was measured, keeping the sprite-sheet grid the application gave.
+    def merged(measured : ImageAnimation) : ImageAnimation
+      ImageAnimation.new(measured.frame_count, measured.duration_ms, measured.loop_count, @frame_w, @frame_h, @columns)
+    end
+  end
+
+  # One checkpoint of an animation, `at_ms` after its start: only the fields
+  # that change, each reaching its value then. Between checkpoints a value
+  # glides from its neighbour (numbers in a straight line, a view or light
+  # along the shorter arc), or with `held` jumps at the checkpoint, for an
+  # animation that switches rather than moves. DataDungeon measures the
+  # content box at each checkpoint of an animated WebP.
+  struct ImageKeyframe
+    include JSON::Serializable
+
+    getter at_ms : Int32
+    getter? held : Bool
+    getter view_x : Float64?
+    getter view_y : Float64?
+    getter view_z : Float64?
+    getter view_roll : Float64?
+    getter light_x : Float64?
+    getter light_y : Float64?
+    getter light_z : Float64?
+    getter anchor_x : Float64?
+    getter anchor_y : Float64?
+    getter content_x : Int32?
+    getter content_y : Int32?
+    getter content_w : Int32?
+    getter content_h : Int32?
+
+    def initialize(@at_ms : Int32, @held : Bool = false, view : Direction? = nil, light : Direction? = nil,
+                   @anchor_x : Float64? = nil, @anchor_y : Float64? = nil,
+                   @view_x : Float64? = nil, @view_y : Float64? = nil, @view_z : Float64? = nil, @view_roll : Float64? = nil,
+                   @light_x : Float64? = nil, @light_y : Float64? = nil, @light_z : Float64? = nil,
+                   @content_x : Int32? = nil, @content_y : Int32? = nil, @content_w : Int32? = nil, @content_h : Int32? = nil)
+      if view
+        @view_x, @view_y, @view_z = view.vector
+        @view_roll ||= view.roll
+      end
+      if light
+        @light_x, @light_y, @light_z = light.vector
+      end
+    end
+
+    def view : Direction?
+      x, y, z = @view_x, @view_y, @view_z
+      Direction.from(x, y, z, @view_roll || 0.0) if x && y && z
+    end
+
+    def light : Direction?
+      x, y, z = @light_x, @light_y, @light_z
+      Direction.from(x, y, z) if x && y && z
+    end
+
+    # This checkpoint with the content box DataDungeon measured.
+    def with_content(box : {Int32, Int32, Int32, Int32}) : ImageKeyframe
+      copy = self
+      copy.content!(box)
+      copy
+    end
+
+    protected def content!(box : {Int32, Int32, Int32, Int32}) : Nil
+      @content_x, @content_y, @content_w, @content_h = box
+    end
+  end
+
+  # A direction in readable form, in quarter turns (1 = 90 degrees): `side`
+  # front or back, `yaw` toward the right (+1) or left (-1) on either face,
+  # `pitch` from above (+1) or below (-1), and for a view `roll`, the picture
+  # turned in its own plane (-2 to 2). A view is where the camera stands, in
+  # the thing's frame (z toward its front, x its right, y up); a light is
+  # where the light comes from, in the picture's frame (z toward the viewer,
+  # x right, y up). DataDungeon stores the unit vector, so neighbouring
+  # directions compare by a dot product with no seams; this is the form for
+  # people. A profile whose nose points left in the picture shows the thing's
+  # right side: yaw +1.
+  struct Direction
+    include JSON::Serializable
+
+    getter side : String
+    getter yaw : Float64
+    getter pitch : Float64
+    getter roll : Float64
+
+    # Eight directions around a thing, by azimuth from its front.
+    AROUND = %w[front front-right right back-right back back-left left front-left]
+
+    def initialize(@side : String = "front", @yaw : Float64 = 0.0, @pitch : Float64 = 0.0, @roll : Float64 = 0.0)
+      raise ArgumentError.new("side is front or back, not #{@side}") unless @side.in?("front", "back")
+      raise ArgumentError.new("yaw is -1 to 1 quarter turns") unless -1.0 <= @yaw <= 1.0
+      raise ArgumentError.new("pitch is -1 to 1 quarter turns") unless -1.0 <= @pitch <= 1.0
+      raise ArgumentError.new("roll is -2 to 2 quarter turns") unless -2.0 <= @roll <= 2.0
+    end
+
+    # The readable form of a vector (made unit length first).
+    def self.from(x : Float64, y : Float64, z : Float64, roll : Float64 = 0.0) : Direction
+      x, y, z = Direction.unit(x, y, z)
+      pitch = Math.asin(y.clamp(-1.0, 1.0))
+      across = Math.cos(pitch)
+      yaw = across < 1e-9 ? 0.0 : Math.asin((x / across).clamp(-1.0, 1.0))
+      new(z >= 0 ? "front" : "back", (yaw / QUARTER).round(4), (pitch / QUARTER).round(4), roll)
+    end
+
+    # A vector of length 1 in the same direction; a zero vector has none.
+    def self.unit(x : Float64, y : Float64, z : Float64) : {Float64, Float64, Float64}
+      length = Math.sqrt(x * x + y * y + z * z)
+      raise ArgumentError.new("a direction can't be the zero vector") if length < 1e-9
+      {x / length, y / length, z / length}
+    end
+
+    QUARTER = Math::PI / 2
+
+    def vector : {Float64, Float64, Float64}
+      yaw, pitch = @yaw * QUARTER, @pitch * QUARTER
+      z = Math.cos(pitch) * Math.cos(yaw)
+      {Math.cos(pitch) * Math.sin(yaw), Math.sin(pitch), @side == "front" ? z : -z}
+    end
+
+    # Its name: one of eight directions around (`back-left`), with
+    # `from-above` or `from-below` nearer 45 degrees up or down than level,
+    # or `top-down` or `bottom-up` nearer the poles. Each name is the middle
+    # of its sector, where pictures asked for by name sit.
+    def name : String
+      Direction.name(*vector)
+    end
+
+    def self.name(x : Float64, y : Float64, z : Float64) : String
+      elevation = Math.asin(y.clamp(-1.0, 1.0)) * 180 / Math::PI
+      return "top-down" if elevation >= 67.5
+      return "bottom-up" if elevation <= -67.5
+      around = AROUND[(Math.atan2(x, z) * 180 / Math::PI / 45).round.to_i % 8]
+      if elevation >= 22.5
+        "#{around} from-above"
+      elsif elevation <= -22.5
+        "#{around} from-below"
+      else
+        around
+      end
+    end
+  end
+
+  # What a listing asks of a picture's fields (list_assets(image:)): each of
+  # `ranges` between its lowest and highest (either end open), a view or a
+  # light within so many degrees of a direction, and a named `direction`
+  # (`back-left`, `from-above`, `top-down`, or several words).
+  struct ImageFilter
+    getter ranges : Hash(String, {Float64?, Float64?})
+    getter view : Direction?
+    getter view_within : Float64
+    getter light : Direction?
+    getter light_within : Float64
+    getter direction : String?
+
+    # `ranges` maps a field to {low, high}, numbers or nil for an open end.
+    def initialize(ranges : Hash = {} of String => {Float64?, Float64?}, @view : Direction? = nil, @view_within = 30.0,
+                   @light : Direction? = nil, @light_within = 30.0, @direction : String? = nil)
+      @ranges = ranges.to_h do |field, (low, high)|
+        {field.to_s, {low.try(&.to_f64).as(Float64?), high.try(&.to_f64).as(Float64?)}}
+      end
+    end
+  end
+
+  # A colour as an integer (0xRRGGBB) in the database, `#rrggbb` in JSON.
+  module HexColor
+    def self.to_json(value : Int32, json : JSON::Builder) : Nil
+      json.string("#%06x" % value)
+    end
+
+    def self.from_json(pull : JSON::PullParser) : Int32
+      parse(pull.read_string)
+    end
+
+    def self.parse(text : String) : Int32
+      hex = text.lchop('#')
+      raise ArgumentError.new("a colour is #rrggbb, not #{text}") unless hex.size == 6 && hex.hexbytes?
+      hex.to_i(16)
     end
   end
 

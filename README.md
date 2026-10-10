@@ -197,6 +197,51 @@ rescue File::NotFoundError
 end
 ```
 
+## Image fields
+
+A picture's facts that are numbers live in `image_meta` columns, comparable
+by range, rather than in its key (see `DESIGN-image-fields.md`). `nil` means
+not known.
+
+**DataDungeon measures** each picture it stores: `width` and `height`,
+`transparent` (any pixel not fully opaque), `dominant_color` (the colour
+most of the visible picture is, `#rrggbb` in JSON), the box around the
+visible pixels (`content_x/y/w/h`), and for an animation its frames
+(`animation`: count, duration, loops). PNG and WebP, still or animated, give
+all of these; a GIF its size and frames and a JPEG its size, from their
+headers. `measure_images(type, all:)` measures pictures stored before
+(each object is read, which for a bucket is a download).
+
+**The application sets** what it asked the generator for: the view (where
+the camera stands, a unit vector in the thing's frame, and its roll), the
+light (where it comes from, in the picture's frame), the anchor (0 to 1
+across and down: the point that sits on the ground), and the thing's real
+size in metres (`world_width`, `world_height`, `world_depth`). Views and
+light are written readably, as `Direction`: `side` front or back, `yaw`
+toward the right (+1) or left, `pitch` from above (+1) or below, in quarter
+turns. A profile facing left in the picture shows the thing's right side,
+yaw +1. Each view has a name, `back-left` or `front from-above` or
+`top-down`, which is also a search word; the `image_views` SQL view shows
+views readably at the sqlite3 prompt.
+
+```crystal
+db.store("prop", {"thing" => "lamp"}, bytes: png, content_type: "image/png",
+  image: DataDungeon::ImageMeta.new(view: DataDungeon::Direction.new("back", -0.5),
+    light: DataDungeon::Direction.new("front", -0.5, 0.5), anchor_x: 0.5, anchor_y: 1.0, world_height: 3.0))
+db.update_asset(id, image: DataDungeon::ImageMeta.new(world_width: 0.4))   # only the fields given
+db.list_assets("prop", image: DataDungeon::ImageFilter.new({"world_height" => {2, 4}},
+  view: DataDungeon::Direction.new("front", 0.5), view_within: 30.0))       # a range, a view within 30 degrees
+db.list_assets("prop", image: DataDungeon::ImageFilter.new(direction: "back-left"))
+```
+
+An animation's fields describe its first frame; `set_keyframes(id, [...])`
+records what changes after it, as checkpoints holding only the fields that
+change (`ImageKeyframe`), each gliding from the one before or `held`.
+Neighbouring views may be at most 90 degrees apart, with a checkpoint
+wherever something turns, so a filter matches a field at the first frame or
+at any checkpoint exactly ("does it ever show the back?"). DataDungeon
+measures the content box at each checkpoint of an animated WebP.
+
 ## Storage
 
 `cache_root:` stores objects on local disk (`LocalStorage`). For an
@@ -294,12 +339,15 @@ HTTP::Server.new([api, app_handler])
 | `GET /types/:type/tags[/:key]` | tag names, or one tag's values, with counts |
 | `GET /assets?type=&q=&tag.<key>=&link.<rel>=&unlinked=&limit=&page=&before=&count=1` | a page of assets with their tags, and `next` |
 | `…?retired=only` or `=include` | retired assets, or all, in listings and counts |
+| `…?field.<name>=<low>..<high>&view=back-left&view.side=&view.yaw=&view.pitch=&view.within=` | by picture fields (and `light.` alike) |
 | `GET /assets/:id`, `/assets/:id/object`, `/assets/:id/links` | an asset with its tags, metadata and links; its bytes; its links |
 | `POST /maintenance/check` | the consistency report |
-| `PATCH`, `DELETE /assets/:id` | edit or delete (write token) |
+| `PATCH`, `DELETE /assets/:id` | edit (with `image` fields, views readably) or delete (write token) |
+| `PUT /assets/:id/keyframes` | an animation's checkpoints (write token) |
 | `POST`, `DELETE /assets/:id/links` | link (with `data`) or unlink (write token) |
 | `POST /assets/:id/retire`, `/assets/:id/reinstate` | retire or reinstate (write token) |
 | `POST /maintenance/prune` | `{type, keep_last, retired_before}`: delete retired assets (write token) |
+| `POST /maintenance/measure` | `{type, all}`: measure stored pictures (write token) |
 | `POST /types/:type/promote`, `/maintenance/vacuum` | (write token) |
 
 ## Best matches
@@ -322,6 +370,14 @@ index.best_matches("portrait", {"art-style" => "golden", "rating" => "pg", "hair
 index.similar(asset_id, limit: 10)     # by an asset's own traits
 index.close
 ```
+
+`cycles` lists values that go round a circle (`{"time" => %w[dawn day dusk
+night]}`), so night's nearest are dusk and dawn, and day is furthest.
+`match_fields: %w[view light roll dominant-color]` matches pictures on
+those image fields too: views and light by the angle between them (nothing
+from 90 degrees apart), colours by appearance. A query picks them like
+traits: `{"view" => "back-left", "dominant-color" => "#aa3311"}`, a view
+also as `"front,0.5,0"` (side, yaw, pitch).
 
 Other traits are words, alike only when equal; a color name DD doesn't
 know matches only itself. What must match and what matters most are the

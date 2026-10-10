@@ -1,6 +1,6 @@
 # Image fields, views and placement
 
-*Draft for Thomas, 2026-10-09, for 0.11. Not built; first round of questions settled.*
+*Designed with Thomas, 2026-10-09. Built: keys, retiring and indexes in 0.11.0; image fields, views, keyframes and best match on fields in 0.11.1.*
 
 ## The model
 

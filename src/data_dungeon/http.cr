@@ -25,17 +25,25 @@ module DataDungeon
   #                                          for it and the names under it, <start>*)
   #                                          &unlinked=<rel> &limit= &page=<n> or &before=<id>
   #                                          &count=1 (a total)
+  #                                          picture fields: &field.<name>=<low>..<high> (either
+  #                                          end open), &view=<named direction>, &view.side=
+  #                                          &view.yaw= &view.pitch= &view.within=<degrees>,
+  #                                          and the same for light
   #                                        Listings and counts take current assets, or with
   #                                          ?retired=only retired ones, =include both
-  #     GET    /assets/:id                 an asset, its tags, custom tags, metadata and links
+  #     GET    /assets/:id                 an asset, its tags, custom tags, metadata (with a
+  #                                          picture's view and light readably) and links
   #     GET    /assets/:id/object          its bytes, streamed from the storage
   #     GET    /assets/:id/links           its links, and the links to it
   #     POST   /maintenance/check          check_consistency's report
   #     GET    /types/:type/matches        best matches, given a matcher (MatchIndex):
-  #                                          ?trait.<k>=<v> &require=a,b &weight.<k>=<n> &limit=
+  #                                          ?trait.<k>=<v> &field.<f>=<v> (view=back-left,
+  #                                          dominant-color=#aa3311) &require=a,b &weight.<k>=<n> &limit=
   #     GET    /assets/:id/similar         the assets closest to this one: ?require= &weight.<k>= &limit=
   #
-  #     PATCH  /assets/:id                 {tags, description, flagged, rating}: update_asset
+  #     PATCH  /assets/:id                 {tags, description, flagged, rating, image}: update_asset;
+  #                                          image holds the fields an application sets, view
+  #                                          and light as {side, yaw, pitch, roll}
   #     DELETE /assets/:id
   #     POST   /assets/:id/links           {rel, to (an asset id) or name, data}: link
   #                                          (rel supersedes: supersede)
@@ -43,6 +51,9 @@ module DataDungeon
   #     POST   /assets/:id/retire          retire: hidden, kept, reversible
   #     POST   /assets/:id/reinstate       reinstate
   #     POST   /maintenance/prune          {type, keep_last, retired_before}: delete retired assets
+  #     POST   /maintenance/measure        {type, all}: measure_images
+  #     PUT    /assets/:id/keyframes       [{at_ms, held, view, light, anchor_x, anchor_y}]:
+  #                                          set_keyframes (view and light readably)
   #     POST   /types/:type/promote        {trait, value}: promote
   #     POST   /maintenance/vacuum         {delete_missing_rows, delete_orphan_objects}
   class API
@@ -61,7 +72,7 @@ module DataDungeon
       return call_next(context) unless path == @prefix || path.starts_with?("#{@prefix}/")
       parts = path.lchop(@prefix).split('/', remove_empty: true).map { |part| URI.decode(part) }
       method = context.request.method
-      write = method.in?("PATCH", "DELETE") || (method == "POST" && parts != ["maintenance", "check"])
+      write = method.in?("PATCH", "DELETE", "PUT") || (method == "POST" && parts != ["maintenance", "check"])
       return unless authorized?(context, write)
       route(context, method, parts)
     rescue ex : ArgumentError | JSON::ParseException | TypeCastError | KeyError | Time::Format::Error
@@ -84,7 +95,7 @@ module DataDungeon
         respond(context, @db.tag_values(parts[1], parts[3], page_param(context, "limit", 100), retired: retired_param(context)))
       elsif method == "GET" && parts.size == 3 && parts[0] == "types" && parts[2] == "matches"
         matches(context) { |matcher, required, weights, limit|
-          picks = prefixed(context.request.query_params, "trait.")
+          picks = prefixed(context.request.query_params, "trait.").merge(prefixed(context.request.query_params, "field."))
           matcher.best_matches(parts[1], picks, require: required, weights: weights, limit: limit)
         }
       elsif method == "GET" && parts.size == 3 && parts[0] == "assets" && parts[2] == "similar" && id
@@ -105,6 +116,10 @@ module DataDungeon
         end
       elsif method == "GET" && parts.size == 3 && parts[0] == "assets" && parts[2] == "object" && id
         object(context, id)
+      elsif method == "PUT" && parts.size == 3 && parts[0] == "assets" && parts[2] == "keyframes" && id
+        @db.find_asset_by_id(id) || return error(context, 404, "No asset #{id}")
+        given = JSON.parse(context.request.body.try(&.gets_to_end) || "[]").as_a
+        respond(context, {keyframes: @db.set_keyframes(id, given.map { |keyframe| keyframe_fields(keyframe) })})
       elsif method == "POST" && parts.size == 3 && parts[0] == "assets" && parts[2] == "retire" && id
         @db.find_asset_by_id(id) || return error(context, 404, "No asset #{id}")
         respond(context, {retired: @db.retire(id)})
@@ -125,6 +140,9 @@ module DataDungeon
         before = body["retired_before"]?.try { |date| Time.parse_utc(date.as_s, date.as_s.size == 10 ? "%F" : DB::TIME_FORMAT) }
         respond(context, {pruned: @db.prune(body["type"].as_s, keep_last: body["keep_last"]?.try(&.as_i) || 0,
           retired_before: before)})
+      elsif method == "POST" && parts == ["maintenance", "measure"]
+        body = JSON.parse(context.request.body.try(&.gets_to_end) || "{}")
+        respond(context, {measured: @db.measure_images(body["type"]?.try(&.as_s), all: body["all"]?.try(&.as_bool) || false)})
       elsif method == "POST" && parts == ["maintenance", "vacuum"]
         body = JSON.parse(context.request.body.try(&.gets_to_end) || "{}")
         respond(context, @db.vacuum(delete_missing_rows: body["delete_missing_rows"]?.try(&.as_bool) || false,
@@ -147,14 +165,15 @@ module DataDungeon
       raise ArgumentError.new("page counts from 1") if page < 1
       before = params["before"]?.try { |value| value.to_i64? || raise ArgumentError.new("before must be an asset id") }
       retired = retired_param(context)
+      image = image_filter(params)
       assets = @db.list_assets(type, tags, q: q, links: links, unlinked: unlinked, limit: limit,
-        offset: (page - 1) * limit, before: before, retired: retired)
+        offset: (page - 1) * limit, before: before, retired: retired, image: image)
       tags_by_id = @db.load_tags_batch(assets.map(&.id))
       respond(context, {
         assets: assets.map { |rec| {asset: rec, tags: tags_by_id[rec.id]? || {} of String => String} },
         page:   page,
         next:   assets.size == limit ? assets.last?.try(&.id) : nil,
-        total:  params["count"]? == "1" ? @db.count_assets(type, tags, q: q, links: links, unlinked: unlinked, retired: retired) : nil,
+        total:  params["count"]? == "1" ? @db.count_assets(type, tags, q: q, links: links, unlinked: unlinked, retired: retired, image: image) : nil,
       })
     end
 
@@ -168,6 +187,29 @@ module DataDungeon
       found = yield matcher, required, weights, page_param(context, "limit", 10, max: 100)
       tags = @db.load_tags_batch(found.map(&.asset.id))
       respond(context, {matches: found.map { |match| {asset: match.asset, tags: tags[match.asset.id]? || {} of String => String, score: match.score} }})
+    end
+
+    # The picture fields a listing asks for, or nil for none.
+    private def image_filter(params : URI::Params) : ImageFilter?
+      ranges = prefixed(params, "field.").transform_values do |range|
+        low, dots, high = range.partition("..")
+        low, high = low.presence.try(&.to_f64), high.presence.try(&.to_f64)
+        dots.empty? ? {low, low} : {low, high}
+      rescue ArgumentError
+        raise ArgumentError.new("a field's range is <low>..<high>, either end open, not #{range}")
+      end
+      view, light = direction_param(params, "view"), direction_param(params, "light")
+      named = params["view"]?
+      return nil if ranges.empty? && view.nil? && light.nil? && named.nil?
+      ImageFilter.new(ranges, view, params["view.within"]?.try(&.to_f64) || 30.0,
+        light, params["light.within"]?.try(&.to_f64) || 30.0, named)
+    end
+
+    # A direction from `<name>.side`, `.yaw` and `.pitch`, when any is given.
+    private def direction_param(params : URI::Params, name : String) : Direction?
+      side, yaw, pitch = params["#{name}.side"]?, params["#{name}.yaw"]?, params["#{name}.pitch"]?
+      return nil unless side || yaw || pitch
+      Direction.new(side || "front", yaw.try(&.to_f64) || 0.0, pitch.try(&.to_f64) || 0.0)
     end
 
     # `retired=only` for retired assets, `include` for all, current by default.
@@ -209,7 +251,11 @@ module DataDungeon
     private def show(context, id : Int64) : Nil
       found = @db.get_with_meta_by_id(id, touch: false) || return error(context, 404, "No asset #{id}")
       rec, meta = found
+      picture = meta.as?(ImageMeta)
       respond(context, {asset: rec, tags: @db.load_tags(id), custom: @db.custom_traits(id), meta: meta,
+                        view: picture.try(&.view).try { |view| readable(view) },
+                        light: picture.try(&.light).try { |light| readable(light) },
+                        keyframes: picture.try(&.animated) ? @db.load_keyframes(id) : nil,
                         links: {from: @db.links_from(id), to: @db.links_to(id)}})
     end
 
@@ -218,8 +264,46 @@ module DataDungeon
       body = JSON.parse(context.request.body.try(&.gets_to_end) || "{}")
       tags = body["tags"]?.try(&.as_h.transform_values(&.as_s))
       rec = @db.update_asset(id, tags: tags, description: body["description"]?.try(&.as_s),
-        flagged: body["flagged"]?.try(&.as_bool), rating: body["rating"]?.try(&.as_i))
+        flagged: body["flagged"]?.try(&.as_bool), rating: body["rating"]?.try(&.as_i),
+        image: body["image"]?.try { |fields| image_fields(fields) })
       respond(context, {asset: rec, tags: @db.load_tags(id)})
+    end
+
+    # A direction readably, with its name.
+    private def readable(direction : Direction)
+      {side: direction.side, yaw: direction.yaw, pitch: direction.pitch, roll: direction.roll, name: direction.name}
+    end
+
+    # A number given as either JSON integer or float.
+    private def number(value : JSON::Any?) : Float64?
+      value.try { |given| given.as_f? || given.as_i.to_f64 }
+    end
+
+    # A direction given readably: {side, yaw, pitch, roll}.
+    private def direction(value : JSON::Any?) : Direction?
+      value.try do |given|
+        Direction.new(given["side"]?.try(&.as_s) || "front", number(given["yaw"]?) || 0.0,
+          number(given["pitch"]?) || 0.0, number(given["roll"]?) || 0.0)
+      end
+    end
+
+    private def keyframe_fields(fields : JSON::Any) : ImageKeyframe
+      ImageKeyframe.new(fields["at_ms"].as_i, fields["held"]?.try(&.as_bool) || false,
+        view: direction(fields["view"]?), light: direction(fields["light"]?),
+        anchor_x: number(fields["anchor_x"]?), anchor_y: number(fields["anchor_y"]?))
+    end
+
+    # The fields an application sets, from a PATCH body's `image`.
+    private def image_fields(fields : JSON::Any) : ImageMeta
+      number = ->(name : String) { number(fields[name]?) }
+      direction = ->(name : String) { direction(fields[name]?) }
+      animation = fields["animation"]?.try do |given|
+        ImageAnimation.new(*{"frame_count", "duration_ms", "loop_count", "frame_w", "frame_h", "columns"}.map { |name| given[name]?.try(&.as_i) })
+      end
+      ImageMeta.new(usage_class: fields["usage_class"]?.try(&.as_s), presentation: fields["presentation"]?.try(&.as_s),
+        view: direction.call("view"), light: direction.call("light"),
+        anchor_x: number.call("anchor_x"), anchor_y: number.call("anchor_y"), world_width: number.call("world_width"),
+        world_height: number.call("world_height"), world_depth: number.call("world_depth"), animation: animation)
     end
 
     private def delete(context, id : Int64) : Nil

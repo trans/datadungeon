@@ -347,7 +347,9 @@ module DataDungeon
         key_scheme   INTEGER NOT NULL,
         scales       TEXT NOT NULL DEFAULT '{}',
         colors       TEXT NOT NULL DEFAULT '[]',
-        weights      TEXT NOT NULL DEFAULT '{}'
+        weights      TEXT NOT NULL DEFAULT '{}',
+        cycles       TEXT NOT NULL DEFAULT '{}',
+        match_fields TEXT NOT NULL DEFAULT '[]'
       )
     SQL
 
@@ -363,23 +365,104 @@ module DataDungeon
 
     CHANGES_KEPT = 100_000
 
+    # Image fields (see ImageMeta): what DataDungeon measures from the bytes,
+    # with `measured` once it has read them, and what the application sets.
+    # For an animation they describe its first frame.
     IMAGE_META_SCHEMA = <<-SQL
       CREATE TABLE IF NOT EXISTS image_meta (
-        asset_id      INTEGER PRIMARY KEY,
-        width         INTEGER,
-        height        INTEGER,
-        usage_class   TEXT,
-        animated      INTEGER DEFAULT 0,
-        frame_count   INTEGER,
-        duration_ms   INTEGER,
-        compression   TEXT DEFAULT 'original',
-        quality_floor INTEGER,
-        max_colors    INTEGER,
-        target_format TEXT,
-        presentation  TEXT,
+        asset_id       INTEGER PRIMARY KEY,
+        width          INTEGER,
+        height         INTEGER,
+        usage_class    TEXT,
+        compression    TEXT DEFAULT 'original',
+        quality_floor  INTEGER,
+        max_colors     INTEGER,
+        target_format  TEXT,
+        presentation   TEXT,
+        transparent    INTEGER,
+        dominant_color INTEGER,
+        content_x      INTEGER,
+        content_y      INTEGER,
+        content_w      INTEGER,
+        content_h      INTEGER,
+        measured       INTEGER,
+        view_x         REAL,
+        view_y         REAL,
+        view_z         REAL,
+        view_roll      REAL,
+        light_x        REAL,
+        light_y        REAL,
+        light_z        REAL,
+        anchor_x       REAL,
+        anchor_y       REAL,
+        world_width    REAL,
+        world_height   REAL,
+        world_depth    REAL,
         FOREIGN KEY (asset_id) REFERENCES assets(id) ON DELETE CASCADE
       )
     SQL
+
+    # The image_meta columns in table order, after asset_id, with their types.
+    IMAGE_COLUMNS = {
+      "width" => "INTEGER", "height" => "INTEGER", "usage_class" => "TEXT", "compression" => "TEXT",
+      "quality_floor" => "INTEGER", "max_colors" => "INTEGER", "target_format" => "TEXT", "presentation" => "TEXT",
+      "transparent" => "INTEGER", "dominant_color" => "INTEGER", "content_x" => "INTEGER", "content_y" => "INTEGER",
+      "content_w" => "INTEGER", "content_h" => "INTEGER", "measured" => "INTEGER",
+      "view_x" => "REAL", "view_y" => "REAL", "view_z" => "REAL", "view_roll" => "REAL",
+      "light_x" => "REAL", "light_y" => "REAL", "light_z" => "REAL", "anchor_x" => "REAL", "anchor_y" => "REAL",
+      "world_width" => "REAL", "world_height" => "REAL", "world_depth" => "REAL",
+    }
+
+    # Nearly every image has these, and filters ask for ranges of them.
+    IMAGE_INDEXED = %w[width height content_w content_h view_x view_y view_z light_x light_y light_z
+      anchor_x anchor_y world_width world_height world_depth]
+
+    # An animated picture's frames (ImageAnimation); a still one has no row.
+    IMAGE_ANIMATION_SCHEMA = <<-SQL
+      CREATE TABLE IF NOT EXISTS image_animation (
+        asset_id    INTEGER PRIMARY KEY REFERENCES assets(id) ON DELETE CASCADE,
+        frame_count INTEGER,
+        duration_ms INTEGER,
+        loop_count  INTEGER,
+        frame_w     INTEGER,
+        frame_h     INTEGER,
+        columns     INTEGER
+      )
+    SQL
+
+    ANIMATION_COLUMNS = %w[frame_count duration_ms loop_count frame_w frame_h columns]
+
+    # An animation's checkpoints after its first frame (ImageKeyframe): only
+    # the fields that change.
+    IMAGE_KEYFRAMES_SCHEMA = <<-SQL
+      CREATE TABLE IF NOT EXISTS image_keyframes (
+        asset_id  INTEGER NOT NULL REFERENCES image_animation(asset_id) ON DELETE CASCADE,
+        at_ms     INTEGER NOT NULL,
+        held      INTEGER NOT NULL DEFAULT 0,
+        view_x    REAL,
+        view_y    REAL,
+        view_z    REAL,
+        view_roll REAL,
+        light_x   REAL,
+        light_y   REAL,
+        light_z   REAL,
+        anchor_x  REAL,
+        anchor_y  REAL,
+        content_x INTEGER,
+        content_y INTEGER,
+        content_w INTEGER,
+        content_h INTEGER,
+        PRIMARY KEY (asset_id, at_ms)
+      ) WITHOUT ROWID
+    SQL
+
+    # The fields an animation's checkpoints can change.
+    KEYFRAME_FIELDS = %w[view_x view_y view_z view_roll light_x light_y light_z anchor_x anchor_y
+      content_x content_y content_w content_h]
+
+    # The image fields, then the animation's, as read_image_meta_join reads them.
+    IMAGE_SELECT = (["im.asset_id"] + IMAGE_COLUMNS.keys.map { |column| "im.#{column}" } +
+                    ["ia.asset_id"] + ANIMATION_COLUMNS.map { |column| "ia.#{column}" }).join(", ")
 
     AUDIO_META_SCHEMA = <<-SQL
       CREATE TABLE IF NOT EXISTS audio_meta (
@@ -461,13 +544,16 @@ module DataDungeon
             unless asset_type_columns.has_key?("facets")
               conn.exec("ALTER TABLE asset_types ADD COLUMN facets TEXT NOT NULL DEFAULT '{}'")
             end
-            {"scales" => "'{}'", "colors" => "'[]'", "weights" => "'{}'"}.each do |column, empty|
+            {"scales" => "'{}'", "colors" => "'[]'", "weights" => "'{}'", "cycles" => "'{}'", "match_fields" => "'[]'"}.each do |column, empty|
               unless asset_type_columns.has_key?(column)
                 conn.exec("ALTER TABLE asset_types ADD COLUMN #{column} TEXT NOT NULL DEFAULT #{empty}")
               end
             end
             conn.exec(ASSET_CHANGES_SCHEMA)
             conn.exec(IMAGE_META_SCHEMA)
+            conn.exec(IMAGE_ANIMATION_SCHEMA)
+            conn.exec(IMAGE_KEYFRAMES_SCHEMA)
+            migrate_image_meta(conn)
             conn.exec(AUDIO_META_SCHEMA)
             conn.exec(VIDEO_META_SCHEMA)
             conn.exec(TEXT_META_SCHEMA)
@@ -512,9 +598,10 @@ module DataDungeon
         types = table_columns(conn, "asset_types")
         current = assets["pool_key"]? == 0 && assets.has_key?("description") && assets.has_key?("generated") &&
                   assets.has_key?("made_at") && assets.has_key?("retired_at") &&
+                  table_columns(conn, "image_meta").has_key?("measured") &&
                   !unique_file_path?(conn) && tags.has_key?("custom") && tags.has_key?("asset_type") &&
                   types.has_key?("sets") && types.has_key?("facets") && types.has_key?("weights") &&
-                  %w[image_meta audio_meta video_meta text_meta asset_links asset_search asset_search_terms asset_changes
+                  %w[image_meta image_animation image_keyframes audio_meta video_meta text_meta asset_links asset_search asset_search_terms asset_changes
                     asset_indexes asset_keys asset_tag_counts].none? { |table| table_columns(conn, table).empty? }
         raise ReadOnlyError.new("The database needs upgrading: open it read-write once first") unless current
       end
@@ -574,6 +661,47 @@ module DataDungeon
       conn.exec("ALTER TABLE asset_tags ADD COLUMN asset_type TEXT NOT NULL DEFAULT ''")
       conn.exec("UPDATE asset_tags SET asset_type = (SELECT a.asset_type FROM assets a WHERE a.id = asset_tags.asset_id)")
     end
+
+    # Before 0.11.1 image_meta lacked the measured and application fields,
+    # and kept an animation's frames itself: those move to image_animation.
+    private def migrate_image_meta(conn : ::DB::Connection) : Nil
+      columns = table_columns(conn, "image_meta")
+      IMAGE_COLUMNS.each do |column, type|
+        conn.exec("ALTER TABLE image_meta ADD COLUMN #{column} #{type}") unless columns.has_key?(column)
+      end
+      if columns.has_key?("animated")
+        conn.exec(<<-SQL)
+          INSERT OR IGNORE INTO image_animation (asset_id, frame_count, duration_ms)
+          SELECT asset_id, frame_count, duration_ms FROM image_meta WHERE animated = 1
+        SQL
+        %w[animated frame_count duration_ms].each { |column| conn.exec("ALTER TABLE image_meta DROP COLUMN #{column}") }
+      end
+      IMAGE_INDEXED.each do |column|
+        conn.exec("CREATE INDEX IF NOT EXISTS idx_image_#{column} ON image_meta(#{column}) WHERE #{column} IS NOT NULL")
+        next unless KEYFRAME_FIELDS.includes?(column) # and alike on the checkpoints
+        conn.exec("CREATE INDEX IF NOT EXISTS idx_keyframe_#{column} ON image_keyframes(#{column}) WHERE #{column} IS NOT NULL")
+      end
+      # Views read plainly at the sqlite3 prompt, where SQLite has its math
+      # functions (not every build does).
+      math = begin
+        conn.scalar("SELECT asin(0.5)")
+        true
+      rescue SQLite3::Exception
+        false
+      end
+      conn.exec(IMAGE_VIEWS) if math
+    end
+
+    # Each image's view in readable form (Direction), for people.
+    IMAGE_VIEWS = <<-SQL
+      CREATE VIEW IF NOT EXISTS image_views AS
+      SELECT asset_id,
+             CASE WHEN view_z >= 0 THEN 'front' ELSE 'back' END AS side,
+             round(degrees(asin(max(-1.0, min(1.0, view_x / cos(asin(view_y)))))) / 90, 4) AS yaw,
+             round(degrees(asin(view_y)) / 90, 4) AS pitch,
+             view_roll AS roll
+      FROM image_meta WHERE view_x IS NOT NULL
+    SQL
 
     # Older databases called the pool key canonical_key (and once required
     # it), lacked the group key or description fields, or required a unique
@@ -693,23 +821,13 @@ module DataDungeon
               asset_id, asset_type, k, v, custom.includes?(k) ? 1 : 0
             )
           end
-          reindex(conn, [asset_id])
 
           # Store media-specific metadata
           if im = image
-            conn.exec(
-              <<-SQL,
-            INSERT INTO image_meta
-            (asset_id, width, height, usage_class, animated, frame_count,
-             duration_ms, compression, quality_floor, max_colors,
-             target_format, presentation)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          SQL
-              asset_id, im.width, im.height, im.usage_class,
-              im.animated ? 1 : 0, im.frame_count, im.duration_ms,
-              im.compression, im.quality_floor, im.max_colors,
-              im.target_format, im.presentation
-            )
+            values = image_values(im)
+            conn.exec("INSERT INTO image_meta (asset_id, #{values.keys.join(", ")}) " \
+                      "VALUES (?#{", ?" * values.size})", args: [asset_id.as(::DB::Any)] + values.values)
+            im.animation.try { |animation| put_animation(conn, asset_id, animation) }
           end
 
           if am = audio
@@ -745,6 +863,7 @@ module DataDungeon
               asset_id, tm.content, tm.language
             )
           end
+          reindex(conn, [asset_id]) # after the image fields: a view is a search word
         end
       end
       supersede(asset_id, supersedes) if supersedes
@@ -835,9 +954,14 @@ module DataDungeon
 
       data = bytes || File.open(source_path.not_nil!, "rb", &.getb_to_end)
 
-      # Apply the compression policy (may change bytes and content type).
-      if m == "image" && (im = image)
-        data, ct = process_image(data, ct, im)
+      # Apply the compression policy (may change bytes and content type),
+      # then measure what's stored.
+      if m == "image"
+        if im = image
+          data, ct = process_image(data, ct, im)
+        end
+        # Only a picture: an unknown content type's media is "image" too.
+        image = measure_image(image || ImageMeta.new, data, ct) if ct.downcase.starts_with?("image/")
       end
 
       file_hash = Digest::SHA256.hexdigest(data)
@@ -879,6 +1003,52 @@ module DataDungeon
       end
 
       find_asset_by_id(id).not_nil!
+    end
+
+    # The image_meta values of these fields, by column, checked: an anchor
+    # 0 to 1, a real size positive, a view or light made a unit vector.
+    private def image_values(im : ImageMeta) : Hash(String, ::DB::Any)
+      {im.anchor_x, im.anchor_y}.each do |anchor|
+        raise ArgumentError.new("an anchor is 0 to 1 across or down") if anchor && !(0.0 <= anchor <= 1.0)
+      end
+      {im.world_width, im.world_height, im.world_depth}.each do |size|
+        raise ArgumentError.new("a real size is in metres, more than 0") if size && !(size > 0 && size.finite?)
+      end
+      if (roll = im.view_roll) && !(-2.0 <= roll <= 2.0)
+        raise ArgumentError.new("view_roll is -2 to 2 quarter turns")
+      end
+      view = unit_or_nil("view", im.view_x, im.view_y, im.view_z)
+      light = unit_or_nil("light", im.light_x, im.light_y, im.light_z)
+      {
+        "width" => im.width, "height" => im.height, "usage_class" => im.usage_class, "compression" => im.compression,
+        "quality_floor" => im.quality_floor, "max_colors" => im.max_colors, "target_format" => im.target_format,
+        "presentation" => im.presentation, "transparent" => im.transparent.try { |t| t ? 1 : 0 },
+        "dominant_color" => im.dominant_color, "content_x" => im.content_x, "content_y" => im.content_y,
+        "content_w" => im.content_w, "content_h" => im.content_h, "measured" => im.measured? ? 1 : nil,
+        "view_x" => view.try(&.[0]), "view_y" => view.try(&.[1]), "view_z" => view.try(&.[2]),
+        "view_roll" => im.view_roll, "light_x" => light.try(&.[0]), "light_y" => light.try(&.[1]),
+        "light_z" => light.try(&.[2]), "anchor_x" => im.anchor_x, "anchor_y" => im.anchor_y,
+        "world_width" => im.world_width, "world_height" => im.world_height, "world_depth" => im.world_depth,
+      } of String => ::DB::Any
+    end
+
+    # A vector given whole, as unit length; none given, nil.
+    private def unit_or_nil(name : String, x : Float64?, y : Float64?, z : Float64?) : {Float64, Float64, Float64}?
+      given = {x, y, z}.count(&.nil?.!)
+      return nil if given == 0
+      raise ArgumentError.new("a #{name} needs all of #{name}_x, #{name}_y and #{name}_z") if given < 3
+      Direction.unit(x.not_nil!, y.not_nil!, z.not_nil!)
+    end
+
+    private def put_animation(conn, asset_id : Int64, animation : ImageAnimation) : Nil
+      conn.exec(<<-SQL, asset_id, animation.frame_count, animation.duration_ms, animation.loop_count,
+        INSERT INTO image_animation (asset_id, frame_count, duration_ms, loop_count, frame_w, frame_h, columns)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (asset_id) DO UPDATE SET frame_count = excluded.frame_count, duration_ms = excluded.duration_ms,
+          loop_count = excluded.loop_count, frame_w = excluded.frame_w, frame_h = excluded.frame_h,
+          columns = excluded.columns
+      SQL
+        animation.frame_w, animation.frame_h, animation.columns)
     end
 
     # The asset of this type already holding these bytes, when storing them
@@ -1030,22 +1200,34 @@ module DataDungeon
     end
 
     # Edit an asset in place, without storing its bytes again: replace its
-    # tags, or change its description, flag or rating. Arguments left nil
-    # stay as they are. A registered type's traits are normalized and its key
-    # derived again. A tag stays custom while its value is unchanged.
+    # tags, or change its description, flag or rating, or the image fields
+    # the application sets (ImageMeta::SET_FIELDS, and an animation's frames
+    # for a sprite sheet). Arguments left nil stay as they are. A registered
+    # type's traits are normalized and its key derived again. A tag stays
+    # custom while its value is unchanged.
     def update_asset(id : Int64, *, tags : Hash(String, String)? = nil, description : String? = nil,
-                     flagged : Bool? = nil, rating : Int32? = nil) : AssetRecord
+                     flagged : Bool? = nil, rating : Int32? = nil, image : ImageMeta? = nil) : AssetRecord
       writable!
       rec = find_asset_by_id(id) || raise ArgumentError.new("No asset #{id}")
+      if image && rec.media != "image"
+        raise ArgumentError.new("Asset #{id} is #{rec.media}, so it has no image fields")
+      end
       @object_lock.synchronize do
         write_transaction do |conn|
           conn.exec("UPDATE assets SET description = ? WHERE id = ?", description, id) unless description.nil?
           conn.exec("UPDATE assets SET flagged = ? WHERE id = ?", flagged ? 1 : 0, id) unless flagged.nil?
           conn.exec("UPDATE assets SET rating = ? WHERE id = ?", rating, id) unless rating.nil?
-          if tags
-            replace_tags(conn, rec, tags)
-            reindex(conn, [id])
+          replace_tags(conn, rec, tags) if tags
+          if im = image
+            values = image_values(im).select(ImageMeta::SET_FIELDS).reject { |_, value| value.nil? }
+            conn.exec("INSERT OR IGNORE INTO image_meta (asset_id) VALUES (?)", id)
+            unless values.empty?
+              conn.exec("UPDATE image_meta SET #{values.keys.map { |column| "#{column} = ?" }.join(", ")} WHERE asset_id = ?",
+                args: values.values + [id.as(::DB::Any)])
+            end
+            im.animation.try { |animation| put_animation(conn, id, animation) }
           end
+          reindex(conn, [id]) if tags || image
         end
       end
       @indexer.try(&.enqueue_asset(id))
@@ -1152,9 +1334,7 @@ module DataDungeon
       pair = @db.query_one?(
         <<-SQL,
           SELECT a.*,
-                 im.asset_id, im.width, im.height, im.usage_class, im.animated,
-                 im.frame_count, im.duration_ms, im.compression, im.quality_floor,
-                 im.max_colors, im.target_format, im.presentation,
+                 #{IMAGE_SELECT},
                  am.asset_id, am.duration_ms, am.sample_rate, am.bitrate,
                  am.channels, am.transcript_id, am.compression, am.target_format,
                  vm.asset_id, vm.width, vm.height, vm.duration_ms, vm.frame_rate,
@@ -1163,6 +1343,7 @@ module DataDungeon
                  tm.asset_id, tm.content, tm.language
           FROM assets a
           LEFT JOIN image_meta im ON im.asset_id = a.id
+          LEFT JOIN image_animation ia ON ia.asset_id = a.id
           LEFT JOIN audio_meta am ON am.asset_id = a.id
           LEFT JOIN video_meta vm ON vm.asset_id = a.id
           LEFT JOIN text_meta  tm ON tm.asset_id = a.id
@@ -1241,6 +1422,16 @@ module DataDungeon
         {WebP.png_to_webp_bytes(data, quality), "image/webp"}
       else
         {data, content_type} # unsupported input (jpg/etc.) — passthrough for now
+      end
+    end
+
+    # These fields with what DataDungeon reads from the bytes in place of the
+    # application's own, and marked measured, read or not.
+    private def measure_image(image : ImageMeta, data : Bytes, content_type : String) : ImageMeta
+      if found = ImageProbe.measure(data, content_type)
+        image.measured(found)
+      else
+        image.tried
       end
     end
 
@@ -1401,8 +1592,8 @@ module DataDungeon
     def list_assets(asset_type : String? = nil, tags : Hash(String, String) = {} of String => String, *,
                     q : String? = nil, links : Hash(String, String) = {} of String => String,
                     unlinked : String? = nil, limit : Int32 = 50, offset : Int32 = 0,
-                    before : Int64? = nil, retired : Bool? = false) : Array(AssetRecord)
-      from, where, args, order = asset_filter(asset_type, tags, q, links, unlinked, retired, limit + offset) || return [] of AssetRecord
+                    before : Int64? = nil, retired : Bool? = false, image : ImageFilter? = nil) : Array(AssetRecord)
+      from, where, args, order = asset_filter(asset_type, tags, q, links, unlinked, retired, image, limit + offset) || return [] of AssetRecord
       if before
         where += " AND #{order} < ?"
         args << before
@@ -1419,8 +1610,8 @@ module DataDungeon
     # page. It reads every match, so ask only when the total is wanted.
     def count_assets(asset_type : String? = nil, tags : Hash(String, String) = {} of String => String, *,
                      q : String? = nil, links : Hash(String, String) = {} of String => String,
-                     unlinked : String? = nil, retired : Bool? = false) : Int64
-      from, where, args, _ = asset_filter(asset_type, tags, q, links, unlinked, retired, nil) || return 0_i64
+                     unlinked : String? = nil, retired : Bool? = false, image : ImageFilter? = nil) : Int64
+      from, where, args, _ = asset_filter(asset_type, tags, q, links, unlinked, retired, image, nil) || return 0_i64
       @db.scalar("SELECT COUNT(*) FROM #{from} WHERE #{where}", args: args).as(Int64)
     end
 
@@ -1439,7 +1630,7 @@ module DataDungeon
     # Counting every match never walks.
     private def asset_filter(asset_type : String?, tags : Hash(String, String), q : String?,
                              links : Hash(String, String), unlinked : String?, retired : Bool?,
-                             reach : Int32?) : {String, String, Array(::DB::Any), String}?
+                             image : ImageFilter?, reach : Int32?) : {String, String, Array(::DB::Any), String}?
       tags = normalize_tags(asset_type, tags) if asset_type
       clauses = [retired_clause(retired)]
       args = [] of ::DB::Any
@@ -1492,7 +1683,84 @@ module DataDungeon
         clauses << "NOT EXISTS (SELECT 1 FROM asset_links l WHERE l.from_id = #{id} AND l.rel = ?)"
         args << rel
       end
+      image.try { |filter| image_clause(filter, id, clauses, args) }
       {from, clauses.join(" AND "), args, order}
+    end
+
+    # Image fields a listing can ask for by range.
+    RANGE_FIELDS = %w[width height content_x content_y content_w content_h view_x view_y view_z view_roll
+      light_x light_y light_z anchor_x anchor_y world_width world_height world_depth]
+
+    # The picture's fields as an ImageFilter asks, checked on each asset.
+    # A field an animation's checkpoints can change matches at its first
+    # frame or at any checkpoint ("does it ever show the back?"); each
+    # condition on its own.
+    private def image_clause(filter : ImageFilter, id : String, clauses : Array(String), args : Array(::DB::Any)) : Nil
+      conditions = [] of String
+      # Each condition is SQL over `{t}` (the image_meta or keyframe row),
+      # its arguments, and whether checkpoints can change it.
+      add = ->(sql : String, values : Array(::DB::Any), fields : Array(String)) do
+        if fields.all? { |field| KEYFRAME_FIELDS.includes?(field) }
+          conditions << "(#{sql.gsub("{t}", "im")} OR EXISTS (SELECT 1 FROM image_keyframes k " \
+                        "WHERE k.asset_id = im.asset_id AND #{sql.gsub("{t}", "k")}))"
+          args.concat(values + values)
+        else
+          conditions << sql.gsub("{t}", "im")
+          args.concat(values)
+        end
+      end
+      filter.ranges.each do |field, (low, high)|
+        raise ArgumentError.new("#{field} isn't an image field to filter by") unless RANGE_FIELDS.includes?(field)
+        sql = "{t}.#{field} IS NOT NULL"
+        values = [] of ::DB::Any
+        if low
+          sql += " AND {t}.#{field} >= ?"
+          values << low
+        end
+        if high
+          sql += " AND {t}.#{field} <= ?"
+          values << high
+        end
+        add.call(sql, values, [field])
+      end
+      {"view" => {filter.view, filter.view_within}, "light" => {filter.light, filter.light_within}}.each do |name, (direction, within)|
+        next unless direction
+        x, y, z = direction.vector
+        # Within an angle of it: one dot product of unit vectors.
+        add.call("{t}.#{name}_x * ? + {t}.#{name}_y * ? + {t}.#{name}_z * ? >= ?",
+          [x, y, z, Math.cos(within * Math::PI / 180)] of ::DB::Any, %w[x y z].map { |axis| "#{name}_#{axis}" })
+      end
+      filter.direction.try &.split.each do |word|
+        values = [] of ::DB::Any
+        add.call(named_direction(word, values), values, %w[view_x view_y view_z])
+      end
+      return if conditions.empty?
+      clauses << "EXISTS (SELECT 1 FROM image_meta im WHERE im.asset_id = #{id} AND #{conditions.join(" AND ")})"
+    end
+
+    SIN_22 = Math.sin(22.5 * Math::PI / 180)
+    SIN_67 = Math.sin(67.5 * Math::PI / 180)
+
+    # A view's named direction (Direction#name) as a condition on its
+    # vector, in plain arithmetic: around the thing, the horizontal part
+    # within 22.5 degrees of the name's (squared, so no square root), short
+    # of the poles; above or below, by the vector's height.
+    private def named_direction(word : String, args : Array(::DB::Any)) : String
+      case word
+      when "top-down"   then "{t}.view_y >= #{SIN_67}"
+      when "bottom-up"  then "{t}.view_y <= -#{SIN_67}"
+      when "from-above" then "{t}.view_y >= #{SIN_22} AND {t}.view_y < #{SIN_67}"
+      when "from-below" then "{t}.view_y <= -#{SIN_22} AND {t}.view_y > -#{SIN_67}"
+      else
+        sector = Direction::AROUND.index(word) || raise ArgumentError.new(
+          "#{word.inspect} isn't a named view: #{(Direction::AROUND + %w[from-above from-below top-down bottom-up]).join(", ")}")
+        angle = sector * Math::PI / 4
+        dx, dz = Math.sin(angle).round(12), Math.cos(angle).round(12)
+        3.times { args << dx << dz } # one pair for each `view_x * ? + view_z * ?`
+        "abs({t}.view_y) < #{SIN_67} AND {t}.view_x * ? + {t}.view_z * ? >= 0 AND " \
+        "({t}.view_x * ? + {t}.view_z * ?) * ({t}.view_x * ? + {t}.view_z * ?) >= " \
+        "#{Math.cos(Math::PI / 8) ** 2} * ({t}.view_x * {t}.view_x + {t}.view_z * {t}.view_z)"
+      end
     end
 
     WALK_COST  =  0.44 # microseconds to check one asset's words on a walk
@@ -1565,12 +1833,18 @@ module DataDungeon
           rs.each { types[rs.read(Int64)] = rs.read(String) }
         end
         tags = tags_batch(conn, batch)
+        views = {} of Int64 => String
+        conn.query("SELECT asset_id, view_x, view_y, view_z FROM image_meta " \
+                   "WHERE asset_id IN (#{Array.new(batch.size, "?").join(", ")}) AND view_x IS NOT NULL",
+          args: batch.map(&.as(::DB::Any))) do |rs|
+          rs.each { views[rs.read(Int64)] = Direction.name(rs.read(Float64), rs.read(Float64), rs.read(Float64)) }
+        end
         batch.each do |id|
           unindex_search(conn, id)
           log_change(conn, id)
           next unless type = types[id]?
           asset_tags = tags[id]? || {} of String => String
-          words = search_words(type, asset_tags)
+          words = search_words(type, asset_tags, views[id]?)
           conn.exec("INSERT INTO asset_search (rowid, words) VALUES (?, ?)", id, words)
           count_terms(conn, words, 1)
           indexes[type]?.try &.each { |index| put_key(conn, index, id, asset_tags) }
@@ -1620,15 +1894,17 @@ module DataDungeon
       reindex(conn, conn.query_all("SELECT id FROM assets WHERE asset_type = ?", asset_type, as: Int64))
     end
 
-    # The type and every tag value, each with its parts, and a labelled
-    # trait also as keys spell it (`red-hair`).
-    private def search_words(asset_type : String, tags : Hash(String, String)) : String
+    # The type and every tag value, each with its parts, a labelled trait
+    # also as keys spell it (`red-hair`), and a picture's named view
+    # (`back-left from-above`).
+    private def search_words(asset_type : String, tags : Hash(String, String), view : String? = nil) : String
       labels = @types[asset_type]?.try(&.labels) || {} of String => String
       words = word_and_parts(asset_type)
       tags.each do |key, value|
         words.concat(word_and_parts(value))
         labels[key]?.try { |label| words << "#{value}-#{label}" }
       end
+      view.try &.split(' ').each { |word| words.concat(word_and_parts(word)) }
       search_text(words.join(" ")).split(' ', remove_empty: true).uniq.join(" ")
     end
 
@@ -1761,8 +2037,11 @@ module DataDungeon
     # change no keys: `scales` lists an ordered trait's values low to high
     # (`{"rating" => %w[g pg r x]}`), so near values count as close; `colors`
     # names traits whose values are colors (CSS names or hex codes),
-    # compared by appearance; `weights` gives traits a default weight other
-    # than 1. `pool` is deprecated and ignored: since 0.11 a key is an index,
+    # compared by appearance; `cycles` lists values that go round a circle
+    # (`{"time" => %w[dawn day dusk night]}`), so night's nearest are dusk
+    # and dawn; `match_fields` names image fields matched on beside the
+    # traits (AssetType::MATCH_FIELDS); `weights` gives traits (and match
+    # fields) a default weight other than 1. `pool` is deprecated and ignored: since 0.11 a key is an index,
     # several current assets can share one, and every store adds an asset.
     #
     # The registration is stored in the database. Registering a type again
@@ -1783,12 +2062,15 @@ module DataDungeon
       scales : Hash(String, Array(String)) = {} of String => Array(String),
       colors : Array(String) = [] of String,
       weights : Hash(String, Float64) = {} of String => Float64,
+      cycles : Hash(String, Array(String)) = {} of String => Array(String),
+      match_fields : Array(String) = [] of String,
       rekey : Bool = false,
     ) : AssetType
       writable!
       scales = scales.transform_values { |values| values.compact_map { |value| TraitKey.normalize(value) } }
+      cycles = cycles.transform_values { |values| values.compact_map { |value| TraitKey.normalize(value) } }
       definition = AssetType.new(asset_type, pool_traits, group_traits, pool, labels, sets, facets,
-        scales, colors, weights)
+        scales, colors, weights, cycles, match_fields)
       validate_type(definition)
       changed = [] of Int64
       @object_lock.synchronize do
@@ -2184,8 +2466,22 @@ module DataDungeon
         raise ArgumentError.new("#{name}: #{trait} is a set or a scale, which can't be a color") if type.set?(trait) || type.scales.has_key?(trait)
       end
       raise ArgumentError.new("#{name}: a color is listed twice") if type.colors.uniq.size != type.colors.size
+      type.cycles.each do |trait, values|
+        raise ArgumentError.new("#{name}: cycle #{trait} is not a pool trait") unless type.trait?(trait)
+        if type.set?(trait) || type.scales.has_key?(trait) || type.colors.includes?(trait)
+          raise ArgumentError.new("#{name}: #{trait} is a set, a scale or a color, which can't be a cycle")
+        end
+        raise ArgumentError.new("#{name}: cycle #{trait} needs at least three values") if values.size < 3
+        raise ArgumentError.new("#{name}: cycle #{trait} lists a value twice") if values.uniq.size != values.size
+      end
+      unless (unknown = type.match_fields - AssetType::MATCH_FIELDS).empty?
+        raise ArgumentError.new("#{name}: #{unknown.join(", ")} can't be matched on: #{AssetType::MATCH_FIELDS.join(", ")} can")
+      end
+      raise ArgumentError.new("#{name}: a match field is listed twice") if type.match_fields.uniq.size != type.match_fields.size
       type.weights.each do |trait, weight|
-        raise ArgumentError.new("#{name}: weight #{trait} is not a pool trait") unless type.trait?(trait)
+        unless type.trait?(trait) || type.match_fields.includes?(trait)
+          raise ArgumentError.new("#{name}: weight #{trait} is not a pool trait or a match field")
+        end
         raise ArgumentError.new("#{name}: weight #{trait} must be positive") unless weight > 0 && weight.finite?
       end
     end
@@ -2214,23 +2510,26 @@ module DataDungeon
       conn.exec(
         <<-SQL,
         INSERT INTO asset_types
-        (asset_type, pool_traits, group_traits, labels, sets, facets, pool, key_scheme, scales, colors, weights)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (asset_type, pool_traits, group_traits, labels, sets, facets, pool, key_scheme, scales, colors, weights,
+         cycles, match_fields)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(asset_type) DO UPDATE SET pool_traits = excluded.pool_traits,
           group_traits = excluded.group_traits, labels = excluded.labels,
           sets = excluded.sets, facets = excluded.facets,
           pool = excluded.pool, key_scheme = excluded.key_scheme,
-          scales = excluded.scales, colors = excluded.colors, weights = excluded.weights
+          scales = excluded.scales, colors = excluded.colors, weights = excluded.weights,
+          cycles = excluded.cycles, match_fields = excluded.match_fields
       SQL
         type.name, type.pool_traits.to_json, type.group_traits.to_json,
         type.labels.to_json, type.sets.to_json, type.facets.to_json,
-        type.pool ? 1 : 0, TraitKey::SCHEME, type.scales.to_json, type.colors.to_json, type.weights.to_json
+        type.pool ? 1 : 0, TraitKey::SCHEME, type.scales.to_json, type.colors.to_json, type.weights.to_json,
+        type.cycles.to_json, type.match_fields.to_json
       )
     end
 
     private def stored_type(asset_type : String) : {AssetType, Int32}?
       @db.query_one?(
-        "SELECT asset_type, pool_traits, group_traits, labels, sets, facets, pool, key_scheme, scales, colors, weights FROM asset_types WHERE asset_type = ?",
+        "SELECT asset_type, pool_traits, group_traits, labels, sets, facets, pool, key_scheme, scales, colors, weights, cycles, match_fields FROM asset_types WHERE asset_type = ?",
         asset_type
       ) { |rs| read_type(rs) }
     end
@@ -2247,13 +2546,16 @@ module DataDungeon
       scales = Hash(String, Array(String)).from_json(rs.read(String))
       colors = Array(String).from_json(rs.read(String))
       weights = Hash(String, Float64).from_json(rs.read(String))
-      {AssetType.new(name, pool_traits, group_traits, pool, labels, sets, facets, scales, colors, weights), scheme}
+      cycles = Hash(String, Array(String)).from_json(rs.read(String))
+      match_fields = Array(String).from_json(rs.read(String))
+      {AssetType.new(name, pool_traits, group_traits, pool, labels, sets, facets, scales, colors, weights,
+        cycles, match_fields), scheme}
     end
 
     # Registrations made with an older key encoding are re-keyed on open.
     private def load_types : Nil
       rows = @db.query_all(
-        "SELECT asset_type, pool_traits, group_traits, labels, sets, facets, pool, key_scheme, scales, colors, weights FROM asset_types"
+        "SELECT asset_type, pool_traits, group_traits, labels, sets, facets, pool, key_scheme, scales, colors, weights, cycles, match_fields FROM asset_types"
       ) { |rs| read_type(rs) }
       rows.each do |type, scheme|
         @types[type.name] = type
@@ -2352,24 +2654,10 @@ module DataDungeon
     # ── Media Meta ──
 
     def load_image_meta(asset_id : Int64) : ImageMeta?
-      @db.query_one?(
-        "SELECT * FROM image_meta WHERE asset_id = ?", asset_id
-      ) do |rs|
-        _id = rs.read(Int64) # asset_id
-        ImageMeta.new(
-          width: rs.read(Int32?),
-          height: rs.read(Int32?),
-          usage_class: rs.read(String?),
-          animated: (rs.read(Int32?) || 0) != 0,
-          frame_count: rs.read(Int32?),
-          duration_ms: rs.read(Int32?),
-          compression: rs.read(String?) || "original",
-          quality_floor: rs.read(Int32?),
-          max_colors: rs.read(Int32?),
-          target_format: rs.read(String?),
-          presentation: rs.read(String?),
-        )
-      end
+      @db.query_one?(<<-SQL, asset_id) { |rs| read_image_meta_join(rs) }
+        SELECT #{IMAGE_SELECT} FROM image_meta im
+        LEFT JOIN image_animation ia ON ia.asset_id = im.asset_id WHERE im.asset_id = ?
+      SQL
     end
 
     def load_audio_meta(asset_id : Int64) : AudioMeta?
@@ -2458,6 +2746,165 @@ module DataDungeon
       conn.exec("INSERT INTO asset_changes (asset_id) VALUES (?)", id)
       seq = conn.scalar("SELECT last_insert_rowid()").as(Int64)
       conn.exec("DELETE FROM asset_changes WHERE seq <= ?", seq - CHANGES_KEPT) if seq % 1000 == 0
+    end
+
+    # Replace an animation's checkpoints (see ImageKeyframe), in time order,
+    # each after its start and within its duration. Neighbouring views,
+    # starting from the first frame's, may be at most 90 degrees apart, or
+    # which way round it turns would be ambiguous; and a checkpoint goes
+    # wherever something turns (the top of a jump), so values move only one
+    # way between them and a filter at the checkpoints is exact. For an
+    # animated WebP, DataDungeon measures the content box at each one,
+    # keeping it where it differs from the one before.
+    def set_keyframes(id : Int64, keyframes : Array(ImageKeyframe)) : Array(ImageKeyframe)
+      writable!
+      rec = find_asset_by_id(id) || raise ArgumentError.new("No asset #{id}")
+      meta = load_image_meta(id)
+      animation = meta.try(&.animation) || raise ArgumentError.new("Asset #{id} isn't an animation")
+      keyframes = keyframes.sort_by(&.at_ms)
+      keyframes.each_cons_pair do |before, after|
+        raise ArgumentError.new("two checkpoints at #{after.at_ms} ms") if before.at_ms == after.at_ms
+      end
+      keyframes.each do |keyframe|
+        raise ArgumentError.new("a checkpoint comes after the start, not at #{keyframe.at_ms} ms") unless keyframe.at_ms > 0
+        if (duration = animation.duration_ms) && keyframe.at_ms > duration
+          raise ArgumentError.new("a checkpoint at #{keyframe.at_ms} ms is past the end (#{duration} ms)")
+        end
+        {keyframe.anchor_x, keyframe.anchor_y}.each do |anchor|
+          raise ArgumentError.new("an anchor is 0 to 1 across or down") if anchor && !(0.0 <= anchor <= 1.0)
+        end
+      end
+      view = meta.try { |m| unit_or_nil("view", m.view_x, m.view_y, m.view_z) }
+      keyframes.each do |keyframe|
+        next unless found = unit_or_nil("view", keyframe.view_x, keyframe.view_y, keyframe.view_z)
+        if view && view[0] * found[0] + view[1] * found[1] + view[2] * found[2] < -1e-9
+          raise ArgumentError.new("the view at #{keyframe.at_ms} ms turns more than 90 degrees from the one before: " \
+                                  "add a checkpoint between")
+        end
+        view = found
+      end
+      keyframes = with_content(rec, meta.not_nil!, keyframes)
+
+      write_transaction do |conn|
+        conn.exec("DELETE FROM image_keyframes WHERE asset_id = ?", id)
+        keyframes.each do |keyframe|
+          view = unit_or_nil("view", keyframe.view_x, keyframe.view_y, keyframe.view_z)
+          light = unit_or_nil("light", keyframe.light_x, keyframe.light_y, keyframe.light_z)
+          conn.exec(<<-SQL, id, keyframe.at_ms, keyframe.held? ? 1 : 0, view.try(&.[0]), view.try(&.[1]), view.try(&.[2]),
+            INSERT INTO image_keyframes (asset_id, at_ms, held, view_x, view_y, view_z, view_roll,
+              light_x, light_y, light_z, anchor_x, anchor_y, content_x, content_y, content_w, content_h)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          SQL
+            keyframe.view_roll, light.try(&.[0]), light.try(&.[1]), light.try(&.[2]), keyframe.anchor_x, keyframe.anchor_y,
+            keyframe.content_x, keyframe.content_y, keyframe.content_w, keyframe.content_h)
+        end
+        log_change(conn, id)
+      end
+      load_keyframes(id)
+    end
+
+    # An animated WebP's content box at each checkpoint, where it differs
+    # from the one before (the first frame's to start).
+    private def with_content(rec : AssetRecord, meta : ImageMeta, keyframes : Array(ImageKeyframe)) : Array(ImageKeyframe)
+      return keyframes unless rec.content_type == "image/webp" && !keyframes.empty?
+      frames = begin
+        ImageProbe.decode_webp_frames(read(rec), keyframes.map(&.at_ms))
+      rescue ImageProbe::Error | File::NotFoundError
+        return keyframes
+      end
+      boxes = frames.to_h { |(at, (width, height, pixels))| {at, ImageProbe.content_box(width, height, pixels)} }
+      before = {meta.content_x, meta.content_y, meta.content_w, meta.content_h}
+      keyframes.map do |keyframe|
+        box = boxes[keyframe.at_ms]?
+        next keyframe unless box && box != before
+        before = box
+        keyframe.with_content(box)
+      end
+    end
+
+    # An animation's checkpoints, in time order.
+    def load_keyframes(id : Int64) : Array(ImageKeyframe)
+      @db.query_all(<<-SQL, id) do |rs|
+        SELECT at_ms, held, view_x, view_y, view_z, view_roll, light_x, light_y, light_z, anchor_x, anchor_y,
+          content_x, content_y, content_w, content_h FROM image_keyframes WHERE asset_id = ? ORDER BY at_ms
+      SQL
+        ImageKeyframe.new(rs.read(Int32), rs.read(Int32) != 0, view_x: rs.read(Float64?), view_y: rs.read(Float64?),
+          view_z: rs.read(Float64?), view_roll: rs.read(Float64?), light_x: rs.read(Float64?), light_y: rs.read(Float64?),
+          light_z: rs.read(Float64?), anchor_x: rs.read(Float64?), anchor_y: rs.read(Float64?),
+          content_x: rs.read(Int32?), content_y: rs.read(Int32?), content_w: rs.read(Int32?), content_h: rs.read(Int32?))
+      end
+    end
+
+    # The image fields best matches use (AssetType::MATCH_FIELDS) of these
+    # assets, as text: a view or light as its unit vector `x,y,z`, a roll in
+    # quarter turns, a dominant colour as `rrggbb`. Fields not known are left
+    # out.
+    def match_field_values(ids : Array(Int64)) : Hash(Int64, Hash(String, String))
+      found = {} of Int64 => Hash(String, String)
+      ids.each_slice(500) do |batch|
+        @db.query(<<-SQL, args: batch.map(&.as(::DB::Any))) do |rs|
+          SELECT asset_id, view_x, view_y, view_z, view_roll, light_x, light_y, light_z, dominant_color
+          FROM image_meta WHERE asset_id IN (#{Array.new(batch.size, "?").join(", ")})
+        SQL
+          rs.each do
+            values = found[rs.read(Int64)] = {} of String => String
+            view = {rs.read(Float64?), rs.read(Float64?), rs.read(Float64?)}
+            roll = rs.read(Float64?)
+            light = {rs.read(Float64?), rs.read(Float64?), rs.read(Float64?)}
+            color = rs.read(Int32?)
+            values["view"] = view.join(",") { |x| x.not_nil!.round(3) } if view.all?
+            values["roll"] = roll.round(3).to_s if roll
+            values["light"] = light.join(",") { |x| x.not_nil!.round(3) } if light.all?
+            values["dominant-color"] = "%06x" % color if color
+          end
+        end
+      end
+      found
+    end
+
+    # Measure the stored pictures DataDungeon hasn't read yet (stored before
+    # it measured them, or through store_asset), or with `all` every one,
+    # of one type or all. Each object is read from storage: for a bucket, a
+    # download. A file outside the store, or an object gone, is left as it
+    # is. Returns how many were read.
+    def measure_images(asset_type : String? = nil, all : Bool = false) : Int32
+      writable!
+      where = "a.media = 'image' AND a.content_type LIKE 'image/%' AND a.file_path NOT LIKE '/%'"
+      where += " AND im.measured IS NOT 1" unless all
+      args = [] of ::DB::Any
+      if asset_type
+        where += " AND a.asset_type = ?"
+        args << asset_type
+      end
+      ids = @db.query_all("SELECT a.id FROM assets a LEFT JOIN image_meta im ON im.asset_id = a.id WHERE #{where} ORDER BY a.id",
+        args: args, as: Int64)
+      ids.count do |id|
+        rec = find_asset_by_id(id) || next false
+        data = begin
+          read(rec)
+        rescue File::NotFoundError
+          next false
+        end
+        found = ImageProbe.measure(data, rec.content_type)
+        write_transaction do |conn|
+          conn.exec("INSERT OR IGNORE INTO image_meta (asset_id) VALUES (?)", id)
+          if found
+            x, y, w, h = found.content || {nil, nil, nil, nil}
+            conn.exec(<<-SQL, found.width, found.height, found.transparent.try { |t| t ? 1 : 0 }, found.dominant_color, x, y, w, h, id)
+              UPDATE image_meta SET width = ?, height = ?, transparent = ?, dominant_color = ?,
+                content_x = ?, content_y = ?, content_w = ?, content_h = ?, measured = 1 WHERE asset_id = ?
+            SQL
+            found.animation.try do |animation|
+              given = load_image_meta(id).try(&.animation)
+              put_animation(conn, id, given.try(&.merged(animation)) || animation)
+            end
+          else
+            conn.exec("UPDATE image_meta SET measured = 1 WHERE asset_id = ?", id)
+          end
+          log_change(conn, id)
+        end
+        true
+      end
     end
 
     # ── Consistency sweep (fsck / vacuum) ──
@@ -2690,28 +3137,31 @@ module DataDungeon
 
     # ── Internal ──
 
-    # Read image_meta columns from a joined row (columns follow assets.*).
-    # Returns nil when the LEFT JOIN produced no image_meta row (asset_id NULL).
+    # Read IMAGE_SELECT's columns. Returns nil when the LEFT JOIN produced
+    # no image_meta row (asset_id NULL).
     private def read_image_meta_join(rs) : ImageMeta?
       asset_id = rs.read(Int64?)
       if asset_id.nil?
         # Consume the remaining NULL meta columns so the row cursor stays aligned.
-        11.times { rs.read(::DB::Any) }
+        (IMAGE_COLUMNS.size + 1 + ANIMATION_COLUMNS.size).times { rs.read(::DB::Any) }
         return nil
       end
-      ImageMeta.new(
-        width: rs.read(Int32?),
-        height: rs.read(Int32?),
-        usage_class: rs.read(String?),
-        animated: (rs.read(Int32?) || 0) != 0,
-        frame_count: rs.read(Int32?),
-        duration_ms: rs.read(Int32?),
-        compression: rs.read(String?) || "original",
-        quality_floor: rs.read(Int32?),
-        max_colors: rs.read(Int32?),
-        target_format: rs.read(String?),
-        presentation: rs.read(String?),
-      )
+      fields = {
+        width: rs.read(Int32?), height: rs.read(Int32?), usage_class: rs.read(String?),
+        compression: rs.read(String?) || "original", quality_floor: rs.read(Int32?), max_colors: rs.read(Int32?),
+        target_format: rs.read(String?), presentation: rs.read(String?),
+        transparent: rs.read(Int32?).try(&.!=(0)), dominant_color: rs.read(Int32?),
+        content_x: rs.read(Int32?), content_y: rs.read(Int32?), content_w: rs.read(Int32?), content_h: rs.read(Int32?),
+        measured: rs.read(Int32?) == 1,
+        view_x: rs.read(Float64?), view_y: rs.read(Float64?), view_z: rs.read(Float64?), view_roll: rs.read(Float64?),
+        light_x: rs.read(Float64?), light_y: rs.read(Float64?), light_z: rs.read(Float64?),
+        anchor_x: rs.read(Float64?), anchor_y: rs.read(Float64?),
+        world_width: rs.read(Float64?), world_height: rs.read(Float64?), world_depth: rs.read(Float64?),
+      }
+      animated = rs.read(Int64?)
+      animation = ImageAnimation.new(rs.read(Int32?), rs.read(Int32?), rs.read(Int32?), rs.read(Int32?),
+        rs.read(Int32?), rs.read(Int32?))
+      ImageMeta.new(**fields, animation: animated ? animation : nil)
     end
 
     # Read audio_meta columns from a joined row (7 columns after asset_id).
