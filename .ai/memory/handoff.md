@@ -34,10 +34,11 @@ on the store replacing in place; 757 clips were pending in its live store on
 NULL` in their queries, or to run under 0.10 first. Told 2026-10-09, and
 asked to install DD from GitHub; its TODO.md (`29bb187`) plans the move.
 
-## 0.11 part 2: image fields (built 2026-10-09 as 0.11.1, not released)
+## 0.11 part 2: image fields (released v0.11.1, 2026-10-09)
 
 Thomas asked for the rest of 0.11 the same day; 0.11.1 because it only
-adds (the version is my suggestion, unanswered). On `keys-and-retiring`:
+adds. It also fixed `media` (below) and stopped comparing the deprecated
+`pool:` in registrations (`@overlore`'s request: dropping it raised). On `keys-and-retiring`:
 DD measures pictures on store (`ImageProbe`: PNG and WebP fully, still or
 animated; GIF size and frames, JPEG size, from headers); application
 fields (view, light, anchor, real size) with the readable `Direction` and
@@ -50,10 +51,14 @@ checkpoint); `update_asset(image:)`, `measure_images`; best match
 and Cattacula type-check; a copy of Overlore's store measured 232 pictures
 in 1.7 s.
 
-**Open:** `infer_media` calls any unknown content type an image (Overlore's
-JSON banter scripts are media "image"), older than 0.11; measuring now
-looks at the content type instead. Field filters are checks on each
-candidate, not starts: a listing by fields alone walks the type.
+`media` came out as "image" for any content type DD didn't know (older
+than 0.11: Overlore's 100 JSON banter scripts). Thomas asked for it fixed
+(2026-10-09): `DB.media_of` takes the top-level type (image, audio, video,
+text, model, font), JSON/XML/YAML as text, the rest "data"; the first open
+by 0.11.1 relabels the rows marked image that aren't (a copy of Overlore's
+store: scripts became text, in a 0.04 s open). **Open:** field filters are
+checks on each candidate, not starts: a listing by fields alone walks the
+type.
 
 **TODO 0.12 (Thomas, 2026-10-09): fold `pool_key` into the index table,
 with the registration requirement.** Storing requires a registered type;
