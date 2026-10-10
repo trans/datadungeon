@@ -69,6 +69,13 @@ sorted). Counting is linear (16-174 ms). `asset_types` 0.9 ms, `tag_keys`
 joined to the assets). The counts' triggers add about 23 us a store (102 to
 125 us at 200k); registering an index over 1M assets takes 4.7 s.
 
+## Measuring pictures (0.11.1)
+
+`ImageProbe.measure` (decode and one pass over the pixels) takes 0.8 ms for
+a 256x256 WebP, 11.5 ms at 1024x1024, 38 ms at 2048x2048, on every store
+of a picture. A copy of Overlore's store (232 pictures, local objects) was
+measured in 1.7 s.
+
 ## Never splice values into SQL
 
 crystal-db caches a prepared statement per distinct SQL text for each

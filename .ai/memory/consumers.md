@@ -59,6 +59,14 @@ release.md).
 - The first read-write open re-keys (scheme 4), counts the tags and fills
   `made_at`; a read-only open (dd-serve) of an older store fails until then.
 
+## 0.11.1 (image fields), for each consumer
+
+Only additions, except that an image's `animated`, `frame_count` and
+`duration_ms` moved to `ImageMeta#animation` (JSON `meta.animation`); no
+consumer set them (checked 2026-10-09). Every picture stored is measured,
+so `width`/`height` are what the bytes say, not what was asked. Overlore's
+128 picture rows and the park store's props need `measure_images` once.
+
 ## Where each stands
 
 - **Cattacula** registers `voice` (traits `bit beat voice fmt`) and reads

@@ -34,7 +34,26 @@ on the store replacing in place; 757 clips were pending in its live store on
 NULL` in their queries, or to run under 0.10 first. Told 2026-10-09, and
 asked to install DD from GitHub; its TODO.md (`29bb187`) plans the move.
 
-**Next:** part 2, image fields (the rest of `DESIGN-image-fields.md`).
+## 0.11 part 2: image fields (built 2026-10-09 as 0.11.1, not released)
+
+Thomas asked for the rest of 0.11 the same day; 0.11.1 because it only
+adds (the version is my suggestion, unanswered). On `keys-and-retiring`:
+DD measures pictures on store (`ImageProbe`: PNG and WebP fully, still or
+animated; GIF size and frames, JPEG size, from headers); application
+fields (view, light, anchor, real size) with the readable `Direction` and
+named directions (search words, `image_views` SQL view); `image_animation`
+(the animation fields moved out of `image_meta`) and `image_keyframes`
+(`set_keyframes`, content box measured per checkpoint); `ImageFilter`
+(ranges, view or light within an angle, named direction, matching at any
+checkpoint); `update_asset(image:)`, `measure_images`; best match
+`cycles:` and `match_fields:`. HTTP for each. 135 specs, S3 specs, Overlore
+and Cattacula type-check; a copy of Overlore's store measured 232 pictures
+in 1.7 s.
+
+**Open:** `infer_media` calls any unknown content type an image (Overlore's
+JSON banter scripts are media "image"), older than 0.11; measuring now
+looks at the content type instead. Field filters are checks on each
+candidate, not starts: a listing by fields alone walks the type.
 
 **TODO 0.12 (Thomas, 2026-10-09): fold `pool_key` into the index table,
 with the registration requirement.** Storing requires a registered type;
@@ -47,7 +66,12 @@ planner loses its two kinds of range. `get(key)`, `find_pool(key)`,
 the default index. Deprecated in 0.11's docs, and announced 2026-10-09 to
 `@overlore` (it builds keys for `portrait` and `background` and stores
 `legacy` unregistered), `@curio`, and Cattacula's inbox. Held until
-`@overlore` has moved its assets in (consumers.md).
+`@overlore` has moved its assets in (consumers.md). `@curio` (2026-10-10):
+its card captions had read `pool_key` in `public/console.html` (our search
+of its Rust sources missed it: search every file); since curio `c479811`
+only a display-only "index key" row is left, and it reads
+`registration.pool_traits` from `GET /types` for trait order, so renaming
+that needs a line in the release notes.
 
 ## Current state (2026-10-07)
 
