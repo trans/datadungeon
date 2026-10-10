@@ -166,8 +166,11 @@ changes nothing, other traits raise unless `rekey: true`, and
 process writing a store with indexes must be DataDungeon 0.11 or later.
 
 An unregistered type may still pass an explicit `pool_key` (formerly
-`canonical_key`, still accepted for now), and assets without a key are
-addressed by ID. `description` is the text used to describe an asset; for a
+`canonical_key`), and assets without a key are addressed by ID. Both are
+**deprecated**: 0.12 will require registering a type before storing it,
+and keep each asset's key in the index table (the type's own order as its
+default index), so a caller-built key goes. Register every type you store,
+look assets up by traits, and refer to one asset by its id. `description` is the text used to describe an asset; for a
 generated image, it holds the prompt. `generated` records whether the asset
 was generated. `generator` and `generation` retain provider/model information
 and JSON parameters.

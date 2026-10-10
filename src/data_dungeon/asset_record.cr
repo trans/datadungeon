@@ -12,6 +12,8 @@ module DataDungeon
     # The asset's key in its type's default index, derived from its traits:
     # its type and traits' values in order, `portrait.golden.pg.f.human`.
     # Several assets can share a key; the id is what names one durably.
+    # Deprecated as a column and as a caller-given key: in 0.12 the type's
+    # own order becomes an index in asset_keys, and this may be renamed.
     getter pool_key : String?
     getter file_hash : String?
     getter created_at : String

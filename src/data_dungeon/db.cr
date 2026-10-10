@@ -631,7 +631,8 @@ module DataDungeon
     # Index a file whose path the caller owns. For a registered type,
     # DataDungeon normalizes the trait tags and derives pool_key
     # from them, so `pool_key` and `pool` must not be given. An unregistered
-    # type may pass an explicit `pool_key`. `custom` names the tags whose
+    # type may pass an explicit `pool_key`, deprecated: 0.12 requires
+    # registering every type, and the key moves to the index table. `custom` names the tags whose
     # values are not among the application's standard choices; they are keyed
     # like any other value and can later be promoted.
     def store_asset(
@@ -655,7 +656,7 @@ module DataDungeon
       custom : Array(String) = [] of String,
       made_at : Time? = nil,
       supersedes : Int64? = nil,
-      canonical_key : String? = nil, # deprecated: use pool_key
+      canonical_key : String? = nil, # deprecated, and pool_key with it: register the type (0.12)
     ) : Int64
       writable!
       pool_key ||= canonical_key
@@ -819,7 +820,7 @@ module DataDungeon
       custom : Array(String) = [] of String,
       made_at : Time? = nil,
       supersedes : Int64? = nil,
-      canonical_key : String? = nil, # deprecated: use pool_key
+      canonical_key : String? = nil, # deprecated, and pool_key with it: register the type (0.12)
     ) : AssetRecord
       writable!
       store = @storage || raise "DataDungeon::DB has no storage backend; construct with cache_root: or storage:"
