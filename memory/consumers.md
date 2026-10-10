@@ -23,12 +23,19 @@ All on local disk as of 2026-10-07; no app uses `S3Storage` yet.
 - **Cattacula:** `service/data/voices.db`, objects in `service/data/voices/`.
 - **Pirateship:** `data/voices.db`, objects in `data/voice-blobs/`.
 
-## Builds from this checkout
+## Builds from this checkout (being retired)
 
 Infocomic and Cattacula compile straight from this working tree, so any
 uncommitted DD edit is live for them at once, including while the
 `@infocomics` agent is working. Found 2026-10-05, before the 0.5.0 registry
 rename, when a half-edited tree would have broken a collaborator's build.
+
+**Thomas, 2026-10-09: stop linking.** Consumers install DD from GitHub
+(`github: trans/datadungeon`, `version: ~> X.Y.Z`), as Pirateship and the
+park store do, so DD's main branch moving never changes their build and
+each upgrades when ready. It came up because 0.11 couldn't merge while
+Overlore built from here (handoff.md). Until Overlore and Cattacula have
+switched, the precautions below still apply.
 
 - Develop breaking or multi-step changes in a git worktree (in the
   scratchpad, with `lib` symlinked to this checkout's).

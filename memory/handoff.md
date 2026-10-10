@@ -1,6 +1,6 @@
 # DataDungeon handoff
 
-## 0.11 part 1: keys as an index (2026-10-09, not merged)
+## 0.11 part 1: keys as an index (released v0.11.0, 2026-10-09)
 
 Built on branch `keys-and-retiring`, in a scratchpad worktree, from
 `DESIGN-image-fields.md` ("Keys as an index", "Retiring", "Indexes per
@@ -26,14 +26,28 @@ cleanly. What it does:
   `/types`.
 - Retired assets leave listings, counts, MatchIndex and SemanticIndex.
 
-**Blocks merging:** Overlore's startup migrations (`level_voices`,
+**Released on GitHub, not yet in this checkout** (release.md): Overlore
+still builds from this checkout, and its startup migrations (`level_voices`,
 `voices_to_mp3` in `store_migration.cr`, `6f83d76`) re-store clips and rely
 on the store replacing in place; 757 clips were pending in its live store on
 2026-10-09. Under 0.11 they'd need `supersedes: id` and `retired_at IS
-NULL` in their queries, or to run under 0.10 first. Tell `@overlore`
-(with Thomas's go-ahead) before merging, since it builds from this checkout.
+NULL` in their queries, or to run under 0.10 first. Told 2026-10-09, and
+asked to install DD from GitHub; its TODO.md (`29bb187`) plans the move.
 
 **Next:** part 2, image fields (the rest of `DESIGN-image-fields.md`).
+
+**TODO 0.12 (Thomas, 2026-10-09): fold `pool_key` into the index table,
+with the registration requirement.** Storing requires a registered type;
+the type's own trait order becomes its entry in `asset_indexes` (its
+default index) and its keys move to `asset_keys`; the `pool_key` column
+and caller-built keys (`store(…, pool_key:)`, `canonical_key:`) go;
+`AssetRecord#pool_key` reads from that index (maybe renamed `key`); the
+planner loses its two kinds of range. `get(key)`, `find_pool(key)`,
+`find_group(prefix)` and SemanticIndex's key filters keep working through
+the default index. Deprecated in 0.11's docs, and announced 2026-10-09 to
+`@overlore` (it builds keys for `portrait` and `background` and stores
+`legacy` unregistered), `@curio`, and Cattacula's inbox. Held until
+`@overlore` has moved its assets in (consumers.md).
 
 ## Current state (2026-10-07)
 
