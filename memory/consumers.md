@@ -4,7 +4,7 @@
 
 | App | Checkout | Uses DD for | Builds against |
 |---|---|---|---|
-| Overlore (formerly Infocomic) | `~/Projects/infocomics/infocomic` | images, transcripts, banter, decrees | this checkout (`../data_dungeon` → `infocomics/data_dungeon` → here) |
+| Overlore (formerly Infocomic) | `~/Projects/infocomics/infocomic` | images, transcripts, banter, decrees | GitHub, `~> 0.10.0` since its `889c4fa` (2026-10-09); was this checkout |
 | Cattacula | `~/Projects/siliconcircus.lol/cattacula/service` | TTS voice audio (`voices.db`) | this checkout (`lib/data_dungeon` symlink) |
 | Pirateship | `~/Projects/siliconcircus.lol/pirateship` | parrot TTS voices (`data/voices.db`) | GitHub, `~> 0.7.0` |
 | Silicon Circus venues | via the `siliconcircus` agent | venue images, about one per attraction | — |
@@ -46,6 +46,19 @@ switched, the precautions below still apply.
 
 Pirateship installs from GitHub, so it only sees tagged releases (see
 release.md).
+
+## Overlore's plan (from `@overlore`, 2026-10-09)
+
+- Waits for 0.11.1, then passes `supersedes:` in `level_voices`,
+  `voices_to_mp3` and `TTSBase#clip`, adds `retired_at IS NULL` to their
+  SELECTs, prunes comics with `keep_last: 1`, and moves to `~> 0.11.1`. The
+  leveling runs at Thomas's next restart, under 0.10.
+- Toward 0.12: pictures, voices and text are in the store; left are its
+  repo's own art (a manifest drafted) and retiring the old folders.
+  `portrait` waits on its traits being settled; the 29 `background` rows
+  (rooms from before the judge) get registered or become rooms; the 4
+  `legacy` assets get a registration. It will say when all three are
+  registered and `pool_key:` is gone.
 
 ## 0.11 (keys as an index), for each consumer
 

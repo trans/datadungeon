@@ -9,7 +9,7 @@ Releases 0.4.0 to 0.6.x were committed and pushed but never tagged, which
 blocked Pirateship's upgrade. `v0.7.0` was tagged at `dc38d81` on
 2026-10-07, annotated, with a `vX.Y.Z: <summary>` message like `v0.3.5`,
 and `v0.8.0` at `d01f4ec` the same day; `v0.9.0` at `2b79d46` on
-2026-10-08; `v0.10.0` at `7618531` on 2026-10-09; `v0.11.0` at `9279ff1` the same day. 0.7.1-0.7.3 were held and never tagged. `~> 0.7.0`
+2026-10-08; `v0.10.0` at `7618531` on 2026-10-09; `v0.11.0` at `9279ff1` the same day, `v0.11.1` at `e0e3a42` (image fields, media, `pool:` ignored). 0.7.1-0.7.3 were held and never tagged. `~> 0.7.0`
 (Pirateship) doesn't reach 0.8, and `~> 0.8.0` (the park store) doesn't
 reach 0.9.
 
@@ -24,7 +24,8 @@ v0.11.0 was pushed to GitHub's main from the worktree branch
 (`keys-and-retiring`) without moving this checkout, which stayed at
 `c7e5b48` so Overlore, still building from it, kept 0.10 until it moves to
 GitHub (Thomas's call, 2026-10-09: consumers stop linking). Fast-forward
-this checkout (`git merge --ff-only origin/main`) once it has.
+this checkout (`git merge --ff-only origin/main`) once it has. Done
+2026-10-09, after Overlore's `889c4fa`; Cattacula still links here.
 
 When a commit that bumps `shard.yml`'s version is pushed, offer to tag and
 push `vX.Y.Z` too (tag pushes are outward-facing, so confirm first). Check
