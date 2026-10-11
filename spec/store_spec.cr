@@ -5,15 +5,19 @@ require "../src/data_dungeon"
 # Exercises the high-level store/get path (v0.3 "owns the write path").
 # Uses `original` compression + webp passthrough so the tests don't depend on
 # libpng/libwebp encoding — the WebP conversion path is covered separately.
+# Storing needs a registered type; these are the types the specs store.
 private def open_db(dir : String) : DataDungeon::DB
-  DataDungeon::DB.new(File.join(dir, "assets.db"), cache_root: File.join(dir, "store"))
-end
-
-# Applications decide which attributes define exact identity. DataDungeon
-# receives the resulting opaque key; it does not hash tags itself.
-private def key_for(tags : Hash(String, String)) : String
-  payload = tags.to_a.sort_by(&.[0]).map { |key, value| "#{key}=#{value}" }.join("\n")
-  Digest::SHA256.hexdigest(payload)
+  db = DataDungeon::DB.new(File.join(dir, "assets.db"), cache_root: File.join(dir, "store"))
+  db.register_type("venue", pool_traits: %w[venue style])
+  db.register_type("banter", pool_traits: %w[line quest])
+  db.register_type("decree", pool_traits: %w[quest])
+  db.register_type("tile", pool_traits: %w[room])
+  db.register_type("portrait", pool_traits: %w[race hair_color])
+  db.register_type("panel", pool_traits: %w[hair_color])
+  db.register_type("narration", pool_traits: %w[voice])
+  db.register_type("file", pool_traits: %w[name])
+  db.register_type("clip", pool_traits: %w[name])
+  db
 end
 
 describe DataDungeon::DB do
@@ -23,7 +27,7 @@ describe DataDungeon::DB do
     db = open_db(dir)
     tags = {"venue" => "arcade", "style" => "silver"}
 
-    rec = db.store("venue", tags, pool_key: key_for(tags),
+    rec = db.store("venue", tags,
       bytes: "webp-bytes".to_slice, content_type: "image/webp",
       image: DataDungeon::ImageMeta.new(compression: "original"))
 
@@ -34,7 +38,7 @@ describe DataDungeon::DB do
     File.read(db.path_for(rec)).should eq "webp-bytes"
     String.new(db.read(rec)).should eq "webp-bytes"
 
-    got = db.get("venue", key_for(tags))
+    got = db.get("venue", tags)
     got.should_not be_nil
     got.not_nil!.id.should eq rec.id
     db.find_asset_by_id(rec.id).not_nil!.use_count.should eq 1 # get touched it
@@ -50,9 +54,9 @@ describe DataDungeon::DB do
     tags = {"venue" => "arcade"}
     payload = "same-bytes".to_slice
 
-    a = db.store("venue", tags, pool_key: key_for(tags), bytes: payload, content_type: "image/webp",
+    a = db.store("venue", tags, bytes: payload, content_type: "image/webp",
       image: DataDungeon::ImageMeta.new(compression: "original"))
-    b = db.store("venue", tags, pool_key: key_for(tags), bytes: payload, content_type: "image/webp",
+    b = db.store("venue", tags, bytes: payload, content_type: "image/webp",
       image: DataDungeon::ImageMeta.new(compression: "original"))
 
     b.id.should eq a.id # write-skip returned the existing record
@@ -68,17 +72,46 @@ describe DataDungeon::DB do
     db = open_db(dir)
     tags = {"venue" => "arcade"}
 
-    a = db.store("venue", tags, pool_key: key_for(tags), bytes: "v1".to_slice, content_type: "image/webp")
-    b = db.store("venue", tags, pool_key: key_for(tags), bytes: "v2".to_slice, content_type: "image/webp")
-    c = db.store("venue", tags, pool_key: key_for(tags), bytes: "v3".to_slice, content_type: "image/webp",
+    a = db.store("venue", tags, bytes: "v1".to_slice, content_type: "image/webp")
+    b = db.store("venue", tags, bytes: "v2".to_slice, content_type: "image/webp")
+    c = db.store("venue", tags, bytes: "v3".to_slice, content_type: "image/webp",
       made_at: Time.utc(2020, 1, 1)) # filed last, made first
 
     b.id.should_not eq a.id
-    db.find_pool("venue", key_for(tags)).map(&.id).should eq [a.id, b.id, c.id]
-    db.get("venue", key_for(tags), touch: false).not_nil!.id.should eq b.id
-    db.get_with_meta("venue", key_for(tags), touch: false).not_nil![0].id.should eq b.id
+    db.find_pool("venue", tags).map(&.id).should eq [a.id, b.id, c.id]
+    db.get("venue", tags, touch: false).not_nil!.id.should eq b.id
+    db.get_with_meta("venue", tags, touch: false).not_nil![0].id.should eq b.id
     c.made_at.should eq "2020-01-01 00:00:00"
     c.created_at.should_not eq c.made_at
+  ensure
+    db.try(&.close)
+    FileUtils.rm_rf(dir) if dir
+  end
+
+  it "gets the highest rated take, then the newest, and leaves flagged ones out" do
+    dir = File.tempname("dd-rank")
+    Dir.mkdir_p(dir)
+    db = open_db(dir)
+    tags = {"venue" => "arcade"}
+    older = db.store("venue", tags, bytes: "older".to_slice, content_type: "image/webp", made_at: Time.utc(2026, 1, 1))
+    newer = db.store("venue", tags, bytes: "newer".to_slice, content_type: "image/webp", made_at: Time.utc(2026, 6, 1))
+    db.get("venue", tags, touch: false).not_nil!.id.should eq newer.id # neither rated: the newest
+
+    db.update_asset(older.id, rating: 3) # loved
+    db.get("venue", tags, touch: false).not_nil!.id.should eq older.id
+    db.get_with_meta("venue", tags, touch: false).not_nil![0].id.should eq older.id
+
+    db.update_asset(older.id, rating: -1) # hated: below one nobody rated
+    db.get("venue", tags, touch: false).not_nil!.id.should eq newer.id
+
+    db.update_asset(newer.id, flagged: true) # reported: out of play
+    db.get("venue", tags, touch: false).not_nil!.id.should eq older.id
+    db.update_asset(older.id, flagged: true)
+    db.get("venue", tags, touch: false).should be_nil
+    db.asset_exists?(db.key_for("venue", tags)).should be_true             # still there,
+    db.find_pool("venue", tags).map(&.id).should eq [older.id, newer.id]    # and listed,
+    db.list_assets("venue").map(&.id).should eq [newer.id, older.id]        # for review
+    db.get_by_id(newer.id, touch: false).not_nil!.flagged.should be_true
   ensure
     db.try(&.close)
     FileUtils.rm_rf(dir) if dir
@@ -90,12 +123,12 @@ describe DataDungeon::DB do
     db = open_db(dir)
     tags = {"venue" => "arcade"}
 
-    rec = db.store("venue", tags, pool_key: key_for(tags), bytes: "bytes".to_slice, content_type: "image/webp",
+    rec = db.store("venue", tags, bytes: "bytes".to_slice, content_type: "image/webp",
       image: DataDungeon::ImageMeta.new(compression: "original"))
     File.delete(db.path_for(rec))
 
-    db.get("venue", key_for(tags)).should be_nil
-    db.find_asset("venue", key_for(tags)).should_not be_nil # row still there; get self-heals
+    db.get("venue", tags).should be_nil
+    db.find_asset(db.key_for("venue", tags)).should_not be_nil # row still there; get self-heals
   ensure
     db.try(&.close)
     FileUtils.rm_rf(dir) if dir
@@ -108,10 +141,10 @@ describe DataDungeon::DB do
     tags = {"venue" => "arcade"}
     pins = {"water" => 0.62}.to_json
 
-    stored = db.store("venue", tags, pool_key: key_for(tags), bytes: "webp".to_slice, content_type: "image/webp",
+    stored = db.store("venue", tags, bytes: "webp".to_slice, content_type: "image/webp",
       image: DataDungeon::ImageMeta.new(compression: "original", usage_class: "bg", presentation: pins))
 
-    pair = db.get_with_meta("venue", key_for(tags))
+    pair = db.get_with_meta("venue", tags)
     pair.should_not be_nil
     rec, meta = pair.not_nil!
     rec.id.should eq stored.id
@@ -120,7 +153,7 @@ describe DataDungeon::DB do
     meta.should be_a DataDungeon::ImageMeta
     meta.as(DataDungeon::ImageMeta).usage_class.should eq "bg" # narrow for specifics
 
-    db.get_with_meta("venue", "missing").should be_nil
+    db.get_with_meta("venue", {"venue" => "missing"}).should be_nil
   ensure
     db.try(&.close)
     FileUtils.rm_rf(dir) if dir
@@ -133,18 +166,18 @@ describe DataDungeon::DB do
 
     # audio asset → AudioMeta (presentation is nil for non-visual media)
     atags = {"line" => "greeting"}
-    db.store("banter", atags, pool_key: key_for(atags), bytes: "ogg".to_slice, content_type: "audio/ogg",
+    db.store("banter", atags, bytes: "ogg".to_slice, content_type: "audio/ogg",
       audio: DataDungeon::AudioMeta.new(duration_ms: 1200, bitrate: 128))
-    _, ameta = db.get_with_meta("banter", key_for(atags)).not_nil!
+    _, ameta = db.get_with_meta("banter", atags).not_nil!
     ameta.should be_a DataDungeon::AudioMeta
     ameta.not_nil!.presentation.should be_nil
     ameta.as(DataDungeon::AudioMeta).duration_ms.should eq 1200
 
     # text asset → TextMeta
     ttags = {"quest" => "zork"}
-    db.store("decree", ttags, pool_key: key_for(ttags), bytes: "top hats".to_slice, content_type: "text/plain",
+    db.store("decree", ttags, bytes: "top hats".to_slice, content_type: "text/plain",
       text: DataDungeon::TextMeta.new(content: "top hats", language: "en"))
-    _, tmeta = db.get_with_meta("decree", key_for(ttags)).not_nil!
+    _, tmeta = db.get_with_meta("decree", ttags).not_nil!
     tmeta.should be_a DataDungeon::TextMeta
     tmeta.as(DataDungeon::TextMeta).content.should eq "top hats"
   ensure
@@ -158,10 +191,10 @@ describe DataDungeon::DB do
     db = open_db(dir)
     tags = {"venue" => "arcade"}
 
-    rec = db.store("venue", tags, pool_key: key_for(tags), bytes: "webp".to_slice, content_type: "image/webp",
+    rec = db.store("venue", tags, bytes: "webp".to_slice, content_type: "image/webp",
       image: DataDungeon::ImageMeta.new(compression: "original"))
-    db.get("venue", key_for(tags), touch: false)
-    db.get_with_meta("venue", key_for(tags), touch: false)
+    db.get("venue", tags, touch: false)
+    db.get_with_meta("venue", tags, touch: false)
 
     db.find_asset_by_id(rec.id).not_nil!.use_count.should eq 0 # no write on read
   ensure
@@ -175,9 +208,9 @@ describe DataDungeon::DB do
     db = open_db(dir)
     tags = {"quest" => "zork"}
 
-    a = db.store("banter", tags, pool_key: key_for(tags), pool: true, bytes: "candidate-A".to_slice,
+    a = db.store("banter", tags, bytes: "candidate-A".to_slice,
       content_type: "image/webp", image: DataDungeon::ImageMeta.new(compression: "original"))
-    b = db.store("banter", tags, pool_key: key_for(tags), pool: true, bytes: "candidate-B".to_slice,
+    b = db.store("banter", tags, bytes: "candidate-B".to_slice,
       content_type: "image/webp", image: DataDungeon::ImageMeta.new(compression: "original"))
 
     a.id.should_not eq b.id
@@ -196,7 +229,7 @@ describe DataDungeon::DB do
     db = open_db(dir)
     tags = {"venue" => "arcade"}
 
-    rec = db.store("venue", tags, pool_key: key_for(tags), bytes: "bytes".to_slice,
+    rec = db.store("venue", tags, bytes: "bytes".to_slice,
       content_type: "image/webp", image: DataDungeon::ImageMeta.new(compression: "original"))
     path = db.path_for(rec)
     File.exists?(path).should be_true
@@ -215,13 +248,13 @@ describe DataDungeon::DB do
     db = open_db(dir)
     tags = {"venue" => "arcade"}
 
-    db.store("venue", tags, pool_key: key_for(tags), bytes: "old-bytes".to_slice,
+    db.store("venue", tags, bytes: "old-bytes".to_slice,
       content_type: "image/webp", image: DataDungeon::ImageMeta.new(compression: "original"))
-    rec = db.store("venue", tags, pool_key: key_for(tags), bytes: "new-bytes".to_slice,
+    rec = db.store("venue", tags, bytes: "new-bytes".to_slice,
       content_type: "image/webp", image: DataDungeon::ImageMeta.new(compression: "original"))
 
     # Updating the exact lookup key must leave the new object readable.
-    got = db.get("venue", key_for(tags))
+    got = db.get("venue", tags)
     got.should_not be_nil
     File.exists?(db.path_for(rec)).should be_true
     File.read(db.path_for(got.not_nil!)).should eq "new-bytes"
@@ -236,17 +269,17 @@ describe DataDungeon::DB do
     db = open_db(dir)
     tags = {"venue" => "arcade"}
 
-    old = db.store("venue", tags, pool_key: key_for(tags), bytes: "png-bytes".to_slice,
+    old = db.store("venue", tags, bytes: "png-bytes".to_slice,
       content_type: "image/png", image: DataDungeon::ImageMeta.new(compression: "original"))
-    new = db.store("venue", tags, pool_key: key_for(tags), bytes: "webp-bytes".to_slice,
+    new = db.store("venue", tags, bytes: "webp-bytes".to_slice,
       content_type: "image/webp", image: DataDungeon::ImageMeta.new(compression: "original"),
       supersedes: old.id)
 
     retired = db.find_asset_by_id(old.id).not_nil!
     retired.retired?.should be_true
     new.retired?.should be_false
-    db.find_pool("venue", key_for(tags)).map(&.id).should eq [new.id]
-    db.get("venue", key_for(tags), touch: false).not_nil!.id.should eq new.id
+    db.find_pool("venue", tags).map(&.id).should eq [new.id]
+    db.get("venue", tags, touch: false).not_nil!.id.should eq new.id
     db.links_from(new.id, "supersedes").map(&.to_id).should eq [old.id] # its history
     File.exists?(db.path_for(old)).should be_true                       # kept
 
@@ -265,10 +298,8 @@ describe DataDungeon::DB do
     Dir.mkdir_p(dir)
     db = open_db(dir)
 
-    a = db.store("venue", {"venue" => "arcade"}, pool_key: "arcade",
-      bytes: "same".to_slice, content_type: "image/webp")
-    b = db.store("tile", {"room" => "attic"}, pool_key: "attic",
-      bytes: "same".to_slice, content_type: "image/webp")
+    a = db.store("venue", {"venue" => "arcade"}, bytes: "same".to_slice, content_type: "image/webp")
+    b = db.store("tile", {"room" => "attic"}, bytes: "same".to_slice, content_type: "image/webp")
 
     a.id.should_not eq b.id
     b.file_path.should eq a.file_path
@@ -276,7 +307,7 @@ describe DataDungeon::DB do
 
     db.delete_asset(a.id)
     File.read(db.path_for(b)).should eq "same" # still referenced by b
-    db.get("tile", "attic", touch: false).not_nil!.id.should eq b.id
+    db.get("tile", {"room" => "attic"}, touch: false).not_nil!.id.should eq b.id
 
     db.delete_asset(b.id)
     File.exists?(db.path_for(b)).should be_false # last reference gone
@@ -291,17 +322,14 @@ describe DataDungeon::DB do
     Dir.mkdir_p(dir)
     db = open_db(dir)
 
-    shared = db.store("venue", {"venue" => "arcade"}, pool_key: "arcade",
-      bytes: "v1".to_slice, content_type: "image/webp")
-    other = db.store("tile", {"room" => "arcade"}, pool_key: "arcade",
-      bytes: "v1".to_slice, content_type: "image/webp")
-    db.store("venue", {"venue" => "arcade"}, pool_key: "arcade",
-      bytes: "v2".to_slice, content_type: "image/webp", supersedes: shared.id)
+    shared = db.store("venue", {"venue" => "arcade"}, bytes: "v1".to_slice, content_type: "image/webp")
+    other = db.store("tile", {"room" => "arcade"}, bytes: "v1".to_slice, content_type: "image/webp")
+    db.store("venue", {"venue" => "arcade"}, bytes: "v2".to_slice, content_type: "image/webp", supersedes: shared.id)
     db.prune("venue").should eq 1
 
     File.read(db.path_for(other)).should eq "v1"
-    db.get("tile", "arcade", touch: false).not_nil!.file_path.should eq shared.file_path
-    File.read(db.path_for(db.get("venue", "arcade", touch: false).not_nil!)).should eq "v2"
+    db.get("tile", {"room" => "arcade"}, touch: false).not_nil!.file_path.should eq shared.file_path
+    File.read(db.path_for(db.get("venue", {"venue" => "arcade"}, touch: false).not_nil!)).should eq "v2"
     db.check_consistency.clean?.should be_true
   ensure
     db.try(&.close)
@@ -329,7 +357,7 @@ describe DataDungeon::DB do
     db = open_db(dir)
     tags = {"venue" => "arcade"}
 
-    rec = db.store("venue", tags, pool_key: key_for(tags), bytes: "bytes".to_slice,
+    rec = db.store("venue", tags, bytes: "bytes".to_slice,
       content_type: "image/webp", image: DataDungeon::ImageMeta.new(compression: "original"))
     File.delete(db.path_for(rec)) # object vanishes out from under DD
 
@@ -365,7 +393,7 @@ describe DataDungeon::DB do
     db = open_db(dir)
     tags = {"venue" => "arcade"}
 
-    rec = db.store("venue", tags, pool_key: key_for(tags), bytes: "a".to_slice,
+    rec = db.store("venue", tags, bytes: "a".to_slice,
       content_type: "image/webp", image: DataDungeon::ImageMeta.new(compression: "original"))
     File.delete(db.path_for(rec)) # object vanishes, row remains
 
@@ -427,7 +455,7 @@ describe DataDungeon::DB do
     tags = {"venue" => "arcade"}
 
     expect_raises(ArgumentError, /media is "image".*audio/) do
-      db.store("venue", tags, pool_key: key_for(tags),
+      db.store("venue", tags,
         bytes: "bytes".to_slice, content_type: "image/webp",
         media: "image", audio: DataDungeon::AudioMeta.new)
     end
@@ -436,7 +464,7 @@ describe DataDungeon::DB do
     FileUtils.rm_rf(dir) if dir
   end
 
-  it "stores independent assets without a pool key" do
+  it "keeps assets with the same traits as independent takes, each addressed by id" do
     dir = File.tempname("dd-unkeyed")
     Dir.mkdir_p(dir)
     db = open_db(dir)
@@ -446,8 +474,8 @@ describe DataDungeon::DB do
     b = db.store("venue", {"style" => "silver"}, bytes: "two".to_slice,
       content_type: "image/webp", image: DataDungeon::ImageMeta.new)
 
-    a.pool_key.should be_nil
-    b.pool_key.should be_nil
+    a.key.should eq "venue..silver" # no venue: an empty segment
+    b.key.should eq a.key
     a.id.should_not eq b.id # independent records
     db.get_by_id(a.id, touch: false).not_nil!.id.should eq a.id
     db.get_by_id(b.id, touch: false).not_nil!.id.should eq b.id
@@ -459,22 +487,18 @@ describe DataDungeon::DB do
     FileUtils.rm_rf(dir) if dir
   end
 
-  it "uses an unregistered type's explicit pool key independently of tags" do
-    dir = File.tempname("dd-opaque-key")
+  it "refuses to store an unregistered type, leaving no object behind" do
+    dir = File.tempname("dd-unregistered")
     Dir.mkdir_p(dir)
     db = open_db(dir)
-    tags = {"race" => "human"}
 
-    first = db.store("portrait", tags, pool_key: "character-a",
-      bytes: "a".to_slice, content_type: "image/webp")
-    second = db.store("portrait", tags, pool_key: "character-b",
-      bytes: "b".to_slice, content_type: "image/webp")
-
-    first.id.should_not eq second.id
-    db.get("portrait", "character-a", touch: false).not_nil!.id.should eq first.id
-    db.get("portrait", "character-b", touch: false).not_nil!.id.should eq second.id
-    db.load_tags(first.id).should eq tags
-    db.load_tags(second.id).should eq tags
+    expect_raises(ArgumentError, /character is not a registered asset type/) do
+      db.store("character", {"race" => "human"}, bytes: "a".to_slice, content_type: "image/webp")
+    end
+    expect_raises(ArgumentError, /character is not a registered asset type/) do
+      db.store_asset("character", "image", "image/webp", "/tmp/elsewhere.webp", {"race" => "human"})
+    end
+    db.storage.not_nil!.list_keys.should be_empty
   ensure
     db.try(&.close)
     FileUtils.rm_rf(dir) if dir
@@ -485,22 +509,21 @@ describe DataDungeon::DB do
     Dir.mkdir_p(dir)
     db = open_db(dir)
 
-    first = db.store("portrait", {"hair_color" => "red"}, pool_key: "portrait-1",
+    first = db.store("portrait", {"hair_color" => "red"},
       bytes: "same".to_slice, content_type: "image/webp",
       description: "A red-haired adventurer", generated: true,
       generator: "arcana", generation: %({"width":512}),
       image: DataDungeon::ImageMeta.new(usage_class: "prop"))
     first.generated.should be_true
     first.description.should eq "A red-haired adventurer"
-    first.file_path.includes?("portrait-1").should be_false
 
-    again = db.store("portrait", {"hair_color" => "red"}, pool_key: "portrait-1",
+    again = db.store("portrait", {"hair_color" => "red"},
       bytes: "same".to_slice, content_type: "image/webp")
     again.id.should eq first.id # a retry: the asset as it is
     again.description.should eq "A red-haired adventurer"
 
     error = expect_raises(DataDungeon::AlreadyStored, /asset #{first.id}: change its traits with update_asset/) do
-      db.store("portrait", {"hair_color" => "brown"}, pool_key: "portrait-1",
+      db.store("portrait", {"hair_color" => "brown"},
         bytes: "same".to_slice, content_type: "image/webp")
     end
     error.asset_id.should eq first.id
@@ -510,7 +533,7 @@ describe DataDungeon::DB do
 
     db.retire(first.id).should be_true
     error = expect_raises(DataDungeon::AlreadyStored, /\(retired\).*reinstate/) do
-      db.store("portrait", {"hair_color" => "red"}, pool_key: "portrait-1",
+      db.store("portrait", {"hair_color" => "red"},
         bytes: "same".to_slice, content_type: "image/webp")
     end
     error.retired?.should be_true
@@ -527,7 +550,7 @@ describe DataDungeon::DB do
     # The 0.3 layout: a required canonical_key, no description,
     # generated flag or custom tag flag.
     old_schema = DataDungeon::DB::ASSETS_SCHEMA
-      .sub("pool_key      TEXT,", "canonical_key TEXT NOT NULL,")
+      .sub("file_path     TEXT NOT NULL,", "file_path     TEXT NOT NULL,\n        canonical_key TEXT NOT NULL,")
       .lines.reject { |line| line.includes?("description") || line.includes?("generated") }.join
     raw.exec(old_schema)
     raw.exec(DataDungeon::DB::ASSET_TAGS_SCHEMA.lines.reject { |line| line.includes?("custom") || line.includes?("asset_type") }.join)
@@ -545,7 +568,7 @@ describe DataDungeon::DB do
 
     db = open_db(dir)
     rec = db.find_asset_by_id(7_i64).not_nil!
-    rec.pool_key.should eq "old-key"
+    rec.key.should eq "portrait.human." # derived when open_db registers it; the caller's key is gone
     rec.generated.should be_true
     rec.description.should be_nil
     db.load_tags(rec.id).should eq({"race" => "human"})
@@ -554,6 +577,47 @@ describe DataDungeon::DB do
     db.load_image_meta(rec.id).not_nil!.width.should eq 512                                           # the rebuild cascaded nothing
     db.delete_asset(rec.id)
     db.load_tags(rec.id).should be_empty
+  ensure
+    raw.try(&.close)
+    db.try(&.close)
+    FileUtils.rm_rf(dir) if dir
+  end
+
+  it "moves a 0.11 store's keys into each registered type's own index" do
+    dir = File.tempname("dd-keys-upgrade")
+    Dir.mkdir_p(dir)
+    path = File.join(dir, "assets.db")
+    db = open_db(dir)
+    arcade = db.store("venue", {"venue" => "arcade", "style" => "silver"}, bytes: "a".to_slice, content_type: "image/webp")
+    db.close
+    # As 0.11 left it: the key a column, `pool` flags, no index of the type's own.
+    raw = ::DB.open("sqlite3://#{path}")
+    raw.exec("ALTER TABLE assets ADD COLUMN pool_key TEXT")
+    raw.exec("ALTER TABLE assets ADD COLUMN pool INTEGER DEFAULT 0")
+    raw.exec("ALTER TABLE asset_types ADD COLUMN pool INTEGER NOT NULL DEFAULT 0")
+    raw.exec("CREATE INDEX idx_assets_pool_key ON assets(pool_key)")
+    raw.exec("UPDATE assets SET pool_key = 'venue.arcade.silver'")
+    raw.exec("DELETE FROM asset_keys WHERE index_id IN (SELECT id FROM asset_indexes WHERE consumer = '')")
+    raw.exec("DELETE FROM asset_indexes WHERE consumer = ''")
+    raw.exec(<<-SQL)
+      INSERT INTO assets (asset_type, media, content_type, file_path, pool_key, created_at, made_at)
+      VALUES ('legacy', 'image', 'image/webp', 'legacy.webp', 'a-callers-key', '2026-01-01', '2026-01-01')
+    SQL
+    legacy = raw.scalar("SELECT last_insert_rowid()").as(Int64)
+    raw.close
+
+    expect_raises(DataDungeon::ReadOnlyError, /needs upgrading/) do
+      DataDungeon::DB.new(path, cache_root: File.join(dir, "store"), read_only: true)
+    end
+    db = open_db(dir)
+    columns = ->(table : String) { db.not_nil!.connection.query_all("SELECT name FROM pragma_table_info('#{table}')", as: String) }
+    columns.call("assets").should_not contain "pool_key"
+    columns.call("assets").should_not contain "pool"
+    columns.call("asset_types").should_not contain "pool"
+    db.find_asset_by_id(arcade.id).not_nil!.key.should eq "venue.arcade.silver"
+    db.get("venue", {"venue" => "arcade", "style" => "silver"}, touch: false).not_nil!.id.should eq arcade.id
+    db.find_asset_by_id(legacy).not_nil!.key.should be_nil # an unregistered type's caller key goes
+    db.indexes("venue").should be_empty                      # the type's own isn't a consumer's
   ensure
     raw.try(&.close)
     db.try(&.close)

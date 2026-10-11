@@ -102,13 +102,11 @@ module DataDungeon
         media         TEXT NOT NULL,
         content_type  TEXT NOT NULL,
         file_path     TEXT NOT NULL,
-        pool_key      TEXT,
         file_hash     TEXT,
         created_at    TEXT NOT NULL,
         last_used_at  TEXT,
         use_count     INTEGER DEFAULT 0,
         permanent     INTEGER DEFAULT 0,
-        pool          INTEGER DEFAULT 0,
         generator     TEXT,
         generation    TEXT,
         description   TEXT,
@@ -120,10 +118,8 @@ module DataDungeon
       )
     SQL
 
-    # Keys are an index, not names: several current assets can share one.
+    # An asset's keys are in asset_keys, its type's own index among them.
     ASSETS_INDEXES = <<-SQL
-      CREATE INDEX IF NOT EXISTS idx_assets_pool_key
-        ON assets(pool_key);
       CREATE INDEX IF NOT EXISTS idx_assets_type
         ON assets(asset_type);
       CREATE INDEX IF NOT EXISTS idx_assets_retired
@@ -359,10 +355,11 @@ module DataDungeon
     # The triggers' names, for recreating them.
     TAG_COUNT_TRIGGER_NAMES = TAG_COUNT_TRIGGERS.map { |sql| sql[/TRIGGER IF NOT EXISTS (\w+)/, 1] }
 
-    # The indexes consumers keep on types (register_index), and each asset's
-    # key in every index of its type, so a lookup by an index's leading
-    # traits is one range scan. A consumer's index is its own: the consumer
-    # is part of its name.
+    # The indexes kept on types, and each asset's key in every index of its
+    # type, so a lookup by an index's leading traits is one range scan. A
+    # type's own index (the order it was registered with) has the empty
+    # consumer and name; the rest are consumers' (register_index), each its
+    # consumer's own: the consumer is part of its name.
     ASSET_INDEXES_SCHEMA = <<-SQL
       CREATE TABLE IF NOT EXISTS asset_indexes (
         id         INTEGER PRIMARY KEY,
@@ -384,6 +381,19 @@ module DataDungeon
       CREATE INDEX IF NOT EXISTS idx_asset_keys_key
         ON asset_keys(index_id, key)
     SQL
+
+    # An assets row (alias `a`) as read_asset_record reads it, with its key
+    # in its type's own index.
+    ASSET_COLUMNS = <<-SQL
+      a.id, a.asset_type, a.media, a.content_type, a.file_path,
+      (SELECT k.key FROM asset_indexes i JOIN asset_keys k ON k.index_id = i.id AND k.asset_id = a.id
+       WHERE i.asset_type = a.asset_type AND i.consumer = '' AND i.name = '') AS key,
+      a.file_hash, a.created_at, a.last_used_at, a.use_count, a.permanent, a.generator, a.generation,
+      a.description, a.generated, a.rating, a.flagged, a.made_at, a.retired_at
+    SQL
+
+    # The id of a type's own index, for a query taking the type as an argument.
+    OWN_INDEX = "(SELECT id FROM asset_indexes WHERE asset_type = ? AND consumer = '' AND name = '')"
 
     # Each asset's type and tag values as words, for `list_assets(q:)`:
     # lowercase, with dashes and underscores inside a word (`red-hair`) and a
@@ -412,7 +422,6 @@ module DataDungeon
         labels       TEXT NOT NULL DEFAULT '{}',
         sets         TEXT NOT NULL DEFAULT '[]',
         facets       TEXT NOT NULL DEFAULT '{}',
-        pool         INTEGER NOT NULL,
         key_scheme   INTEGER NOT NULL,
         scales       TEXT NOT NULL DEFAULT '{}',
         colors       TEXT NOT NULL DEFAULT '[]',
@@ -644,6 +653,7 @@ module DataDungeon
             name_views(conn) if views_unnamed # counted by the triggers as they're named
             conn.exec(ASSET_INDEXES_SCHEMA)
             ASSET_KEYS_SCHEMA.split(";").each { |sql| conn.exec(sql.strip) unless sql.strip.empty? }
+            migrate_keys(conn)
             search_missing = table_columns(conn, "asset_search").empty?
             conn.exec(ASSET_SEARCH_SCHEMA)
             conn.exec(ASSET_SEARCH_TERMS_SCHEMA)
@@ -671,7 +681,8 @@ module DataDungeon
         assets = table_columns(conn, "assets")
         tags = table_columns(conn, "asset_tags")
         types = table_columns(conn, "asset_types")
-        current = assets["pool_key"]? == 0 && assets.has_key?("description") && assets.has_key?("generated") &&
+        current = !assets.has_key?("pool_key") && !assets.has_key?("pool") && !types.has_key?("pool") &&
+                  assets.has_key?("description") && assets.has_key?("generated") &&
                   assets.has_key?("made_at") && assets.has_key?("retired_at") &&
                   table_columns(conn, "image_meta").has_key?("measured") &&
                   !unique_file_path?(conn) && tags.has_key?("custom") && tags.has_key?("asset_type") &&
@@ -803,33 +814,59 @@ module DataDungeon
       FROM image_meta WHERE view_x IS NOT NULL
     SQL
 
-    # Older databases called the pool key canonical_key (and once required
-    # it), lacked the group key or description fields, or required a unique
-    # file_path (objects are now shared by content). Rebuild only that table;
-    # its child tables retain their asset_id references.
+    # Older databases called the key canonical_key (and once required it),
+    # lacked the description fields, or required a unique file_path (objects
+    # are now shared by content). Rebuild only that table; its child tables
+    # retain their asset_id references. Their keys are derived again on open,
+    # since their registrations carry an older key scheme.
     private def migrate_assets_schema(conn : ::DB::Connection) : Bool
       columns = table_columns(conn, "assets")
-      return false if columns["pool_key"]? == 0 && columns.has_key?("description") &&
-                      columns.has_key?("generated") && !unique_file_path?(conn)
+      return false unless columns.has_key?("canonical_key") || columns["pool_key"]? == 1 ||
+                          !columns.has_key?("description") || !columns.has_key?("generated") ||
+                          unique_file_path?(conn)
 
-      pool_key = columns.has_key?("pool_key") ? "pool_key" : (columns.has_key?("canonical_key") ? "canonical_key" : "NULL")
       description = columns.has_key?("description") ? "description" : "NULL"
       generated = columns.has_key?("generated") ? "generated" : "CASE WHEN generator IS NULL THEN 0 ELSE 1 END"
 
       conn.exec(ASSETS_SCHEMA.sub("IF NOT EXISTS assets", "assets_migrated"))
       conn.exec(<<-SQL)
         INSERT INTO assets_migrated
-        (id, asset_type, media, content_type, file_path, pool_key, file_hash,
-         created_at, last_used_at, use_count, permanent, pool, generator,
+        (id, asset_type, media, content_type, file_path, file_hash,
+         created_at, last_used_at, use_count, permanent, generator,
          generation, description, generated, rating, flagged)
-        SELECT id, asset_type, media, content_type, file_path, #{pool_key}, file_hash,
-               created_at, last_used_at, use_count, permanent, pool, generator,
+        SELECT id, asset_type, media, content_type, file_path, file_hash,
+               created_at, last_used_at, use_count, permanent, generator,
                generation, #{description}, #{generated}, rating, flagged
         FROM assets
       SQL
       conn.exec("DROP TABLE assets")
       conn.exec("ALTER TABLE assets_migrated RENAME TO assets")
       true
+    end
+
+    # Before 0.12 an asset's key in its type's own order was a column
+    # (`pool_key`), and `pool` a flag on assets and types. Each registered
+    # type's keys move to its own index in asset_keys, and the columns go;
+    # keys an unregistered type's caller gave go with them.
+    private def migrate_keys(conn : ::DB::Connection) : Nil
+      assets = table_columns(conn, "assets")
+      if assets.has_key?("pool_key")
+        conn.query_all("SELECT asset_type, pool_traits FROM asset_types", as: {String, String}).each do |(type, traits)|
+          conn.exec("INSERT OR IGNORE INTO asset_indexes (asset_type, consumer, name, traits) VALUES (?, '', '', ?)",
+            type, traits)
+        end
+        conn.exec(<<-SQL)
+          INSERT INTO asset_keys (asset_id, index_id, key)
+          SELECT a.id, i.id, a.pool_key FROM assets a
+          JOIN asset_indexes i ON i.asset_type = a.asset_type AND i.consumer = '' AND i.name = ''
+          WHERE a.pool_key IS NOT NULL
+          ON CONFLICT (asset_id, index_id) DO UPDATE SET key = excluded.key
+        SQL
+        conn.exec("DROP INDEX IF EXISTS idx_assets_pool_key")
+        conn.exec("ALTER TABLE assets DROP COLUMN pool_key")
+      end
+      conn.exec("ALTER TABLE assets DROP COLUMN pool") if assets.has_key?("pool")
+      conn.exec("ALTER TABLE asset_types DROP COLUMN pool") if table_columns(conn, "asset_types").has_key?("pool")
     end
 
     # Whether the assets table still carries a UNIQUE constraint on file_path.
@@ -856,22 +893,18 @@ module DataDungeon
 
     # ── Store ──
 
-    # Index a file whose path the caller owns. For a registered type,
-    # DataDungeon normalizes the trait tags and derives pool_key
-    # from them, so `pool_key` and `pool` must not be given. An unregistered
-    # type may pass an explicit `pool_key`, deprecated: 0.12 requires
-    # registering every type, and the key moves to the index table. `custom` names the tags whose
-    # values are not among the application's standard choices; they are keyed
-    # like any other value and can later be promoted.
+    # Index a file whose path the caller owns. The type must be registered:
+    # DataDungeon normalizes the trait tags and derives the asset's keys from
+    # them. `custom` names the tags whose values are not among the
+    # application's standard choices; they are keyed like any other value
+    # and can later be promoted.
     def store_asset(
       asset_type : String,
       media : String,
       content_type : String,
       file_path : String,
       tags : Hash(String, String) = {} of String => String,
-      pool_key : String? = nil,
       file_hash : String? = nil,
-      pool : Bool? = nil,
       permanent : Bool = false,
       generator : String? = nil,
       generation : String? = nil,
@@ -884,17 +917,10 @@ module DataDungeon
       custom : Array(String) = [] of String,
       made_at : Time? = nil,
       supersedes : Int64? = nil,
-      canonical_key : String? = nil, # deprecated, and pool_key with it: register the type (0.12)
     ) : Int64
       writable!
-      pool_key ||= canonical_key
-      validate_store(asset_type, media, tags, pool_key, pool, custom, image, audio, video, text)
-      pooled = pool || false
-      if type = @types[asset_type]?
-        tags = normalize_traits(type, tags)
-        pool_key = type.key(tags)
-        pooled = type.pool
-      end
+      validate_store(asset_type, media, tags, custom, image, audio, video, text)
+      tags = normalize_traits(registered(asset_type), tags)
 
       now = Time.utc.to_s(TIME_FORMAT)
       asset_id = 0_i64
@@ -904,13 +930,13 @@ module DataDungeon
           conn.exec(
             <<-SQL,
             INSERT INTO assets
-            (asset_type, media, content_type, file_path, pool_key, file_hash,
-             created_at, last_used_at, use_count, permanent, pool,
+            (asset_type, media, content_type, file_path, file_hash,
+             created_at, last_used_at, use_count, permanent,
              generator, generation, description, generated, rating, flagged, made_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, NULL, 0, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, NULL, 0, ?)
           SQL
-            asset_type, media, content_type, file_path, pool_key, file_hash,
-            now, now, permanent ? 1 : 0, pooled ? 1 : 0,
+            asset_type, media, content_type, file_path, file_hash,
+            now, now, permanent ? 1 : 0,
             generator, generation, description, generated ? 1 : 0, made_at.try(&.to_s(TIME_FORMAT)) || now
           )
           asset_id = conn.scalar("SELECT last_insert_rowid()").as(Int64)
@@ -963,7 +989,7 @@ module DataDungeon
               asset_id, tm.content, tm.language
             )
           end
-          reindex(conn, [asset_id]) # after the image fields: a view is a search word
+          reindex(conn, [asset_id]) # its keys; after the image fields, since a view is a search word
         end
       end
       supersede(asset_id, supersedes) if supersedes
@@ -972,15 +998,10 @@ module DataDungeon
     end
 
     private def validate_store(
-      asset_type : String, media : String, tags : Hash(String, String),
-      pool_key : String?, pool : Bool?, custom : Array(String),
+      asset_type : String, media : String, tags : Hash(String, String), custom : Array(String),
       image : ImageMeta?, audio : AudioMeta?, video : VideoMeta?, text : TextMeta?,
     ) : Nil
-      if @types.has_key?(asset_type)
-        if pool_key
-          raise ArgumentError.new("#{asset_type} is registered: DataDungeon derives its pool_key from its traits")
-        end
-      end
+      registered(asset_type)
       unless (unknown = custom - tags.keys).empty?
         raise ArgumentError.new("custom names #{unknown.join(", ")}, which have no tag")
       end
@@ -1016,17 +1037,16 @@ module DataDungeon
     # them is an exact repeat (the same traits, the asset current), which
     # returns that asset.
     #
-    # Provide the source as exactly one of `source_path` or `bytes`.
+    # The type must be registered (register_type). Provide the source as
+    # exactly one of `source_path` or `bytes`.
     def store(
       asset_type : String,
       tags : Hash(String, String) = {} of String => String,
       *,
-      pool_key : String? = nil,
       source_path : String? = nil,
       bytes : Bytes? = nil,
       content_type : String,
       media : String? = nil,
-      pool : Bool? = nil,
       permanent : Bool = false,
       generator : String? = nil,
       generation : String? = nil,
@@ -1039,18 +1059,16 @@ module DataDungeon
       custom : Array(String) = [] of String,
       made_at : Time? = nil,
       supersedes : Int64? = nil,
-      canonical_key : String? = nil, # deprecated, and pool_key with it: register the type (0.12)
     ) : AssetRecord
       writable!
       store = @storage || raise "DataDungeon::DB has no storage backend; construct with cache_root: or storage:"
       unless source_path.nil? ^ bytes.nil?
         raise ArgumentError.new("provide exactly one of source_path / bytes")
       end
-      pool_key ||= canonical_key
       ct = content_type
       m = media || DB.media_of(ct)
       # Reject bad arguments before writing, so a refused store leaves no object.
-      validate_store(asset_type, m, tags, pool_key, pool, custom, image, audio, video, text)
+      validate_store(asset_type, m, tags, custom, image, audio, video, text)
 
       data = bytes || File.open(source_path.not_nil!, "rb", &.getb_to_end)
 
@@ -1080,9 +1098,7 @@ module DataDungeon
             content_type: ct,
             file_path: storage_key,
             tags: tags,
-            pool_key: pool_key,
             file_hash: file_hash,
-            pool: pool,
             custom: custom,
             permanent: permanent,
             generator: generator,
@@ -1156,7 +1172,7 @@ module DataDungeon
     # again is an exact repeat (the same traits, the asset current), so a
     # retry is safe; any other holder raises AlreadyStored.
     private def held_asset(asset_type : String, file_hash : String, tags : Hash(String, String)) : AssetRecord?
-      held = @db.query_one?("SELECT * FROM assets WHERE file_hash = ? AND +asset_type = ? ORDER BY id LIMIT 1",
+      held = @db.query_one?("SELECT #{ASSET_COLUMNS} FROM assets a WHERE a.file_hash = ? AND +a.asset_type = ? ORDER BY a.id LIMIT 1",
         file_hash, asset_type) { |rs| read_asset_record(rs) }
       return nil unless held
       repeat = !held.retired? && load_tags(held.id) == normalize_tags(asset_type, tags)
@@ -1240,17 +1256,20 @@ module DataDungeon
       was_retired
     end
 
-    # Delete a type's retired assets: all, or keeping each key's
-    # `keep_last` most recently retired, and only those retired before
-    # `retired_before`. When to prune is the application's call. Returns how
-    # many were deleted.
+    # Delete a type's retired assets: all, or keeping each key's (in the
+    # type's own index) `keep_last` most recently retired, and only those
+    # retired before `retired_before`. When to prune is the application's
+    # call. Returns how many were deleted.
     def prune(asset_type : String, keep_last : Int32 = 0, retired_before : Time? = nil) : Int32
       writable!
       ids = @db.query_all(<<-SQL, asset_type, keep_last, retired_before.try(&.to_s(TIME_FORMAT)), as: Int64)
         SELECT id FROM (
-          SELECT id, retired_at, ROW_NUMBER() OVER (PARTITION BY ifnull(pool_key, id) ORDER BY retired_at DESC, id DESC) AS rank
-          FROM assets WHERE asset_type = ? AND retired_at IS NOT NULL
-        ) WHERE rank > ? AND (?3 IS NULL OR retired_at < ?3)
+          SELECT a.id, a.retired_at,
+                 ROW_NUMBER() OVER (PARTITION BY ifnull(k.key, a.id) ORDER BY a.retired_at DESC, a.id DESC) AS rank
+          FROM assets a
+          LEFT JOIN asset_keys k ON k.asset_id = a.id AND k.index_id = #{OWN_INDEX.sub("?", "?1")}
+          WHERE a.asset_type = ?1 AND a.retired_at IS NOT NULL
+        ) WHERE rank > ?2 AND (?3 IS NULL OR retired_at < ?3)
       SQL
       ids.each { |id| delete_asset(id) }
       ids.size
@@ -1304,8 +1323,9 @@ module DataDungeon
     # tags, or change its description, flag or rating, or the image fields
     # the application sets (ImageMeta::SET_FIELDS, and an animation's frames
     # for a sprite sheet). Arguments left nil stay as they are. A registered
-    # type's traits are normalized and its key derived again. A tag stays
-    # custom while its value is unchanged.
+    # type's traits are normalized and its keys derived again. A tag stays
+    # custom while its value is unchanged. A `rating` and `flagged` decide
+    # which of several candidates `get` and best matches prefer.
     def update_asset(id : Int64, *, tags : Hash(String, String)? = nil, description : String? = nil,
                      flagged : Bool? = nil, rating : Int32? = nil, image : ImageMeta? = nil) : AssetRecord
       writable!
@@ -1346,10 +1366,7 @@ module DataDungeon
 
     private def replace_tags(conn, rec : AssetRecord, tags : Hash(String, String)) : Nil
       check_tag_names(tags)
-      if type = @types[rec.asset_type]?
-        tags = normalize_traits(type, tags)
-        conn.exec("UPDATE assets SET pool_key = ? WHERE id = ?", type.key(tags), rec.id)
-      end
+      tags = normalize_tags(rec.asset_type, tags)
       custom = {} of String => String
       conn.query("SELECT tag_key, tag_value FROM asset_tags WHERE asset_id = ? AND custom = 1", rec.id) do |rs|
         rs.each { custom[rs.read(String)] = rs.read(String) }
@@ -1361,30 +1378,18 @@ module DataDungeon
       end
     end
 
-    # High-level lookup: of the current assets with this key, the newest
-    # (by made_at); verifies the backing file still exists (self-heals a
-    # stale row to a miss), touches usage, and returns the record. Every
-    # current asset with the key comes from find_pool.
-    def get(asset_type : String, pool_key : String, touch : Bool = true) : AssetRecord?
-      rec = find_asset(asset_type, pool_key)
-      return nil unless rec
-      if (store = @storage) && store.local?
-        return nil unless store.exists?(rec.file_path)
-      end
-      touch_asset(rec.id) if touch
-      rec
-    end
-
-    # `get` for a registered type, by its traits.
+    # High-level lookup: of the current, unflagged assets with these traits,
+    # the preferred (PREFERRED: highest rating, then newest made); verifies
+    # the backing file still exists (self-heals a stale row to a miss),
+    # touches usage, and returns the record. Every current asset with the
+    # traits comes from find_pool.
     def get(asset_type : String, traits : Hash(String, String), touch : Bool = true) : AssetRecord?
-      get(pool_key_for(asset_type, traits), touch)
+      get(key_for(asset_type, traits), touch)
     end
 
-    # `get` by a registered type's key alone; the key names its type.
-    def get(pool_key : String, touch : Bool = true) : AssetRecord?
-      rec = @db.query_one?(
-        "SELECT * FROM assets WHERE pool_key = ? AND retired_at IS NULL #{NEWEST} LIMIT 1", pool_key
-      ) { |rs| read_asset_record(rs) }
+    # `get` by a key in a type's own index; the key names its type.
+    def get(key : String, touch : Bool = true) : AssetRecord?
+      rec = find_asset(key)
       return nil unless rec
       if (store = @storage) && store.local?
         return nil unless store.exists?(rec.file_path)
@@ -1393,7 +1398,7 @@ module DataDungeon
       rec
     end
 
-    # Assets without a pool key are addressed by their database ID.
+    # One asset by its id, retired or flagged too.
     def get_by_id(id : Int64, touch : Bool = true) : AssetRecord?
       rec = find_asset_by_id(id)
       return nil unless rec
@@ -1413,28 +1418,16 @@ module DataDungeon
     # any visual medium without narrowing.
     def get_with_meta(
       asset_type : String,
-      pool_key : String,
-      touch : Bool = true,
-    ) : {AssetRecord, AssetMeta?}?
-      lookup_with_meta(
-        "+a.asset_type = ? AND a.pool_key = ? AND a.retired_at IS NULL",
-        [asset_type, pool_key] of ::DB::Any,
-        touch
-      )
-    end
-
-    # `get_with_meta` for a registered type, by its traits.
-    def get_with_meta(
-      asset_type : String,
       traits : Hash(String, String),
       touch : Bool = true,
     ) : {AssetRecord, AssetMeta?}?
-      get_with_meta(pool_key_for(asset_type, traits), touch)
+      get_with_meta(key_for(asset_type, traits), touch)
     end
 
-    # `get_with_meta` by a registered type's key alone.
-    def get_with_meta(pool_key : String, touch : Bool = true) : {AssetRecord, AssetMeta?}?
-      lookup_with_meta("a.pool_key = ? AND a.retired_at IS NULL", [pool_key] of ::DB::Any, touch)
+    # `get_with_meta` by a key in a type's own index.
+    def get_with_meta(key : String, touch : Bool = true) : {AssetRecord, AssetMeta?}?
+      clause, args = key_clause(TraitKey.type_of(key), key)
+      lookup_with_meta("#{clause} AND #{CANDIDATE}", args, touch)
     end
 
     def get_with_meta_by_id(id : Int64, touch : Bool = true) : {AssetRecord, AssetMeta?}?
@@ -1444,7 +1437,7 @@ module DataDungeon
     private def lookup_with_meta(where_clause : String, args : Array(::DB::Any), touch : Bool) : {AssetRecord, AssetMeta?}?
       pair = @db.query_one?(
         <<-SQL,
-          SELECT a.*,
+          SELECT #{ASSET_COLUMNS},
                  #{IMAGE_SELECT},
                  am.asset_id, am.duration_ms, am.sample_rate, am.bitrate,
                  am.channels, am.transcript_id, am.compression, am.target_format,
@@ -1459,7 +1452,7 @@ module DataDungeon
           LEFT JOIN video_meta vm ON vm.asset_id = a.id
           LEFT JOIN text_meta  tm ON tm.asset_id = a.id
           WHERE #{where_clause}
-          ORDER BY a.made_at DESC, a.id DESC
+          #{PREFERRED}
           LIMIT 1
         SQL
 
@@ -1606,20 +1599,26 @@ module DataDungeon
 
     # ── Find ──
 
-    # Of the current assets with this key, the newest (by made_at).
-    def find_asset(asset_type : String, pool_key : String) : AssetRecord?
-      @db.query_one?(
-        "SELECT * FROM assets WHERE +asset_type = ? AND pool_key = ? AND retired_at IS NULL #{NEWEST} LIMIT 1",
-        asset_type, pool_key
-      ) { |rs| read_asset_record(rs) }
+    # Of the current, unflagged assets with this key in its type's own
+    # index, the preferred (PREFERRED), without get's file check or touch.
+    def find_asset(key : String) : AssetRecord?
+      clause, args = key_clause(TraitKey.type_of(key), key)
+      @db.query_one?("SELECT #{ASSET_COLUMNS} FROM assets a WHERE #{clause} AND #{CANDIDATE} #{PREFERRED} LIMIT 1",
+        args: args) { |rs| read_asset_record(rs) }
     end
 
-    # Which of several candidates to prefer: the newest made, then filed.
-    NEWEST = "ORDER BY made_at DESC, id DESC"
+    # Which assets `get` and best matches choose among: current ones nobody
+    # has flagged (a report takes an asset out of play; listings still show
+    # it).
+    CANDIDATE = "a.retired_at IS NULL AND ifnull(a.flagged, 0) = 0"
+
+    # Which of several candidates to prefer: the highest rating (none counts
+    # as 0), then the newest made, then the newest filed.
+    PREFERRED = "ORDER BY ifnull(a.rating, 0) DESC, a.made_at DESC, a.id DESC"
 
     def find_asset_by_id(id : Int64) : AssetRecord?
       @db.query_one?(
-        "SELECT * FROM assets WHERE id = ? LIMIT 1", id
+        "SELECT #{ASSET_COLUMNS} FROM assets a WHERE a.id = ? LIMIT 1", id
       ) { |rs| read_asset_record(rs) }
     end
 
@@ -1630,7 +1629,7 @@ module DataDungeon
       from, where, args = tag_filter(asset_type, filter_tags) || return [] of AssetRecord
 
       results = [] of AssetRecord
-      @db.query("SELECT a.* FROM #{from} WHERE #{where} AND a.retired_at IS NULL ORDER BY a.id", args: args) do |rs|
+      @db.query("SELECT #{ASSET_COLUMNS} FROM #{from} WHERE #{where} AND a.retired_at IS NULL ORDER BY a.id", args: args) do |rs|
         rs.each { results << read_asset_record(rs) }
       end
       results
@@ -1734,7 +1733,7 @@ module DataDungeon
         args << before
       end
       results = [] of AssetRecord
-      @db.query("SELECT a.* FROM #{from} WHERE #{where} ORDER BY #{order} DESC LIMIT ? OFFSET ?",
+      @db.query("SELECT #{ASSET_COLUMNS} FROM #{from} WHERE #{where} ORDER BY #{order} DESC LIMIT ? OFFSET ?",
         args: args + [limit, offset] of ::DB::Any) do |rs|
         rs.each { results << read_asset_record(rs) }
       end
@@ -1954,11 +1953,14 @@ module DataDungeon
 
     # Refresh what is derived from these assets' tags, or drop it for assets
     # gone: their search words (and the counts of their words) and their
-    # keys in the indexes on their types. Run inside the write that changed
-    # them. The indexes are read here, not remembered, so one another
-    # process registered since this one opened is kept too.
+    # keys in every index of their type, its own among them. Run inside the
+    # write that changed them. The indexes and labels are read here, not
+    # remembered, so an index another process registered since this one
+    # opened is kept too, and a registration saved earlier in this
+    # transaction counts.
     private def reindex(conn, ids : Array(Int64)) : Nil
       indexes = query_indexes(conn, "1 = 1", [] of ::DB::Any).group_by(&.asset_type)
+      labels = {} of String => Hash(String, String)
       ids.each_slice(500) do |batch|
         types = {} of Int64 => String
         # Placeholders, not the ids: each distinct SQL text stays cached as a
@@ -1979,34 +1981,30 @@ module DataDungeon
           log_change(conn, id)
           next unless type = types[id]?
           asset_tags = tags[id]? || {} of String => String
-          words = search_words(type, asset_tags, views[id]?)
+          type_labels = labels[type] ||= stored_labels(conn, type)
+          words = search_words(asset_tags, type, type_labels, views[id]?)
           conn.exec("INSERT INTO asset_search (rowid, words) VALUES (?, ?)", id, words)
           count_terms(conn, words, 1)
-          indexes[type]?.try &.each { |index| put_key(conn, index, id, asset_tags) }
+          indexes[type]?.try &.each { |index| put_key(conn, index, id, asset_tags, type_labels) }
         end
       end
     end
 
-    # An asset's key in an index: the same form as a type's own keys
-    # (TraitKey), over the index's traits.
-    private def put_key(conn, index : AssetIndex, asset_id : Int64, tags : Hash(String, String)) : Nil
-      conn.exec(<<-SQL, asset_id, index.id, index_key(conn, index, tags))
+    # An asset's key in an index (TraitKey, over the index's traits).
+    private def put_key(conn, index : AssetIndex, asset_id : Int64, tags : Hash(String, String),
+                        labels : Hash(String, String)) : Nil
+      conn.exec(<<-SQL, asset_id, index.id, TraitKey.key(index.asset_type, index.traits, tags, labels))
         INSERT INTO asset_keys (asset_id, index_id, key) VALUES (?, ?, ?)
         ON CONFLICT (asset_id, index_id) DO UPDATE SET key = excluded.key
       SQL
     end
 
-    private def index_key(db, index : AssetIndex, values : Hash(String, String)) : String
-      TraitKey.key(index.asset_type, index.traits, values, type_labels(db, index.asset_type))
-    end
-
-    # A registered type's labels, as registered even by another process
-    # since this one opened.
-    private def type_labels(db, asset_type : String) : Hash(String, String)
-      @types[asset_type]?.try(&.labels) ||
-        db.query_one?("SELECT labels FROM asset_types WHERE asset_type = ?", asset_type) do |rs|
-          Hash(String, String).from_json(rs.read(String))
-        end || {} of String => String
+    # A type's labels as the database holds them (none for an unregistered
+    # type).
+    private def stored_labels(conn, asset_type : String) : Hash(String, String)
+      conn.query_one?("SELECT labels FROM asset_types WHERE asset_type = ?", asset_type) do |rs|
+        Hash(String, String).from_json(rs.read(String))
+      end || {} of String => String
     end
 
     private def unindex_search(conn, id : Int64) : Nil
@@ -2032,8 +2030,8 @@ module DataDungeon
     # The type and every tag value, each with its parts, a labelled trait
     # also as keys spell it (`red-hair`), and a picture's named view
     # (`back-left from-above`).
-    private def search_words(asset_type : String, tags : Hash(String, String), view : String? = nil) : String
-      labels = @types[asset_type]?.try(&.labels) || {} of String => String
+    private def search_words(tags : Hash(String, String), asset_type : String, labels : Hash(String, String),
+                             view : String? = nil) : String
       words = word_and_parts(asset_type)
       tags.each do |key, value|
         words.concat(word_and_parts(value))
@@ -2048,12 +2046,11 @@ module DataDungeon
       parts.size > 1 ? [text] + parts : [text]
     end
 
-    # Whether a current asset has this key.
-    def asset_exists?(asset_type : String, pool_key : String) : Bool
-      !@db.query_one?(
-        "SELECT 1 FROM assets WHERE +asset_type = ? AND pool_key = ? AND retired_at IS NULL LIMIT 1",
-        asset_type, pool_key, as: Int64
-      ).nil?
+    # Whether a current asset has this key in its type's own index.
+    def asset_exists?(key : String) : Bool
+      clause, args = key_clause(TraitKey.type_of(key), key)
+      !@db.query_one?("SELECT 1 FROM assets a WHERE #{clause} AND a.retired_at IS NULL LIMIT 1",
+        args: args, as: Int64).nil?
     end
 
     # ── Links ──
@@ -2155,9 +2152,9 @@ module DataDungeon
     TYPE_NAME  = /\A[a-z0-9]+(?:[_-][a-z0-9]+)*\z/
     LABEL      = /\A[a-z0-9]+(?:-[a-z0-9]+)*\z/
 
-    # Declare how an asset type is keyed. From then on DataDungeon derives each
-    # asset's pool_key from its `pool_traits` tags, so applications stop
-    # building keys. List the traits most important first: the key is their
+    # Declare an asset type, which storing requires. DataDungeon derives each
+    # asset's key in the type's own index from its `pool_traits` tags, so
+    # applications never build keys. List the traits most important first: the key is their
     # normalized values in that order (see TraitKey), so a lookup on leading
     # traits is a prefix match. `group_traits` names the leading traits that
     # make up the type's group, and `labels` suffixes for traits whose values
@@ -2176,7 +2173,7 @@ module DataDungeon
     # (`{"time" => %w[dawn day dusk night]}`), so night's nearest are dusk
     # and dawn; `match_fields` names image fields matched on beside the
     # traits (AssetType::MATCH_FIELDS); `weights` gives traits (and match
-    # fields) a default weight other than 1. `pool` is deprecated and ignored: since 0.11 a key is an index,
+    # fields) a default weight other than 1. A key is an index, not a name:
     # several current assets can share one, and every store adds an asset.
     #
     # The registration is stored in the database. Registering a type again
@@ -2190,7 +2187,6 @@ module DataDungeon
       *,
       pool_traits : Array(String),
       group_traits : Array(String) = [] of String,
-      pool : Bool = false,
       labels : Hash(String, String) = {} of String => String,
       sets : Array(String) = [] of String,
       facets : Hash(String, Array(String)) = {} of String => Array(String),
@@ -2204,7 +2200,7 @@ module DataDungeon
       writable!
       scales = scales.transform_values { |values| values.compact_map { |value| TraitKey.normalize(value) } }
       cycles = cycles.transform_values { |values| values.compact_map { |value| TraitKey.normalize(value) } }
-      definition = AssetType.new(asset_type, pool_traits, group_traits, pool, labels, sets, facets,
+      definition = AssetType.new(asset_type, pool_traits, group_traits, labels, sets, facets,
         scales, colors, weights, cycles, match_fields)
       validate_type(definition)
       changed = [] of Int64
@@ -2213,7 +2209,7 @@ module DataDungeon
         if stored && stored[0] != definition && !rekey
           raise ArgumentError.new("#{asset_type} is registered differently: pass rekey: true to change it and re-key its assets")
         end
-        unless stored == {definition, TraitKey::SCHEME}
+        unless stored == {definition, TraitKey::SCHEME} && own_index?(asset_type)
           write_transaction do |conn|
             save_type(conn, definition)
             changed = rekey(conn, definition)
@@ -2229,7 +2225,7 @@ module DataDungeon
     # Keep an index on a registered type for this consumer's common lookups:
     # `traits` in the order it usually asks by. Apps just ask with traits:
     # a lookup fixing the leading traits of any index on the type (the
-    # type's own key, or any consumer's index) can start from that range, and
+    # type's own, or any consumer's) can start from that range, and
     # DataDungeon starts from the narrowest (see `tag_filter`). Each consumer
     # names and changes only its own indexes, so open the store with
     # `consumer:`. Registering an index again changes nothing; other traits
@@ -2264,7 +2260,7 @@ module DataDungeon
           ids = conn.query_all("SELECT id FROM assets WHERE asset_type = ?", asset_type, as: Int64)
           ids.each_slice(500) do |batch|
             tags = tags_batch(conn, batch)
-            batch.each { |id| put_key(conn, index, id, tags[id]? || {} of String => String) }
+            batch.each { |id| put_key(conn, index, id, tags[id]? || {} of String => String, type.labels) }
           end
           index
         end
@@ -2282,9 +2278,15 @@ module DataDungeon
       end
     end
 
-    # Every consumer's indexes on a type.
+    # Every consumer's indexes on a type (not the type's own).
     def indexes(asset_type : String) : Array(AssetIndex)
-      query_indexes(@db, "asset_type = ?", [asset_type] of ::DB::Any)
+      query_indexes(@db, "asset_type = ? AND consumer <> ''", [asset_type] of ::DB::Any)
+    end
+
+    # Whether a type has its own index.
+    private def own_index?(asset_type : String) : Bool
+      !@db.query_one?("SELECT 1 FROM asset_indexes WHERE asset_type = ? AND consumer = '' AND name = ''",
+        asset_type, as: Int64).nil?
     end
 
     private def query_indexes(db, where : String, args : Array(::DB::Any)) : Array(AssetIndex)
@@ -2381,11 +2383,17 @@ module DataDungeon
       renamed.size
     end
 
-    # The pool key a registered type gives these traits. Traits left out are
-    # absent (an empty segment); names that aren't the type's traits raise.
-    def pool_key_for(asset_type : String, traits : Hash(String, String)) : String
+    # The key a registered type's own index gives these traits. Traits left
+    # out are absent (an empty segment); names that aren't the type's traits
+    # raise.
+    def key_for(asset_type : String, traits : Hash(String, String)) : String
       type = registered(asset_type)
       type.key(query_traits(type, traits))
+    end
+
+    @[Deprecated("Use `key_for`.")]
+    def pool_key_for(asset_type : String, traits : Hash(String, String)) : String
+      key_for(asset_type, traits)
     end
 
     # The key prefix shared by assets whose first `size` traits (by default,
@@ -2396,7 +2404,8 @@ module DataDungeon
     end
 
     # Trait values normalized as a registered type stores them (blank trait
-    # values dropped); other tags, and any tags of an unregistered type, as given.
+    # values dropped); other tags, and any tags of an unregistered type (one
+    # stored before 0.12 required registering), as given.
     def normalize_tags(asset_type : String, tags : Hash(String, String)) : Hash(String, String)
       (type = @types[asset_type]?) ? normalize_traits(type, tags) : tags
     end
@@ -2405,8 +2414,9 @@ module DataDungeon
     # `custom` may differ, leaving the
     # caller to rank them (e.g. semantically); every other trait matches
     # exactly, and a trait absent from `traits` must be absent on the asset.
-    # Without `custom` this is one key lookup. With it, the traits before the
-    # first custom one narrow the candidates by key prefix, and the rest are
+    # Without `custom` this is one key lookup in the type's own index. With
+    # it, the traits before the first custom one narrow the candidates by key
+    # prefix, and the rest are
     # checked against each candidate's tags, so it's fastest when the custom
     # traits come late in the type's order.
     def find_pool(
@@ -2422,9 +2432,8 @@ module DataDungeon
       end
 
       lead = custom.min_of { |trait| type.pool_traits.index!(trait) }
-      clauses = [] of String
-      args = [] of ::DB::Any
-      key_prefix(clauses, args, type.prefix(values, lead))
+      clause, args = key_clause(type.name, type.prefix(values, lead), prefix: true)
+      clauses = [clause]
       (type.pool_traits[lead..] - custom).each do |trait|
         if value = values[trait]?
           clauses << "EXISTS (SELECT 1 FROM asset_tags t WHERE t.asset_id = a.id AND t.tag_key = ? AND t.tag_value = ?)"
@@ -2437,15 +2446,11 @@ module DataDungeon
       query_assets(clauses.join(" AND "), args)
     end
 
-    # Every current asset with this key. A registered type's key names its
-    # type, so the key alone is enough.
-    def find_pool(pool_key : String) : Array(AssetRecord)
-      query_assets("a.pool_key = ?", [pool_key] of ::DB::Any)
-    end
-
-    # Every current asset of an unregistered type with this explicitly given key.
-    def find_pool(asset_type : String, pool_key : String) : Array(AssetRecord)
-      query_assets("+a.asset_type = ? AND a.pool_key = ?", [asset_type, pool_key] of ::DB::Any)
+    # Every current asset with this key in its type's own index. A key names
+    # its type, so the key alone is enough.
+    def find_pool(key : String) : Array(AssetRecord)
+      clause, args = key_clause(TraitKey.type_of(key), key)
+      query_assets(clause, args)
     end
 
     # Every asset whose first `size` traits (by default, the group traits)
@@ -2458,16 +2463,15 @@ module DataDungeon
       find_group(type.prefix(values, size))
     end
 
-    # Every asset whose key starts with this prefix, which must end at a
-    # separator (as group_key_for's do); `portrait.` is the whole type.
+    # Every asset whose key in its type's own index starts with this prefix,
+    # which must end at a separator (as group_key_for's do); `portrait.` is
+    # the whole type.
     def find_group(prefix : String) : Array(AssetRecord)
       unless prefix.ends_with?(TraitKey::SEPARATOR)
         raise ArgumentError.new("a key prefix must end with #{TraitKey::SEPARATOR.inspect}")
       end
-      clauses = [] of String
-      args = [] of ::DB::Any
-      key_prefix(clauses, args, prefix)
-      query_assets(clauses.join(" AND "), args)
+      clause, args = key_clause(TraitKey.type_of(prefix), prefix, prefix: true)
+      query_assets(clause, args)
     end
 
     # Both lookups at once: `pool` as find_pool (with `custom`), and `group`
@@ -2484,11 +2488,21 @@ module DataDungeon
       Matches.new(pool, find_group(asset_type, traits).reject { |rec| in_pool.includes?(rec.id) })
     end
 
-    # A prefix as an index range: keys from `prefix` up to, not including,
-    # the prefix with its final separator raised by one ('.' to '/').
-    private def key_prefix(clauses : Array(String), args : Array(::DB::Any), prefix : String) : Nil
-      clauses << "a.pool_key >= ? AND a.pool_key < ?"
-      args << prefix << prefix.rchop + TraitKey::SEPARATOR.succ
+    # A clause (alias `a`) for the assets with this key in their type's own
+    # index, or with a key starting with this prefix: one range of
+    # asset_keys, from `prefix` up to, not including, the prefix with its
+    # final separator raised by one ('.' to '/').
+    # :nodoc:
+    def key_clause(asset_type : String, key : String, *, prefix : Bool = false) : {String, Array(::DB::Any)}
+      args = [asset_type] of ::DB::Any
+      range = if prefix
+                args << key << key.rchop + TraitKey::SEPARATOR.succ
+                "k.key >= ? AND k.key < ?"
+              else
+                args << key
+                "k.key = ?"
+              end
+      {"a.id IN (SELECT k.asset_id FROM asset_keys k WHERE k.index_id = #{OWN_INDEX} AND #{range})", args}
     end
 
     private def leading_size(type : AssetType, size : Int32?) : Int32
@@ -2505,7 +2519,7 @@ module DataDungeon
     private def query_assets(where : String, args : Array(::DB::Any), retired : Bool = false) : Array(AssetRecord)
       where = "(#{where}) AND a.retired_at IS NULL" unless retired
       results = [] of AssetRecord
-      @db.query("SELECT a.* FROM assets a WHERE #{where} ORDER BY a.id", args: args) do |rs|
+      @db.query("SELECT #{ASSET_COLUMNS} FROM assets a WHERE #{where} ORDER BY a.id", args: args) do |rs|
         rs.each { results << read_asset_record(rs) }
       end
       results
@@ -2547,8 +2561,11 @@ module DataDungeon
       SQL
     end
 
+    # A type's registration, also when another process registered it since
+    # this one opened; raises for a type that has none.
     private def registered(asset_type : String) : AssetType
-      @types[asset_type]? || raise ArgumentError.new("#{asset_type} is not a registered asset type")
+      @types[asset_type]? || stored_type(asset_type).try { |(type, _)| @types[asset_type] = type } ||
+        raise ArgumentError.new("#{asset_type} is not a registered asset type (see register_type)")
     end
 
     private def validate_type(type : AssetType) : Nil
@@ -2646,26 +2663,24 @@ module DataDungeon
       conn.exec(
         <<-SQL,
         INSERT INTO asset_types
-        (asset_type, pool_traits, group_traits, labels, sets, facets, pool, key_scheme, scales, colors, weights,
+        (asset_type, pool_traits, group_traits, labels, sets, facets, key_scheme, scales, colors, weights,
          cycles, match_fields)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(asset_type) DO UPDATE SET pool_traits = excluded.pool_traits,
           group_traits = excluded.group_traits, labels = excluded.labels,
-          sets = excluded.sets, facets = excluded.facets,
-          pool = excluded.pool, key_scheme = excluded.key_scheme,
+          sets = excluded.sets, facets = excluded.facets, key_scheme = excluded.key_scheme,
           scales = excluded.scales, colors = excluded.colors, weights = excluded.weights,
           cycles = excluded.cycles, match_fields = excluded.match_fields
       SQL
         type.name, type.pool_traits.to_json, type.group_traits.to_json,
-        type.labels.to_json, type.sets.to_json, type.facets.to_json,
-        type.pool ? 1 : 0, TraitKey::SCHEME, type.scales.to_json, type.colors.to_json, type.weights.to_json,
+        type.labels.to_json, type.sets.to_json, type.facets.to_json, TraitKey::SCHEME, type.scales.to_json, type.colors.to_json, type.weights.to_json,
         type.cycles.to_json, type.match_fields.to_json
       )
     end
 
     private def stored_type(asset_type : String) : {AssetType, Int32}?
       @db.query_one?(
-        "SELECT asset_type, pool_traits, group_traits, labels, sets, facets, pool, key_scheme, scales, colors, weights, cycles, match_fields FROM asset_types WHERE asset_type = ?",
+        "SELECT asset_type, pool_traits, group_traits, labels, sets, facets, key_scheme, scales, colors, weights, cycles, match_fields FROM asset_types WHERE asset_type = ?",
         asset_type
       ) { |rs| read_type(rs) }
     end
@@ -2677,25 +2692,25 @@ module DataDungeon
       labels = Hash(String, String).from_json(rs.read(String))
       sets = Array(String).from_json(rs.read(String))
       facets = Hash(String, Array(String)).from_json(rs.read(String))
-      pool = rs.read(Int32) != 0
       scheme = rs.read(Int32)
       scales = Hash(String, Array(String)).from_json(rs.read(String))
       colors = Array(String).from_json(rs.read(String))
       weights = Hash(String, Float64).from_json(rs.read(String))
       cycles = Hash(String, Array(String)).from_json(rs.read(String))
       match_fields = Array(String).from_json(rs.read(String))
-      {AssetType.new(name, pool_traits, group_traits, pool, labels, sets, facets, scales, colors, weights,
+      {AssetType.new(name, pool_traits, group_traits, labels, sets, facets, scales, colors, weights,
         cycles, match_fields), scheme}
     end
 
-    # Registrations made with an older key encoding are re-keyed on open.
+    # Registrations made with an older key encoding, or lacking their own
+    # index, are re-keyed on open.
     private def load_types : Nil
       rows = @db.query_all(
-        "SELECT asset_type, pool_traits, group_traits, labels, sets, facets, pool, key_scheme, scales, colors, weights, cycles, match_fields FROM asset_types"
+        "SELECT asset_type, pool_traits, group_traits, labels, sets, facets, key_scheme, scales, colors, weights, cycles, match_fields FROM asset_types"
       ) { |rs| read_type(rs) }
       rows.each do |type, scheme|
         @types[type.name] = type
-        unless scheme == TraitKey::SCHEME
+        unless scheme == TraitKey::SCHEME && own_index?(type.name)
           raise ReadOnlyError.new("#{type.name}'s keys need re-keying: open the database read-write once first") if @read_only
           write_transaction do |conn|
             reindex(conn, rekey(conn, type))
@@ -2705,18 +2720,17 @@ module DataDungeon
       end
     end
 
-    # Re-derive the key of every asset of a type from its tags, normalizing
-    # the stored trait values on the way. Returns the assets whose tags
-    # changed.
+    # Re-derive every asset of a type's key in the type's own index (made
+    # or changed to the registration's order) from its tags, normalizing the
+    # stored trait values on the way. Returns the assets whose tags changed.
     private def rekey(conn, type : AssetType) : Array(Int64)
-      ids = conn.query_all(
-        "SELECT id FROM assets WHERE asset_type = ? ORDER BY last_used_at DESC, id DESC",
-        type.name, as: Int64
-      )
-      conn.exec(
-        "UPDATE assets SET pool_key = NULL, pool = ? WHERE asset_type = ?",
-        type.pool ? 1 : 0, type.name
-      )
+      ids = conn.query_all("SELECT id FROM assets WHERE asset_type = ? ORDER BY id", type.name, as: Int64)
+      conn.exec(<<-SQL, type.name, type.pool_traits.to_json)
+        INSERT INTO asset_indexes (asset_type, consumer, name, traits) VALUES (?, '', '', ?)
+        ON CONFLICT (asset_type, consumer, name) DO UPDATE SET traits = excluded.traits
+      SQL
+      index = query_indexes(conn, "asset_type = ? AND consumer = '' AND name = ''", [type.name] of ::DB::Any).first
+      conn.exec("DELETE FROM asset_keys WHERE index_id = ?", index.id)
       changed = [] of Int64
       ids.each_slice(500) do |batch|
         stored = tags_batch(conn, batch)
@@ -2734,7 +2748,7 @@ module DataDungeon
             end
             changed << id unless changed.last? == id
           end
-          conn.exec("UPDATE assets SET pool_key = ? WHERE id = ?", type.key(normalized), id)
+          conn.exec("INSERT INTO asset_keys (asset_id, index_id, key) VALUES (?, ?, ?)", id, index.id, type.key(normalized))
         end
       end
       changed
@@ -3153,7 +3167,7 @@ module DataDungeon
     RAREST_PROBE = 1000
 
     # Where a tag filter starts reading: a range of keys in an index (the
-    # type's own `pool_key`, or a consumer's), one tag's rows, or the type's
+    # type's own, or a consumer's), one tag's rows, or the type's
     # newest assets. The traits it covers need no other check; `rows` is
     # how many rows it reads, when known without counting.
     private record Start, table : String, where : String, args : Array(::DB::Any), id : String,
@@ -3216,10 +3230,8 @@ module DataDungeon
     private def filter_starts(asset_type : String, filter : Hash(String, String), counts : Hash(String, Int64)) : Array(Start)
       starts = [] of Start
       if type = @types[asset_type]?
-        key_start(type, type.pool_traits, filter, "assets a", "a.pool_key", "a.id").try { |start| starts << start }
-        indexes(asset_type).each do |index|
-          key_start(type, index.traits, filter, "asset_keys k", "k.key", "k.asset_id", "k.index_id = ?", index.id)
-            .try { |start| starts << start }
+        query_indexes(@db, "asset_type = ?", [asset_type] of ::DB::Any).each do |index|
+          key_start(type, index, filter).try { |start| starts << start }
         end
       end
       filter.each do |key, value|
@@ -3241,25 +3253,23 @@ module DataDungeon
       Math.max(RAREST_PROBE.to_f, start.covered.product(total.to_f) { |trait| counts[trait] / total })
     end
 
-    # The range of keys over `traits` holding the filter's values for as
-    # many leading traits as it fixes (the whole key when it fixes them
-    # all), or nil when it doesn't fix the first.
-    private def key_start(type : AssetType, traits : Array(String), filter : Hash(String, String),
-                          table : String, column : String, id : String,
-                          where : String? = nil, index_id : Int64? = nil) : Start?
+    # The range of an index's keys holding the filter's values for as many
+    # leading traits as it fixes (the whole key when it fixes them all), or
+    # nil when it doesn't fix the first.
+    private def key_start(type : AssetType, index : AssetIndex, filter : Hash(String, String)) : Start?
+      traits = index.traits
       lead = traits.take_while { |trait| filter.has_key?(trait) }.size
       return nil if lead == 0
-      clauses = where ? [where] : [] of String
-      args = index_id ? [index_id] of ::DB::Any : [] of ::DB::Any
-      if lead == traits.size
-        clauses << "#{column} = ?"
-        args << TraitKey.key(type.name, traits, filter, type.labels)
-      else
-        prefix = TraitKey.prefix(type.name, traits, filter, lead, type.labels)
-        clauses << "#{column} >= ? AND #{column} < ?"
-        args << prefix << prefix.rchop + TraitKey::SEPARATOR.succ
-      end
-      Start.new(table, clauses.join(" AND "), args, id, traits[0, lead])
+      args = [index.id] of ::DB::Any
+      range = if lead == traits.size
+                args << TraitKey.key(type.name, traits, filter, type.labels)
+                "k.key = ?"
+              else
+                prefix = TraitKey.prefix(type.name, traits, filter, lead, type.labels)
+                args << prefix << prefix.rchop + TraitKey::SEPARATOR.succ
+                "k.key >= ? AND k.key < ?"
+              end
+      Start.new("asset_keys k", "k.index_id = ? AND #{range}", args, "k.asset_id", traits[0, lead])
     end
 
     # How many rows a start reads (retired assets too), counted up to `cap`.
@@ -3274,9 +3284,9 @@ module DataDungeon
       results = [] of AssetRecord
       @db.query(
         <<-SQL,
-          SELECT * FROM assets
-          WHERE permanent = 0
-          ORDER BY last_used_at ASC NULLS FIRST
+          SELECT #{ASSET_COLUMNS} FROM assets a
+          WHERE a.permanent = 0
+          ORDER BY a.last_used_at ASC NULLS FIRST
           LIMIT ?
         SQL
         limit
@@ -3374,13 +3384,12 @@ module DataDungeon
         media: rs.read(String),
         content_type: rs.read(String),
         file_path: rs.read(String),
-        pool_key: rs.read(String?),
+        key: rs.read(String?),
         file_hash: rs.read(String?),
         created_at: rs.read(String),
         last_used_at: rs.read(String?),
         use_count: (rs.read(Int32?) || 0),
         permanent: (rs.read(Int32?) || 0) != 0,
-        pool: (rs.read(Int32?) || 0) != 0,
         generator: rs.read(String?),
         generation: rs.read(String?),
         description: rs.read(String?),

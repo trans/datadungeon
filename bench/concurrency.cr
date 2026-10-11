@@ -60,7 +60,7 @@ def open_db(dir : String) : DataDungeon::DB
   db = DataDungeon::DB.new(File.join(dir, "assets.db"), cache_root: File.join(dir, "store"))
   db.register_type("picture", pool_traits: %w[portrait art_style rating room state items],
     group_traits: %w[portrait art_style rating], labels: {"portrait" => "portrait", "room" => "room"},
-    sets: %w[state items], pool: true)
+    sets: %w[state items])
   db.register_type("voice", pool_traits: %w[bit beat voice])
   db
 end

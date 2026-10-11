@@ -22,10 +22,14 @@ private def line(db, bit : String, voice : String, bytes : String, fmt = "mp3") 
 end
 
 class DataDungeon::DB
-  # Where tag_filter starts reading for voice assets with these tags.
+  # Where tag_filter starts reading for voice assets with these tags: a
+  # table, or which index's keys.
   def start_for_spec(tags : Hash(String, String)) : String
-    from = tag_filter("voice", normalize_tags("voice", tags)).not_nil![0]
-    from.sub(" CROSS JOIN assets a", "")
+    from, _, args = tag_filter("voice", normalize_tags("voice", tags)).not_nil!
+    table = from.sub(" CROSS JOIN assets a", "")
+    return table unless table == "asset_keys k"
+    consumer, name = @db.query_one("SELECT consumer, name FROM asset_indexes WHERE id = ?", args[0], as: {String, String})
+    consumer.empty? ? "the type's own index" : "#{consumer}'s #{name}"
   end
 end
 
@@ -84,8 +88,9 @@ describe "Indexes per consumer" do
       onyx = line(db, "b1", "onyx", "o")
       wav = line(db, "b1", "fable", "w", fmt: "wav")
 
-      db.start_for_spec({"bit" => "b1", "voice" => "onyx"}).should eq "assets a"  # the type's key: 1
-      db.start_for_spec({"bit" => "b1", "beat" => "0"}).should eq "asset_keys k"  # the index: 7
+      db.indexes("voice").map(&.name).should eq ["lines"] # consumers' only
+      db.start_for_spec({"bit" => "b1", "voice" => "onyx"}).should eq "the type's own index" # 1
+      db.start_for_spec({"bit" => "b1", "beat" => "0"}).should eq "park's lines"             # 7
       db.start_for_spec({"bit" => "b1", "fmt" => "wav"}).should eq "asset_tags x" # the rare tag: 1
       db.list_assets("voice", {"bit" => "b1", "voice" => "onyx"}).map(&.id).should eq [onyx.id]
       db.list_assets("voice", {"bit" => "b1", "fmt" => "wav"}).map(&.id).should eq [wav.id]

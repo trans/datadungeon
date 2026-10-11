@@ -72,8 +72,9 @@ module DataDungeon
     end
 
     # The assets of a registered type closest to `picks` (trait => value),
-    # best first, with their scores. Traits in `require` must equal their
-    # picks. `weights` give this query's emphasis; others come from the
+    # best first, with their scores; flagged ones are left out, and equal
+    # scores go to the highest rating, then the newest. Traits in `require`
+    # must equal their picks. `weights` give this query's emphasis; others come from the
     # registration, else 1.
     def best_matches(asset_type : String, picks : Hash(String, String), *,
                      require required_traits : Array(String) = [] of String,
@@ -142,10 +143,11 @@ module DataDungeon
         end
         ids.reject! { |id| id == exclude }
 
-        # Equal scores: the newest made first, then the newest filed.
-        made = made_dates(ids)
-        best = ids.map { |id| {id, score(ti, picks, weights, id)} }
-          .sort! { |(a, a_score), (b, b_score)| {b_score, made[b]? || "", b} <=> {a_score, made[a]? || "", a} }
+        # Flagged assets are out of play. Equal scores: the highest rating
+        # first, then the newest made, then the newest filed (DB::PREFERRED).
+        rank = preferences(ids)
+        best = ids.select { |id| rank.has_key?(id) }.map { |id| {id, score(ti, picks, weights, id)} }
+          .sort! { |(a, a_score), (b, b_score)| {b_score, rank[b], b} <=> {a_score, rank[a], a} }
           .first(limit)
         best.compact_map { |(id, s)| @db.find_asset_by_id(id).try { |rec| BestMatch.new(rec, s) } }
       end
@@ -157,15 +159,18 @@ module DataDungeon
       Array.new(ids.size, "?").join(", ")
     end
 
-    private def made_dates(ids : Array(Int64)) : Hash(Int64, String)
-      made = {} of Int64 => String
+    # Each unflagged asset's rating (none counts as 0) and made date, to
+    # break ties by.
+    private def preferences(ids : Array(Int64)) : Hash(Int64, {Int32, String})
+      rank = {} of Int64 => {Int32, String}
       ids.each_slice(500) do |batch|
-        @db.connection.query("SELECT id, made_at FROM assets WHERE id IN (#{placeholders(batch)})",
+        @db.connection.query("SELECT id, ifnull(rating, 0), ifnull(made_at, '') FROM assets " \
+                             "WHERE id IN (#{placeholders(batch)}) AND ifnull(flagged, 0) = 0",
           args: batch.map(&.as(::DB::Any))) do |rs|
-          rs.each { made[rs.read(Int64)] = rs.read(String?) || "" }
+          rs.each { rank[rs.read(Int64)] = {rs.read(Int64).to_i32, rs.read(String)} }
         end
       end
-      made
+      rank
     end
 
     # The type's index, loaded or built, and caught up on changes.

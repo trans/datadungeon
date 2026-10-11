@@ -9,20 +9,17 @@ module DataDungeon
     getter media : String
     getter content_type : String
     getter file_path : String
-    # The asset's key in its type's default index, derived from its traits:
-    # its type and traits' values in order, `portrait.golden.pg.f.human`.
-    # Several assets can share a key; the id is what names one durably.
-    # Deprecated as a column and as a caller-given key: in 0.12 the type's
-    # own order becomes an index in asset_keys, and this may be renamed.
-    getter pool_key : String?
+    # The asset's key in its type's own index, derived from its traits: its
+    # type and traits' values in the registered order,
+    # `portrait.golden.pg.f.human`. Several assets can share a key; the id is
+    # what names one durably. Nil for an asset of an unregistered type,
+    # stored before 0.12 required registering.
+    getter key : String?
     getter file_hash : String?
     getter created_at : String
     getter last_used_at : String?
     getter use_count : Int32
     getter permanent : Bool
-    # Deprecated since 0.11: what the caller passed as `pool`, which no
-    # longer changes anything.
-    getter pool : Bool
     getter generator : String?
     getter generation : String?
     getter description : String?
@@ -46,13 +43,12 @@ module DataDungeon
       @media : String,
       @content_type : String,
       @file_path : String,
-      @pool_key : String?,
+      @key : String?,
       @file_hash : String?,
       @created_at : String,
       @last_used_at : String? = nil,
       @use_count : Int32 = 0,
       @permanent : Bool = false,
-      @pool : Bool = false,
       @generator : String? = nil,
       @generation : String? = nil,
       @description : String? = nil,
@@ -64,24 +60,27 @@ module DataDungeon
     )
     end
 
-    @[Deprecated("Use `pool_key`.")]
-    def canonical_key : String?
-      @pool_key
+    @[Deprecated("Use `key`: since 0.12 the type's own order is an index like any other.")]
+    def pool_key : String?
+      @key
+    end
+
+    # JSON still carries `pool_key` beside `key` through 0.12, for readers
+    # written before the rename.
+    protected def on_to_json(json : ::JSON::Builder)
+      json.field "pool_key", @key
     end
   end
 
   # How DataDungeon keys one asset type: its traits, most important first,
   # whose values make up its key; and the leading traits that form its
-  # group. (`pool` is deprecated since 0.11 and changes nothing.)
+  # group.
   struct AssetType
     include JSON::Serializable
 
     getter name : String
     getter pool_traits : Array(String)
     getter group_traits : Array(String)
-    # Deprecated since 0.11 and always false, so a registration given with
-    # or without `pool:` (or stored by 0.10 with it) compares equal.
-    getter pool : Bool = false
     # Suffixes that make some traits' key segments readable (`tan-skin`).
     getter labels : Hash(String, String)
     # Traits whose value is a set (`lantern,sword`), matched as a whole.
@@ -108,7 +107,7 @@ module DataDungeon
     # view's roll around a circle, the dominant colour by appearance.
     MATCH_FIELDS = %w[view light roll dominant-color]
 
-    def initialize(@name : String, @pool_traits : Array(String), @group_traits : Array(String), pool : Bool,
+    def initialize(@name : String, @pool_traits : Array(String), @group_traits : Array(String),
                    @labels : Hash(String, String) = {} of String => String,
                    @sets : Array(String) = [] of String,
                    @facets : Hash(String, Array(String)) = {} of String => Array(String),
@@ -129,21 +128,21 @@ module DataDungeon
 
     # This registration under another type name.
     def renamed(name : String) : AssetType
-      AssetType.new(name, @pool_traits, @group_traits, @pool, @labels, @sets, @facets, @scales, @colors, @weights,
+      AssetType.new(name, @pool_traits, @group_traits, @labels, @sets, @facets, @scales, @colors, @weights,
         @cycles, @match_fields)
     end
 
     # This registration with a trait or facet tag renamed wherever it appears.
     def with_tag_renamed(from : String, to : String) : AssetType
       swap = ->(name : String) { name == from ? to : name }
-      AssetType.new(@name, @pool_traits.map(&swap), @group_traits.map(&swap), @pool,
+      AssetType.new(@name, @pool_traits.map(&swap), @group_traits.map(&swap),
         @labels.to_h { |trait, label| {swap.call(trait), label} }, @sets.map(&swap),
         @facets.transform_values(&.map(&swap)), @scales.to_h { |trait, values| {swap.call(trait), values} },
         @colors.map(&swap), @weights.to_h { |trait, weight| {swap.call(trait), weight} },
         @cycles.to_h { |trait, values| {swap.call(trait), values} }, @match_fields)
     end
 
-    # The pool key of these normalized values.
+    # The key of these normalized values, in the type's own index.
     def key(values : Hash(String, String)) : String
       TraitKey.key(@name, @pool_traits, values, @labels)
     end

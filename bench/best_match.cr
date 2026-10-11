@@ -15,7 +15,7 @@ path = ARGV[1]? || "/tmp/best_match.db"
 [path, "#{path}-wal", "#{path}-shm"].each { |file| File.delete(file) if File.exists?(file) }
 Dir.glob("#{path}.matches/*").each { |file| File.delete(file) }
 db = DataDungeon::DB.new(path)
-db.register_type("portrait", pool_traits: %w[art-style rating gender race skin hair outfit items], pool: true,
+db.register_type("portrait", pool_traits: %w[art-style rating gender race skin hair outfit items],
   scales: {"rating" => %w[g pg r x]}, colors: %w[skin hair], sets: %w[items])
 rng = Random.new(5)
 styles = %w[golden silver realism 3d anime fantasy]

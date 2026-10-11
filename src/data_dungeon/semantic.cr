@@ -33,16 +33,16 @@ module DataDungeon
     getter memo : Memo::Service
 
     # What a search is restricted to: asset type, media, exact tags, and a
-    # registered type's pool key or key prefix.
+    # registered type's key or key prefix (in its own index).
     private record Filter,
       asset_type : String?, media : String?, tags : Hash(String, String),
-      pool_key : String?, key_prefix : String? do
+      key : String?, key_prefix : String? do
       def any? : Bool
         !!(asset_type || media || keyed?) || !tags.empty?
       end
 
       def keyed? : Bool
-        !!(pool_key || key_prefix)
+        !!(key || key_prefix)
       end
     end
 
@@ -155,7 +155,7 @@ module DataDungeon
     # score cutoff unless `min_score` gives one: scores aren't comparable
     # across embedding models or query lengths, so the threshold belongs to
     # the caller's decision (offering choices vs. reusing an asset outright).
-    # `pool_key` ranks only one pool's assets; `key_prefix` (ending in ".",
+    # `key` ranks only the assets with one key; `key_prefix` (ending in ".",
     # e.g. from DB#group_key_for) only those whose leading traits match.
     # `facet` ranks one of a registered type's facets instead of the whole
     # asset's embedding, and needs `asset_type`.
@@ -166,7 +166,7 @@ module DataDungeon
       asset_type : String? = nil,
       media : String? = nil,
       tags : Hash(String, String) = {} of String => String,
-      pool_key : String? = nil,
+      key : String? = nil,
       key_prefix : String? = nil,
       facet : String? = nil,
     ) : Array(Hit)
@@ -176,7 +176,7 @@ module DataDungeon
       end
       source = source_for(asset_type, facet)
       tags = @assets.normalize_tags(asset_type, tags) if asset_type
-      filter = Filter.new(asset_type, media, tags, pool_key, key_prefix)
+      filter = Filter.new(asset_type, media, tags, key, key_prefix)
       floor = min_score || -1.0 # cosine similarity is never below -1
 
       # Most filters (including a popular art style) match many assets. Start
@@ -220,7 +220,7 @@ module DataDungeon
     # asset must have every facet named, and scores its weakest one: a close
     # match on one part doesn't make up for a poor match on another. Each
     # facet is searched to a depth of `depth` assets, so combine within a
-    # scope (`pool_key`, `key_prefix`, tags) small enough to be ranked whole.
+    # scope (`key`, `key_prefix`, tags) small enough to be ranked whole.
     def search_facets(
       queries : Hash(String, String),
       asset_type : String,
@@ -228,14 +228,14 @@ module DataDungeon
       min_score : Float64? = nil,
       media : String? = nil,
       tags : Hash(String, String) = {} of String => String,
-      pool_key : String? = nil,
+      key : String? = nil,
       key_prefix : String? = nil,
       depth : Int32 = 500,
     ) : Array(Hit)
       raise ArgumentError.new("search_facets needs at least one facet query") if queries.empty?
       by_facet = queries.map do |facet, query|
         hits = search(query, limit: depth, asset_type: asset_type, media: media, tags: tags,
-          pool_key: pool_key, key_prefix: key_prefix, facet: facet)
+          key: key, key_prefix: key_prefix, facet: facet)
         {facet, hits.to_h { |hit| {hit.asset.id, hit} }}
       end
       common = by_facet.map { |_, hits| hits.keys.to_set }.reduce { |shared, ids| shared & ids }
@@ -373,13 +373,15 @@ module DataDungeon
     end
 
     private def append_filter(clauses : Array(String), args : Array(::DB::Any), filter : Filter) : Nil
-      if key = filter.pool_key
-        clauses << "a.pool_key = ?"
-        args << key
+      if key = filter.key
+        clause, key_args = @assets.key_clause(TraitKey.type_of(key), key)
+        clauses << clause
+        args.concat(key_args)
       end
       if prefix = filter.key_prefix
-        clauses << "a.pool_key >= ? AND a.pool_key < ?"
-        args << prefix << prefix.rchop + TraitKey::SEPARATOR.succ
+        clause, key_args = @assets.key_clause(TraitKey.type_of(prefix), prefix, prefix: true)
+        clauses << clause
+        args.concat(key_args)
       end
       if asset_type = filter.asset_type
         # With a key, `+` keeps SQLite on the key index rather than the type's.

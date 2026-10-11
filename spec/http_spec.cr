@@ -6,7 +6,7 @@ private def with_api(name : String, read_token : String? = "r", write_token : St
   dir = File.tempname(name)
   Dir.mkdir_p(dir)
   db = DataDungeon::DB.new(File.join(dir, "assets.db"), cache_root: File.join(dir, "store"))
-  db.register_type("backdrop", pool_traits: %w[art-style rating], pool: true)
+  db.register_type("backdrop", pool_traits: %w[art-style rating])
   api = DataDungeon::API.new(db, read_token: read_token, write_token: write_token, prefix: "/dd")
   yield api, db, dir
 ensure
@@ -72,7 +72,7 @@ describe DataDungeon::API do
       json(call(api, "GET", "/dd/assets?q=silv*", "r"))["assets"].size.should eq 1
 
       shown = json(call(api, "GET", "/dd/assets/#{a.id}", "r"))
-      shown["asset"]["pool_key"].should eq "backdrop.golden.pg"
+      shown["asset"]["key"].should eq "backdrop.golden.pg"
       shown["tags"].should eq({"art-style" => "golden", "rating" => "pg"})
       object = call(api, "GET", "/dd/assets/#{a.id}/object", "r")
       object.status_code.should eq 200
@@ -207,7 +207,7 @@ describe DataDungeon::API do
         {description: "a beach", flagged: true, tags: {"art-style" => "silver", "rating" => "pg"}}))
       edited["asset"]["description"].should eq "a beach"
       edited["asset"]["flagged"].should be_true
-      edited["asset"]["pool_key"].should eq "backdrop.silver.pg"
+      edited["asset"]["key"].should eq "backdrop.silver.pg"
 
       db.update_asset(rec.id, tags: {"art-style" => "golden", "rating" => "pg"}) # golden, not custom now
       db.store("backdrop", {"art-style" => "bronze", "rating" => "pg"}, custom: %w[art-style],

@@ -111,6 +111,9 @@ private def with_db(name : String, &)
   dir = File.tempname(name)
   Dir.mkdir_p(dir)
   db = DataDungeon::DB.new(File.join(dir, "assets.db"), cache_root: File.join(dir, "store"))
+  db.register_type("prop", pool_traits: %w[thing], match_fields: %w[view dominant-color])
+  db.register_type("blimp", pool_traits: %w[motion])
+  {"voice", "anim", "script"}.each { |type| db.register_type(type, pool_traits: %w[name]) }
   yield db
 ensure
   db.try(&.close)
@@ -339,7 +342,7 @@ describe "Image fields" do
       kept.should eq fresh.sort # as counted afresh
 
       expect_raises(ArgumentError, /@ are DataDungeon's/) do
-        db.store("prop", {"@view" => "front"}, bytes: png(5, 1) { RED }, content_type: "image/png")
+        db.store("thing", {"@view" => "front"}, bytes: png(5, 1) { RED }, content_type: "image/png")
       end
       expect_raises(ArgumentError, /@ are DataDungeon's/) { db.rename_tag("thing", "thing", "@thing") }
     end

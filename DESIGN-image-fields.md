@@ -1,6 +1,6 @@
 # Image fields, views and placement
 
-*Designed with Thomas, 2026-10-09. Built: keys, retiring and indexes in 0.11.0; image fields, views, keyframes and best match on fields in 0.11.1.*
+*Designed with Thomas, 2026-10-09. Built: keys, retiring and indexes in 0.11.0; image fields, views, keyframes and best match on fields in 0.11.1; the type's own key moved into the index table, with registration required, in 0.12.0.*
 
 ## The model
 
@@ -366,7 +366,9 @@ else's: no more re-keying everyone's assets in a shared store.
   the same assets.
 - **Today's `pool_key`** becomes the type's default index (the order its
   owner registered), so existing data and callers keep working; the API
-  keeps showing it, documented as derived.
+  keeps showing it, documented as derived. (0.12.0: the type's own index,
+  consumer and name empty; the column is gone, `AssetRecord#key` reads it,
+  and storing needs a registered type.)
 
 **Apps just ask with traits; DD picks the path**, as an SQL planner does
 (and as DD already does with one key):

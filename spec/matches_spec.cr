@@ -18,7 +18,7 @@ private def portrait(db, n : Int32, **traits) : DataDungeon::AssetRecord
 end
 
 private def register(db, rekey = false)
-  db.register_type("portrait", pool_traits: %w[art-style rating race hair skin items], pool: true,
+  db.register_type("portrait", pool_traits: %w[art-style rating race hair skin items],
     scales: {"rating" => %w[G PG R X]}, colors: %w[hair skin], sets: %w[items], rekey: rekey)
 end
 
@@ -192,9 +192,31 @@ describe DataDungeon::MatchIndex do
     end
   end
 
+  it "leaves flagged assets out, and prefers the highest rating among equals" do
+    with_store("dd-match-rating") do |db|
+      register(db)
+      plain = db.store("portrait", {"race" => "elf"}, bytes: "1".to_slice, content_type: "image/webp",
+        made_at: Time.utc(2026, 5, 1))
+      loved = db.store("portrait", {"race" => "elf"}, bytes: "2".to_slice, content_type: "image/webp",
+        made_at: Time.utc(2026, 1, 1))
+      reported = db.store("portrait", {"race" => "elf"}, bytes: "3".to_slice, content_type: "image/webp",
+        made_at: Time.utc(2026, 6, 1))
+      db.update_asset(loved.id, rating: 2)
+      db.update_asset(reported.id, flagged: true)
+      index = DataDungeon::MatchIndex.new(db)
+      begin
+        ids(index.best_matches("portrait", {"race" => "elf"})).should eq [loved.id, plain.id]
+        db.update_asset(reported.id, flagged: false) # cleared
+        ids(index.best_matches("portrait", {"race" => "elf"})).should eq [loved.id, reported.id, plain.id]
+      ensure
+        index.close
+      end
+    end
+  end
+
   it "rebuilds when what the vectors mean changes, and lets one process own the files" do
     with_store("dd-match-rebuild") do |db|
-      db.register_type("portrait", pool_traits: %w[rating race], pool: true)
+      db.register_type("portrait", pool_traits: %w[rating race])
       pg = portrait(db, 1, rating: "pg", race: "elf")
       r = portrait(db, 2, rating: "r", race: "elf")
       x = portrait(db, 3, rating: "x", race: "elf")
@@ -203,7 +225,7 @@ describe DataDungeon::MatchIndex do
         expect_raises(DataDungeon::MatchIndex::InUse) { DataDungeon::MatchIndex.new(db) }
         index.best_matches("portrait", {"rating" => "g"}).map(&.score).uniq.should eq [0.0] # words: no near values
 
-        db.register_type("portrait", pool_traits: %w[rating race], pool: true, scales: {"rating" => %w[g pg r x]},
+        db.register_type("portrait", pool_traits: %w[rating race], scales: {"rating" => %w[g pg r x]},
           rekey: true)
         ids(index.best_matches("portrait", {"rating" => "g"})).should eq [pg.id, r.id, x.id]
       ensure

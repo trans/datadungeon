@@ -1,5 +1,5 @@
-# Keys as an index (0.11): lookups by traits through the planner, which
-# starts from the narrowest of the type's own key, a consumer's index and
+# Keys as an index (0.11, 0.12): lookups by traits through the planner, which
+# starts from the narrowest of the type's own index, a consumer's index and
 # each tag; listings and counts that leave retired assets out; and what a
 # consumer's index costs to build and keep.
 #
@@ -18,6 +18,12 @@
 # 0.9 ms, tag_keys 2.5 ms, tag_values 0.01 ms, from the kept counts;
 # registering an index over 1M assets 4.7 s; retiring 0.05 ms. A store
 # costs about 23 us more for the kept counts (102 to 125 us at 200k).
+#
+# Again 2026-10-11 with 0.12, the type's own key in asset_keys like any
+# index: pages, counts and the rest the same within noise; `get` 0.016 ms
+# (a missing key; about 8 us for a hit, read whole, on a real store),
+# find_pool and find_group 0.004 ms; registering an index 6.2 s; a store
+# 0.126 ms with the index; 1M stored in 143 s.
 require "../src/data_dungeon"
 
 n = (ARGV[0]? || "200000").to_i
@@ -73,6 +79,8 @@ end
 end
 
 puts "get by key            p50=#{p50 { db.get("voice", {"voice" => "voice3", "bit" => "b123", "beat" => "2", "fmt" => "mp3"}, touch: false) }.round(3)} ms"
+puts "find_pool by traits   p50=#{p50 { db.find_pool("voice", {"voice" => "voice3", "bit" => "b123", "beat" => "2", "fmt" => "mp3"}) }.round(3)} ms"
+puts "find_group by prefix  p50=#{p50 { db.find_group("voice.voice3.b123.") }.round(3)} ms"
 puts "asset_types           p50=#{p50 { db.asset_types }.round(3)} ms"
 puts "asset_types retired   p50=#{p50 { db.asset_types(retired: true) }.round(3)} ms"
 puts "tag_keys              p50=#{p50 { db.tag_keys("voice") }.round(3)} ms"

@@ -36,6 +36,7 @@ describe "Retiring" do
       a = take(db, "1")
       b = take(db, "2", supersedes: a.id)
       c = take(db, "3", bit: "b2")
+      db.register_type("picture", pool_traits: %w[room])
       db.store("picture", {"room" => "attic", "note" => "x"}, bytes: "p".to_slice, content_type: "image/webp")
       db.update_asset(c.id, tags: {"bit" => "b3", "voice" => "onyx"})
       db.retire(c.id)
@@ -108,7 +109,7 @@ describe "Retiring" do
       db.tag_values("voice", "bit").should eq({"b1" => 1})
       db.tag_values("voice", "bit", retired: true).should eq({"b2" => 1})
       db.tag_keys("voice", retired: nil).should eq({"bit" => 2, "voice" => 2})
-      db.asset_exists?("voice", gone.pool_key.not_nil!).should be_false
+      db.asset_exists?(gone.key.not_nil!).should be_false
       db.find_by_hash(gone.file_hash.not_nil!).map(&.id).should eq [gone.id] # by its bytes, retired or not
     end
   end
@@ -146,6 +147,7 @@ describe "Retiring" do
   it "copies the old take's links to the new one" do
     with_db("dd-supersede-links") do |db|
       old = take(db, "old")
+      db.register_type("picture", pool_traits: %w[room])
       picture = db.store("picture", bytes: "p".to_slice, content_type: "image/webp")
       db.link(old.id, "used-by", "boardwalk")
       db.link(old.id, "derived-from", picture.id)
@@ -160,6 +162,7 @@ describe "Retiring" do
   it "supersedes only within a type" do
     with_db("dd-supersede-check") do |db|
       voice = take(db, "v")
+      db.register_type("picture", pool_traits: %w[room])
       picture = db.store("picture", bytes: "p".to_slice, content_type: "image/webp")
 
       expect_raises(ArgumentError, /is a picture/) { db.supersede(picture.id, voice.id) }

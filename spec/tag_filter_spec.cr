@@ -6,6 +6,8 @@ private def with_db(name : String, &)
   dir = File.tempname(name)
   Dir.mkdir_p(dir)
   db = DataDungeon::DB.new(File.join(dir, "assets.db"), cache_root: File.join(dir, "store"))
+  # Traits these specs don't filter by, so tag filters start from tag rows.
+  {"tile", "backdrop", "decree"}.each { |type| db.register_type(type, pool_traits: %w[name]) }
   yield db
 ensure
   db.try(&.close)
@@ -66,7 +68,7 @@ describe "DataDungeon::DB tag filters" do
 
   it "uses a registered type's key prefix, and keys an asset an older store left without one" do
     with_db("dd-tags-registered") do |db|
-      db.register_type("portrait", pool_traits: %w[art_style rating gender race], pool: true)
+      db.register_type("portrait", pool_traits: %w[art_style rating gender race])
       a = put(db, "portrait", {"art_style" => "golden", "rating" => "pg", "gender" => "f", "race" => "human"}, "a")
       b = put(db, "portrait", {"art_style" => "golden", "rating" => "pg", "gender" => "f", "race" => "elf"}, "b")
       put(db, "portrait", {"art_style" => "golden", "rating" => "pg", "gender" => "fem", "race" => "elf"}, "c")
@@ -78,10 +80,10 @@ describe "DataDungeon::DB tag filters" do
 
       # Before 0.11 an asset could lose its key to another (a single-best
       # collision); opening such a store keys it again.
-      db.connection.exec("UPDATE assets SET pool_key = NULL WHERE id = ?", a.id)
+      db.connection.exec("DELETE FROM asset_keys WHERE asset_id = ?", a.id)
       db.connection.exec("UPDATE asset_types SET key_scheme = 3")
       reopened = DataDungeon::DB.new(db.path)
-      reopened.find_asset_by_id(a.id).not_nil!.pool_key.should eq "portrait.golden.pg.f.human"
+      reopened.find_asset_by_id(a.id).not_nil!.key.should eq "portrait.golden.pg.f.human"
       reopened.find_assets_by_tags("portrait", filter).map(&.id).should eq [a.id, b.id]
       reopened.close
     end

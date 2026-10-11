@@ -1,10 +1,10 @@
 module DataDungeon
   # Canonical trait keys. A key is the asset type followed by the values of
-  # its traits, in the order its registration gives them (most important
-  # first), joined by dots:
+  # its traits in an index's order (for the type's own index, the order its
+  # registration gives, most important first), joined by dots:
   # `portrait.golden.pg.f.human.tan-skin.long-hair.straight-hair.black-hair`.
-  # A trait the asset lacks is an empty segment. The key alone names its
-  # pool, and the position says which trait a value belongs to, so a prefix
+  # A trait the asset lacks is an empty segment. The key names its type, and
+  # the position says which trait a value belongs to, so a prefix
   # ending at a dot (`portrait.golden.pg.f.`) matches every asset of the type
   # whose leading traits are equal.
   module TraitKey
@@ -56,6 +56,11 @@ module DataDungeon
           end
         end
       end
+    end
+
+    # The type a key names: everything before its first separator.
+    def self.type_of(key : String) : String
+      key.split(SEPARATOR, 2).first
     end
 
     # The prefix shared by every key of `type` whose first `size` traits have

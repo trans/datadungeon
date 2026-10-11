@@ -6,10 +6,10 @@ and resolves stored objects through a `Storage` adapter.
 
 ## Asset identity
 
-Each asset type the application registers names the traits that identify it,
-most important first. Traits are ordinary tags. DataDungeon derives the
-asset's `pool_key` from them: the asset type, then the trait values in that
-order, joined by dots.
+Every asset type is registered before anything of it is stored
+(`register_type`), naming the traits that identify it, most important first.
+Traits are ordinary tags. DataDungeon derives the asset's `key` from them:
+the asset type, then the trait values in that order, joined by dots.
 
 ```
 portrait.golden.pg.f.human.tan-skin.red-hair
@@ -46,7 +46,7 @@ members, and prefixes still stop at dots. Set traits can't be labelled.
 ```crystal
 db.register_type("poster", pool_traits: %w[style colors], sets: %w[colors])
 db.store("poster", {"style" => "art deco", "colors" => "Red, blue"}, ...)
-# pool_key: poster.art-deco.blue,red
+# key: poster.art-deco.blue,red
 ```
 
 A tag may be marked `custom` when its value isn't one of the application's
@@ -72,13 +72,13 @@ record = db.store("portrait", traits, custom: %w[race],
   generation: %({"width":512,"height":512}),
   image: DataDungeon::ImageMeta.new(compression: "normalize", target_format: "webp")
 )
-record.pool_key                                     # "portrait.silver.pg.f.ape.purple-skin.red-hair"
+record.key                                          # "portrait.silver.pg.f.ape.purple-skin.red-hair"
 
 db.find_pool("portrait", traits)                    # every trait equal
 db.find_pool("portrait", traits, custom: %w[race])  # every trait equal but race; rank race yourself
 db.find_group("portrait", traits)                   # the group traits equal
 db.find_group("portrait", traits, 4)                # the first four traits equal
-db.find_pool(record.pool_key.not_nil!)              # by the key alone
+db.find_pool(record.key.not_nil!)                   # by the key alone
 db.find_group("portrait.silver.pg.")                # by a key prefix alone
 found = db.find("portrait", traits, custom: %w[race])
 found.pool                                          # as find_pool with custom:
@@ -109,14 +109,19 @@ The registration is stored in the database. Registering a type again with
 the same definition changes nothing; a different definition raises unless
 given `rekey: true`, which re-derives the keys of its assets from their tags.
 A store shared by several applications should register its types in one
-place. (`pool:` is deprecated and changes nothing.)
+place.
 
 ## Takes, superseding and retiring
 
 `get(asset_type, traits)` and `get_with_meta(asset_type, traits)` return the
-newest current asset with those traits, newest by `made_at`: when the content
-was made, which a batch or an import passes (`store(…, made_at: time)`) and
-which defaults to when it was filed. `find_pool` returns every current one.
+preferred current asset with those traits: the highest `rating` (none counts
+as 0), then the newest by `made_at`, when the content was made, which a
+batch or an import passes (`store(…, made_at: time)`) and which defaults to
+when it was filed. A flagged asset is out of play: `get` and best matches
+skip it, while listings still show it for review. `update_asset(id, rating:,
+flagged:)` sets both; an application keeping people's reactions writes their
+total into `rating` and a report into `flagged`. `find_pool` returns every
+current one.
 
 Naming the take a new one replaces keeps the history tidy:
 `store(…, supersedes: old.id)` (or `supersede(new_id, old_id)`) retires the
@@ -144,7 +149,7 @@ them again with the same traits, as a retry does, just returns the asset.
 
 ## Indexes per consumer
 
-A type's own key serves the order its owner registered. An application
+A type's own index serves the order its owner registered. An application
 asking in another order keeps its own index: it says who it is when it opens
 the store, and registers an index with a name and the traits it usually asks
 by, most selective first.
@@ -162,15 +167,16 @@ rows. It starts from the smallest and checks the other tags on each asset
 there. Each asset has a key in every index of its type, kept current on
 every write. A consumer changes only its own indexes: registering one again
 changes nothing, other traits raise unless `rekey: true`, and
-`unregister_index` drops one. `indexes(type)` lists everyone's. Every
-process writing a store with indexes must be DataDungeon 0.11 or later.
+`unregister_index` drops one. `indexes(type)` lists every consumer's.
 
-An unregistered type may still pass an explicit `pool_key` (formerly
-`canonical_key`), and assets without a key are addressed by ID. Both are
-**deprecated**: 0.12 will require registering a type before storing it,
-and keep each asset's key in the index table (the type's own order as its
-default index), so a caller-built key goes. Register every type you store,
-look assets up by traits, and refer to one asset by its id. `description` is the text used to describe an asset; for a
+Every key is in one table, the type's own among them, so an application
+never builds one: it registers the types it stores, looks assets up by
+traits, and refers to one asset by its id. Before 0.12 a key was a column
+of the assets table, and an unregistered type's caller could pass one
+(`pool_key:`). The first read-write open by 0.12 moves each registered
+type's keys into its own index and drops the column, and an older
+DataDungeon can't open the store after that; assets of a type nobody
+registered keep their tags and id, with no key. `description` is the text used to describe an asset; for a
 generated image, it holds the prompt. `generated` records whether the asset
 was generated. `generator` and `generation` retain provider/model information
 and JSON parameters.
@@ -310,7 +316,7 @@ db.list_assets("voice", retired: true)        # what was retired or superseded
 Search words come from a full-text index (SQLite FTS5) of each asset's type
 and tag values, kept current as assets change. `update_asset(id, tags:,
 description:, flagged:, rating:)` edits an asset in place without storing
-its bytes again.
+its bytes again; a rating and a flag change which asset `get` prefers.
 
 `link(from, rel, to, data)` relates an asset to another asset
 (`derived-from`) or to a name (`used-by`, `"boardwalk.holidayland"`),
@@ -355,6 +361,10 @@ HTTP::Server.new([api, app_handler])
 | `POST /maintenance/prune` | `{type, keep_last, retired_before}`: delete retired assets (write token) |
 | `POST /maintenance/measure` | `{type, all}`: measure stored pictures (write token) |
 | `POST /types/:type/promote`, `/maintenance/vacuum` | (write token) |
+
+An asset in JSON carries its `key` (and, through 0.12, the same value as
+`pool_key`, its name before 0.12), `rating` and `flagged`, which `PATCH`
+sets.
 
 ## Best matches
 
@@ -464,7 +474,7 @@ tested against real queries.
 
 Search can also filter by `media` (`"image"`, `"audio"`, `"text"`, `"video"`, …).
 
-For a registered type, `pool_key:` ranks only one pool's assets and
+For a registered type, `key:` ranks only the assets with one key and
 `key_prefix:` only those whose leading traits match, such as every picture of
 one portrait:
 

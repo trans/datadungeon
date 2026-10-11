@@ -15,6 +15,7 @@ n = (ARGV[0]? || "200000").to_i
 path = ARGV[1]? || "/tmp/search_planner.db"
 File.delete(path) if File.exists?(path)
 db = DataDungeon::DB.new(path)
+db.register_type("prop", pool_traits: %w[name]) # storing needs a registered type; the search is what's measured
 rng = Random.new(11)
 venues = %w[boardwalk pirate-ship cattacula midway big-top] + (0...45).map { |i| "venue#{i}" }
 t = Time.instant
