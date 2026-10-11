@@ -23,7 +23,7 @@ describe DataDungeon::SemanticIndex do
 
     index.process_queue.should eq 3
     text = db.connection.query_one(
-      "SELECT t.content FROM memo_texts t JOIN memo_sources s ON s.id = t.source_id WHERE s.source_type = 'asset' AND s.external_int = ?",
+      "SELECT t.content FROM memo_sources s JOIN memo_contents t ON t.id = s.content_id WHERE s.source_type = 'asset' AND s.external_int = ?",
       red.id, as: String
     )
     text.should eq "A human adventurer\nhair color: red"
@@ -46,7 +46,7 @@ describe DataDungeon::SemanticIndex do
     db.update_asset(red.id, tags: {"hair_color" => "black"}, description: "A wandering knight")
     index.process_queue.should eq 1
     new_text = db.connection.query_one(
-      "SELECT t.content FROM memo_texts t JOIN memo_sources s ON s.id = t.source_id WHERE s.external_int = ?",
+      "SELECT t.content FROM memo_sources s JOIN memo_contents t ON t.id = s.content_id WHERE s.external_int = ?",
       red.id, as: String
     )
     new_text.should eq "A wandering knight\nhair color: black"
@@ -80,7 +80,7 @@ describe DataDungeon::SemanticIndex do
     db.rename_tag("portrait", "hair_color", "hair-color").should eq 1
     index.process_queue.should eq 0
     db.connection.query_one(
-      "SELECT t.content FROM memo_texts t JOIN memo_sources s ON s.id = t.source_id WHERE s.source_type = 'asset' AND s.external_int = ?",
+      "SELECT t.content FROM memo_sources s JOIN memo_contents t ON t.id = s.content_id WHERE s.source_type = 'asset' AND s.external_int = ?",
       rec.id, as: String
     ).should eq "A human adventurer\nhair color: red"
   ensure
@@ -183,7 +183,7 @@ describe DataDungeon::SemanticIndex do
 
     text = ->(source_type : String, id : Int64) do
       db.connection.query_one?(
-        "SELECT t.content FROM memo_texts t JOIN memo_sources s ON s.id = t.source_id WHERE s.source_type = ? AND s.external_int = ?",
+        "SELECT t.content FROM memo_sources s JOIN memo_contents t ON t.id = s.content_id WHERE s.source_type = ? AND s.external_int = ?",
         source_type, id, as: String)
     end
     text.call("hero.identity", ape.id).should eq "race: ape\nskin: purple"
