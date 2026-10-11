@@ -85,7 +85,7 @@ points `memo` at `../memo`, so local builds use the Memo checkout. A fresh
 install gets Memo's `main` from GitHub, so push any Memo changes DD depends
 on before DD's.
 
-Memo 0.13 (main `8ecd4a5`, 2026-10-11) stores each distinct text once
+Memo 0.13 (main `8ecd4a5`, 2026-10-11; tagged `v0.13.0` at `5f51edd`, a changelog date and a spec fix on top) stores each distinct text once
 (`memo_contents`; `memo_texts` is gone) and needs `arcana-ai` ~> 0.4 and
 `arcana-core` ~> 0.16 (`shards update memo arcana-core arcana-ai arcana`).
 It migrates a database's memo tables once, on first open, one way. DD's
