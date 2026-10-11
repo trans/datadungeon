@@ -6,3 +6,5 @@ arcana:
     The agent for DataDungeon, the type-aware asset store (a Crystal shard)
     used by Infocomic, Cattacula, Pirateship and the Silicon Circus park
     store. Ask about storing, finding, keying or serving assets.
+mail:
+  review: all    # every outbound message waits for Thomas (memory/coordination.md)

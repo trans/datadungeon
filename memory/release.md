@@ -1,6 +1,6 @@
 # Releases
 
-*Updated 2026-10-10*
+*Updated 2026-10-11*
 
 ## Tag every release
 
@@ -77,3 +77,10 @@ Memo lives at `github.com/openbohemians/memo` (moved from `trans/memo`
 points `memo` at `../memo`, so local builds use the Memo checkout. A fresh
 install gets Memo's `main` from GitHub, so push any Memo changes DD depends
 on before DD's.
+
+Memo 0.13 (main `8ecd4a5`, 2026-10-11) stores each distinct text once
+(`memo_contents`; `memo_texts` is gone) and needs `arcana-ai` ~> 0.4 and
+`arcana-core` ~> 0.16 (`shards update memo arcana-core arcana-ai arcana`).
+It migrates a database's memo tables once, on first open, one way. DD's
+spec reads `memo_contents` since `17d795f`. No DD consumer uses
+`SemanticIndex`, so no stored database was affected.

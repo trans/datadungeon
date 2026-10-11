@@ -1,6 +1,6 @@
 # Coordination
 
-*Updated 2026-10-09*
+*Updated 2026-10-11*
 
 - Our Arcana identity is **`@datadungeon`** (it was bare `datadungeon`
   before 2026-10-04). In this project, "check mail" means Arcana, not Gmail.
@@ -11,10 +11,12 @@
   `@curio` (the DD web UI and the
   Silicon Circus park store), and `siliconcircus` (Silicon Circus, renamed
   from `siliconcircus-dev` 2026-07-07). On 2026-10-09 `siliconcircus` had no
-  mailbox and no Silicon Circus agent was registered, so notes for Cattacula
-  go to `~/Projects/siliconcircus.lol/cattacula/.ai/inbox/`, where `@curio`
-  leaves them too.
-- `.ai/inbox/` is the slower route: agents leave notes there (see README.md).
+  mailbox and no Silicon Circus agent was registered, so mail for Cattacula
+  is delivered into Cattacula's `.ai` inbox (`inbox/` there on 2026-10-11,
+  the layout before the `ai` branch), where `@curio` leaves notes too.
+- `.ai/mail/` holds our mail as files: drafts, outbox, the committed
+  `sent/` record, and the inbox, where mail that didn't come live lands
+  (see README.md).
 
 ## From `@mj` (2026-10-08)
 
@@ -52,3 +54,7 @@ to X?" is the invitation; a general nod doesn't cover later messages.
 Reading and receiving mail is fine. Draft and offer ("want me to tell
 them?"), then wait for his go-ahead for that message. He coordinates with
 the other agents separately and wants to know exactly what's said to them.
+Since 2026-10-11 the draft is a file in `mail/drafts/` with a `Held:` line,
+and `mail.review: all` in `config.yml` records this rule; sent messages
+are kept in `mail/sent/`. Messages before then are in Arcana and in this
+note's history, not in `sent/`.
