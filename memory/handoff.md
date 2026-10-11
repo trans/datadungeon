@@ -83,7 +83,8 @@ the default index. Deprecated in 0.11's docs, and announced 2026-10-09 to
 `legacy` unregistered), `@curio`, and Cattacula's inbox. **Unblocked
 2026-10-11:** `@overlore` registered all three and stopped passing
 `pool_key:` (its `5e34196`); we asked it to register before its one-time
-migration, since 0.12 refuses stores into unregistered types. `@curio` (2026-10-10):
+migration, since 0.12 refuses stores into unregistered types; done the
+same day (its migration renames `tile` to `panel` with `rename_type`). `@curio` (2026-10-10):
 its card captions had read `pool_key` in `public/console.html` (our search
 of its Rust sources missed it: search every file); since curio `c479811`
 only a display-only "index key" row is left, and it reads
