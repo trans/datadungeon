@@ -102,6 +102,15 @@ goes to Overlore as one more (maybe weighted) reaction, not straight into
 `rating`; the admin's hard calls are flag/clear and retire/reinstate,
 which win whatever the rating. DD never learns the reaction words.
 
+**Embeddings registry (draft, Thomas, 2026-10-11): `DESIGN-embeddings.md`,
+not yet committed in the code repo.** Semantic search is built but unused:
+not in `dd-serve`, no consumer. Decided: named entries per consumer and
+type; same set of parts shares one recipe and its vectors; a recipe is a
+set, written in one fixed order (measured: order moves vectors about as much
+as a changed value in the whole asset). Proposed, to confirm: parts =
+tags + `description`, `prompt`, `view`; `default` entry; one model per
+store. **Next:** Thomas reads it through.
+
 ## Current state (2026-10-07)
 
 Everything below "Where we stopped (2026-10-04)" predates this week and is
