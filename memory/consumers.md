@@ -4,7 +4,7 @@
 
 | App | Checkout | Uses DD for | Builds against |
 |---|---|---|---|
-| Overlore (formerly Infocomic) | `~/Projects/infocomics/infocomic` | images, transcripts, banter, decrees | GitHub, `~> 0.10.0` since its `889c4fa` (2026-10-09); was this checkout |
+| Overlore (formerly Infocomic) | `~/Projects/infocomics/infocomic` | images, transcripts, banter, decrees | GitHub, `~> 0.12.0` since its `863ba42` (2026-10-11); was this checkout |
 | Cattacula | `~/Projects/siliconcircus.lol/cattacula/service` | TTS voice audio (`voices.db`) | this checkout (`lib/data_dungeon` symlink) |
 | Pirateship | `~/Projects/siliconcircus.lol/pirateship` | parrot TTS voices (`data/voices.db`) | GitHub, `~> 0.7.0` |
 | Silicon Circus venues | via the `siliconcircus` agent | venue images, about one per attraction | — |
