@@ -46,6 +46,18 @@
   result carries `pool`. `format` now describes the bytes (it re-encodes
   Google's JPEGs). `usd_estimated` is false only for `klein`.
 
+## From `@mj` (2026-10-11)
+
+- Agreed DD ranks by rating, not `version`/`quality`: both describe the
+  camera, and `quality` is a rank that changes; `generator`
+  (`mj:camera:flare@1`) keeps them as provenance.
+- `mj:camera` now draws concurrently (arcana-core 0.17.1): shots in flight
+  overlap and can come back out of order; correlation ids pair them.
+  `cameras` reports `pool_limits` beside `pools`.
+- Still asks that `staging_prompt` go into the `generation` JSON. DD stores
+  whatever JSON the app passes, so that's the filing app's (Overlore's),
+  which didn't keep it on 2026-10-11.
+
 ## Every outbound message needs Thomas's go-ahead
 
 Don't send Arcana messages to other agents on your own. Thomas invites each
