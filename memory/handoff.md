@@ -80,13 +80,26 @@ planner loses its two kinds of range. `get(key)`, `find_pool(key)`,
 `find_group(prefix)` and SemanticIndex's key filters keep working through
 the default index. Deprecated in 0.11's docs, and announced 2026-10-09 to
 `@overlore` (it builds keys for `portrait` and `background` and stores
-`legacy` unregistered), `@curio`, and Cattacula's inbox. Held until
-`@overlore` has moved its assets in (consumers.md). `@curio` (2026-10-10):
+`legacy` unregistered), `@curio`, and Cattacula's inbox. **Unblocked
+2026-10-11:** `@overlore` registered all three and stopped passing
+`pool_key:` (its `5e34196`); we asked it to register before its one-time
+migration, since 0.12 refuses stores into unregistered types. `@curio` (2026-10-10):
 its card captions had read `pool_key` in `public/console.html` (our search
 of its Rust sources missed it: search every file); since curio `c479811`
 only a display-only "index key" row is left, and it reads
 `registration.pool_traits` from `GET /types` for trait order, so renaming
 that needs a line in the release notes.
+
+**Also in 0.12: rank by `rating`, not `version`/`quality` (Thomas,
+2026-10-11).** Among the takes `get` chooses from, and among equal scores
+in best matches: higher `rating` first (no rating counts as 0), then the
+newest `made_at`. `get` and best matches skip flagged assets; listings
+still show them, for review in curio. `rating` has one owner: Overlore
+keeps players' reactions (wow!, love!, hate!, report!) and writes their
+total into `rating`, report! into `flagged`. An admin's reaction in curio
+goes to Overlore as one more (maybe weighted) reaction, not straight into
+`rating`; the admin's hard calls are flag/clear and retire/reinstate,
+which win whatever the rating. DD never learns the reaction words.
 
 ## Current state (2026-10-07)
 
@@ -170,9 +183,11 @@ Next:
   `DESIGN-best-match.md`. `dd-serve` always has it (Thomas asked why it
   was a setting; the usearch shard builds its own C library, so no flag).
   **Open:** building is single-threaded (~11 min per 1M).
-- **`prefer:` (Open, next release):** `@mj`'s images carry `version` and
-  `quality`; prefer higher ones among candidates, never discard. Thomas
-  isn't sure yet how it should work (2026-10-09); see coordination.md.
+- **`prefer:` Closed, not built (Thomas, 2026-10-11).** `@mj`'s `version`
+  and `quality` are camera facts: Overlore's `generator` already names the
+  camera and its version per picture (`mj:camera:flare@1`), and quality is
+  `@mj`'s current camera rank, which would go stale copied onto pictures.
+  Ranking comes from reactions through `rating` instead (0.12 TODO above).
 - **0.11: image fields, views and placement (Open, design drafted
   2026-10-09, `DESIGN-image-fields.md`, uncommitted until settled).**
   Key = what it is; image fields = real columns; links = who and where;

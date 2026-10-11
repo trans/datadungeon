@@ -30,8 +30,9 @@
   when a camera's output changes) and `quality` (the camera's rank). A
   bump is a **freshness rank, not an expiry**: keep every image, never
   regenerate on a bump, and among images fitting a request prefer higher
-  `version`, then higher `quality`. Thomas wants "favour newer" easy in DD
-  (**Open**: how DD should support that ordering).
+  `version`, then higher `quality`. Thomas wants "favour newer" easy in DD.
+  **Closed 2026-10-11:** DD ranks by `rating` then newest instead, and
+  doesn't use `version`/`quality` (handoff.md).
 
 ## From `@mj` (2026-10-10)
 
