@@ -70,9 +70,8 @@ direction (`view_counts`, `GET /types/:type/views`). Views keep their name
 tag names starting with `@` are refused. Lesson: put a consumer's
 accepted asks into the design doc when accepting them.
 
-**0.12 built 2026-10-11, not yet committed (branch `registration-required`
-in the scratchpad worktree, from main `f8a0898`): waiting on Thomas to
-commit, merge and tag.** Storing needs a registered type; the type's own
+**0.12 released 2026-10-11: `v0.12.0` at `2698701` on GitHub's main
+(this checkout still at `f8a0898`, see release.md).** Storing needs a registered type; the type's own
 order is an index in asset_keys (consumer and name empty); the
 `pool_key` and `pool` columns go on the first read-write open (one-way;
 a read-only open before that fails); `AssetRecord#key` and `key_for`

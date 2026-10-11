@@ -9,7 +9,7 @@ Releases 0.4.0 to 0.6.x were committed and pushed but never tagged, which
 blocked Pirateship's upgrade. `v0.7.0` was tagged at `dc38d81` on
 2026-10-07, annotated, with a `vX.Y.Z: <summary>` message like `v0.3.5`,
 and `v0.8.0` at `d01f4ec` the same day; `v0.9.0` at `2b79d46` on
-2026-10-08; `v0.10.0` at `7618531` on 2026-10-09; `v0.11.0` at `9279ff1` the same day, `v0.11.1` at `e0e3a42` (image fields, media, `pool:` ignored), `v0.11.2` at `0ffdcac` (curio's list rows and view counts) on 2026-10-10. 0.7.1-0.7.3 were held and never tagged. `~> 0.7.0`
+2026-10-08; `v0.10.0` at `7618531` on 2026-10-09; `v0.11.0` at `9279ff1` the same day, `v0.11.1` at `e0e3a42` (image fields, media, `pool:` ignored), `v0.11.2` at `0ffdcac` (curio's list rows and view counts) on 2026-10-10. `v0.12.0` at `2698701` on 2026-10-11 (registration required, the type's own key an index, ranking by rating). 0.7.1-0.7.3 were held and never tagged. `~> 0.7.0`
 (Pirateship) doesn't reach 0.8, and `~> 0.8.0` (the park store) doesn't
 reach 0.9.
 
@@ -26,6 +26,13 @@ v0.11.0 was pushed to GitHub's main from the worktree branch
 GitHub (Thomas's call, 2026-10-09: consumers stop linking). Fast-forward
 this checkout (`git merge --ff-only origin/main`) once it has. Done
 2026-10-09, after Overlore's `889c4fa`; Cattacula still links here.
+
+v0.12.0 went the same way, 2026-10-11: pushed to GitHub's main from the
+worktree branch (`registration-required`), this checkout left at
+`f8a0898` (0.11.2's code), because Cattacula still builds from it
+(`path: ../../../datadungeon`) and 0.12's first open upgrades its
+`voices.db` one way. Fast-forward this checkout when Cattacula has moved
+to GitHub, or when Thomas says.
 
 When a commit that bumps `shard.yml`'s version is pushed, offer to tag and
 push `vX.Y.Z` too (tag pushes are outward-facing, so confirm first). Check
