@@ -70,8 +70,22 @@ direction (`view_counts`, `GET /types/:type/views`). Views keep their name
 tag names starting with `@` are refused. Lesson: put a consumer's
 accepted asks into the design doc when accepting them.
 
-**TODO 0.12 (Thomas, 2026-10-09): fold `pool_key` into the index table,
-with the registration requirement.** Storing requires a registered type;
+**0.12 built 2026-10-11, not yet committed (branch `registration-required`
+in the scratchpad worktree, from main `f8a0898`): waiting on Thomas to
+commit, merge and tag.** Storing needs a registered type; the type's own
+order is an index in asset_keys (consumer and name empty); the
+`pool_key` and `pool` columns go on the first read-write open (one-way;
+a read-only open before that fails); `AssetRecord#key` and `key_for`
+(the `pool_key` names deprecated, JSON carries both through 0.12);
+`get`/best matches rank by rating then newest and skip flagged. 141
+specs, S3 against Garage; copies of Overlore's, Cattacula's, Pirateship's
+and the park store upgraded with every asset found by traits; Overlore,
+its specs (one deprecation warning), Cattacula and the park's types.cr
+type-check against it. The park's `bin/dd-serve` must be rebuilt after
+the park store is opened by 0.12. Release notes drafted for Thomas.
+
+The plan as written (Thomas, 2026-10-09): fold `pool_key` into the index table,
+with the registration requirement. Storing requires a registered type;
 the type's own trait order becomes its entry in `asset_indexes` (its
 default index) and its keys move to `asset_keys`; the `pool_key` column
 and caller-built keys (`store(…, pool_key:)`, `canonical_key:`) go;

@@ -69,6 +69,15 @@ sorted). Counting is linear (16-174 ms). `asset_types` 0.9 ms, `tag_keys`
 joined to the assets). The counts' triggers add about 23 us a store (102 to
 125 us at 200k); registering an index over 1M assets takes 4.7 s.
 
+## The type's own key as an index (0.12)
+
+`bench/keys_and_indexes.cr` again at 1M, 2026-10-11: everything as 0.11
+within noise, except `get` 0.016 ms (0.003 with the column); about 8 us
+for a hit on a real store, most of it reading the whole row. The plan is
+one key-index search and a rowid fetch; resolving the own index's id in
+Crystal and joining instead of `IN` would save about 2 us (not done:
+constant, not growing with the store).
+
 ## Measuring pictures (0.11.1)
 
 `ImageProbe.measure` (decode and one pass over the pixels) takes 0.8 ms for
