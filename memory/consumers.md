@@ -9,7 +9,7 @@
 | Pirateship | `~/Projects/siliconcircus.lol/pirateship` | parrot TTS voices (`data/voices.db`) | GitHub, `~> 0.7.0` |
 | Silicon Circus venues | via the `siliconcircus` agent | venue images, about one per attraction | — |
 | Silicon Circus park store | `~/Projects/siliconcircus.lol/assets` | the park's shared assets: Cattacula's voices (copied), fronts, sprites, props | GitHub, `~> 0.8.0`; `just serve` runs dd-serve on 127.0.0.1:12782 |
-| Owl | `~/my/world/ofwords/owl` | scenes, props, frames and depth maps (`owl_*` types), its scene graph in `owl_*` tables in the same file | GitHub, `~> 0.11.2`; no agent on the bus (2026-10-12) |
+| Owl | `~/my/world/ofwords/owl` | scenes, props, frames and depth maps (`owl_*` types), its scene graph in `owl_*` tables in the same file | GitHub, `~> 0.11.2`; agent `@owl` (joined 2026-10-12) |
 
 ## Where the files are
 
@@ -145,8 +145,9 @@ token for edits.
 ## Owl (found 2026-10-12)
 
 Owl keeps every picture in DD (`Store#put_image`: types `owl_scene`,
-`owl_prop`, `owl_frame`, `owl_depth`, tags `world`, `kind`, `style`, a
-`generation` record) and its scene graph in its own `owl_*` tables in the
+`owl_prop`, `owl_frame`, `owl_depth`, and `owl_voice` for clips; tags
+`world` (slugs like `the-valley-c092`), `kind`, `style`; a `generation`
+record) and its scene graph in its own `owl_*` tables in the
 same SQLite file. None of its types is registered, so **0.12 refuses its
 stores until it registers them**; pinned `~> 0.11.2`, it's safe until it
 bumps. Depth maps: Depth Anything V2 in ONNX Runtime, about 30 ms a picture
