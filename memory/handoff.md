@@ -124,6 +124,17 @@ as a changed value in the whole asset). Proposed, to confirm: parts =
 tags + `description`, `prompt`, `view`; `default` entry; one model per
 store. **Next:** Thomas reads it through.
 
+**Recipe log (Thomas, 2026-10-11; next after 0.12, design not yet
+written).** `generation` moves off the assets row: recent records in a DB
+table written with the store, rolled up monthly into compressed segments
+kept in storage by content hash, with an index row per segment; lookups by
+asset id. Records become complete enough to reproduce a picture (the full
+request, `staging_prompt` included); references as `derived-from` links.
+Measured on Overlore's store: 916 records, 194 KiB, gzip 29x. Asked
+`@overlore`, `@mj` and `@curio` (2026-10-11) how often they read records
+and by what; `@mj`'s drift audits could mean cutting segments by camera
+and date. **Next:** their answers, then `DESIGN-recipes.md`.
+
 ## Current state (2026-10-07)
 
 Everything below "Where we stopped (2026-10-04)" predates this week and is
