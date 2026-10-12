@@ -130,10 +130,18 @@ table written with the store, rolled up monthly into compressed segments
 kept in storage by content hash, with an index row per segment; lookups by
 asset id. Records become complete enough to reproduce a picture (the full
 request, `staging_prompt` included); references as `derived-from` links.
-Measured on Overlore's store: 916 records, 194 KiB, gzip 29x. Asked
-`@overlore`, `@mj` and `@curio` (2026-10-11) how often they read records
-and by what; `@mj`'s drift audits could mean cutting segments by camera
-and date. **Next:** their answers, then `DESIGN-recipes.md`.
+Measured on Overlore's store: 916 records, 194 KiB, gzip 29x. Answers
+(2026-10-12): `@curio` wants a separate call (`GET /assets/:id/recipe`,
+fetched when its panel opens) and a cheap flag on the row saying a record
+exists; keep `generator` and `generated` on the row. `@overlore` reads
+records by id only, never at runtime; three startup migrations read
+`generation` (two by `json_extract` in SQL), which it will drop or
+rewrite before the move; its cost ledger already logs each request as
+sent. `@mj`: by id a few times a week by hand; a drift audit by camera
+and date range twice a year, a slow scan is fine, don't cut segments for
+it; keep `staging_prompt` verbatim; only `klein` honours a seed, so other
+cameras' records are evidence, not exact reproduction. **Next:**
+`DESIGN-recipes.md`.
 
 ## Current state (2026-10-07)
 
