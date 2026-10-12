@@ -142,8 +142,21 @@ rewrite before the move; its cost ledger already logs each request as
 sent. `@mj`: by id a few times a week by hand; a drift audit by camera
 and date range twice a year, a slow scan is fine, don't cut segments for
 it; keep `staging_prompt` verbatim; only `klein` honours a seed, so other
-cameras' records are evidence, not exact reproduction. **Next:** confirm
-the table design with `@overlore` and `@mj` (drafted 2026-10-12).
+cameras' records are evidence, not exact reproduction.
+
+2026-10-12, revised: **a standard recipe shape per media type, defined by
+DD and shared by every app, not registered per consumer** (Thomas: the
+point is sharing). Picture prompt slots preamble, subject, description,
+theme, style, rules, staging; speech: model, voice, speed, style, text.
+Settings stored once by hash; named texts (`style = silver`) versioned by
+hash order (`silver@1`, `@2`); descriptions one table, role per asset;
+`prompt_sent` checked, kept only if it differs. Non-standard bits go in
+the app's own table keyed by asset id. `@mj`: its camera adds no words
+(final prompt = caller's + staging), `prompt_sent` in every result,
+offers `prompt_parts` with roles; goal reworded to "say exactly what was
+asked". `@overlore` confirmed fit; measurements unread (`leveled-to` is a
+setting). **Open:** owned names (`overlore:silver`) or common; join
+separator; asset description as a text reference; measurement fields.
 
 ## Current state (2026-10-07)
 
