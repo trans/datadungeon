@@ -155,8 +155,12 @@ the app's own table keyed by asset id. `@mj`: its camera adds no words
 (final prompt = caller's + staging), `prompt_sent` in every result,
 offers `prompt_parts` with roles; goal reworded to "say exactly what was
 asked". `@overlore` confirmed fit; measurements unread (`leveled-to` is a
-setting). **Open:** owned names (`overlore:silver`) or common; join
-separator; asset description as a text reference; measurement fields.
+setting). Settled since (Thomas): named texts as fields (slot, owner, name,
+version) pointing into one untyped texts table, owner = consumer name,
+`overlore:silver@2` only the written form; slots joined with one space,
+empty skipped; Overlore's measurements dropped; Overlore names concurrent
+wordings apart (`silver`, `silver-figure`). **Open:** `@mj` on
+measurements; the asset's description as a text reference; release.
 
 ## Current state (2026-10-07)
 
