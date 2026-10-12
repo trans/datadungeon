@@ -124,11 +124,13 @@ as a changed value in the whole asset). Proposed, to confirm: parts =
 tags + `description`, `prompt`, `view`; `default` entry; one model per
 store. **Next:** Thomas reads it through.
 
-**Recipe log (Thomas, 2026-10-11; next after 0.12, design not yet
-written).** `generation` moves off the assets row: recent records in a DB
-table written with the store, rolled up monthly into compressed segments
-kept in storage by content hash, with an index row per segment; lookups by
-asset id. Records become complete enough to reproduce a picture (the full
+**Recipes (Thomas, 2026-10-12: tables, not a compressed log;
+`DESIGN-recipes.md`, uncommitted).** `generation` leaves the assets row,
+split into parameter sets and long texts each stored once by hash, with a
+small row per asset; prompts passed in parts; a part equal to the
+description points at it; measurements (loudness, `kept`) move out. About
+the savings of compressed segments (considered first, 2026-10-11), with
+direct reads and SQL queries. Records become complete enough to reproduce a picture (the full
 request, `staging_prompt` included); references as `derived-from` links.
 Measured on Overlore's store: 916 records, 194 KiB, gzip 29x. Answers
 (2026-10-12): `@curio` wants a separate call (`GET /assets/:id/recipe`,
@@ -140,8 +142,8 @@ rewrite before the move; its cost ledger already logs each request as
 sent. `@mj`: by id a few times a week by hand; a drift audit by camera
 and date range twice a year, a slow scan is fine, don't cut segments for
 it; keep `staging_prompt` verbatim; only `klein` honours a seed, so other
-cameras' records are evidence, not exact reproduction. **Next:**
-`DESIGN-recipes.md`.
+cameras' records are evidence, not exact reproduction. **Next:** confirm
+the table design with `@overlore` and `@mj` (drafted 2026-10-12).
 
 ## Current state (2026-10-07)
 
