@@ -166,14 +166,15 @@ measurements; the asset's description as a text reference; release.
 rather than a 0.12.1): `@owl` stored its older scenes, props and frames
 `permanent: false` and wants to mark them. Tell `@owl` when it's tagged.
 
-**Open (2026-10-13): usage touches block reads** (performance.md, from
-`@pirateship`). Proposed: `get` counts the use in memory and returns at
-once; DD writes the counts in one batch, every few seconds or with its next
-write, trying the write lock without waiting (on a busy database it keeps
-them for the next try). Counts may be lost in a crash, which is fine for an
-eviction hint. `synchronous=NORMAL` (`@pirateship`'s other idea) then isn't
-needed: only stores would fsync, and they're rare. Waiting on Thomas:
-whether, and 0.12.1 or 0.13.
+**0.12.1: usage counted in memory (Thomas, 2026-10-13; built on branch
+`usage-in-memory`, not yet committed).** From `@pirateship`'s finding
+(performance.md). `touch_asset` counts in memory; every 1,000 uses
+(`USAGE_WRITE_AT`) are written in one transaction if the write lock is
+free (`busy_timeout` 0 for that try; if busy, again 100 uses later), the
+rest at `close` or by `flush_usage`. Thomas chose a cap alone over riding
+on DD's own writes or a timer. Lost on a crash: a hint for eviction, not
+a record. 143 specs; a `get` with a use counted is 22 us against 21 without
+(was about 5 ms for the fsync). `synchronous` stays FULL.
 
 ## Current state (2026-10-07)
 
