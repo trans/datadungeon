@@ -171,6 +171,6 @@ world's tags) it reuses the held asset by id.
 **Asked 2026-10-12:** its older scenes, props and frames were stored
 `permanent: false`; can that be changed? Not in 0.12 (`update_asset`
 doesn't take it). Nothing evicts on its own (only `eviction_candidates`
-reads the flag, and owl doesn't call it), so nothing is at risk. Reply
-drafted offering `update_asset(permanent:)` in a 0.12.1, waiting on
-Thomas. Owl will send its view on recipes separately.
+reads the flag, and owl doesn't call it), so nothing is at risk. Thomas
+(2026-10-13): `update_asset(permanent:)` comes in 0.13, not a 0.12.1;
+reply drafted saying so. Owl will send its view on recipes separately.

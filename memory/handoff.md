@@ -162,6 +162,10 @@ empty skipped; Overlore's measurements dropped; Overlore names concurrent
 wordings apart (`silver`, `silver-figure`). **Open:** `@mj` on
 measurements; the asset's description as a text reference; release.
 
+**0.13 also gets `update_asset(id, permanent:)`** (Thomas, 2026-10-13,
+rather than a 0.12.1): `@owl` stored its older scenes, props and frames
+`permanent: false` and wants to mark them. Tell `@owl` when it's tagged.
+
 ## Current state (2026-10-07)
 
 Everything below "Where we stopped (2026-10-04)" predates this week and is
