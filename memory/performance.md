@@ -91,3 +91,22 @@ crystal-db caches a prepared statement per distinct SQL text for each
 connection's life, so `IN (#{ids.join})` leaked one per call: 2.7 GB after
 1M stores (found 2026-10-09, in `index_search`, there since search was
 added). Placeholders fixed it (36 MB). Interpolate only fixed fragments.
+
+## A get's usage touch (`@pirateship`, 2026-10-13)
+
+`get`, `get_by_id` and `get_with_meta` default to `touch: true`, which runs
+`touch_asset`: an autocommit `UPDATE` of `last_used_at` and `use_count`
+outside any batch. Measured by `@pirateship` on its `voices.db` copy (0.12,
+WAL, SQLite's default `synchronous=FULL`): each touch waits on an fsync,
+about 5 ms, so 14 existence checks took 73 ms (1 ms with `touch: false`) and
+counted 14 plays that never happened. With another process holding the
+write lock, the touch waits out `busy_timeout` (5 s) and then raises from
+inside `get`: a read turned into a 5 s wait and an HTTP 500. A spawned
+fiber doesn't help: SQLite's busy wait blocks the thread, so the next
+requests waited instead.
+
+Nobody reads what touches write (checked 2026-10-13): no app reads
+`use_count` or `last_used_at` or calls `eviction_candidates` (the only
+reader of `last_used_at`). Owl and Pirateship pass `touch: false`
+everywhere; Overlore and Cattacula use the default. `dd-serve` doesn't
+touch. **Open:** see handoff.md (batched touches).
