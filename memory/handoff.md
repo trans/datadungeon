@@ -190,6 +190,35 @@ the panel's name, `sprite`/`prop` and `map` still open.
 **0.13 on main as `54121b7` (pushed 2026-10-13), not tagged:** Thomas: tag
 `v0.13.0` after the reviews sent the same day to `@overlore`, `@mj`, `@owl`
 and `@curio` (types and recipes) come back.
+
+**Reviews in (2026-10-13; `@mj` still out; originals at `.ai` `0905d20`).**
+For 0.13 (recipes): `@curio`: references can't be followed to assets
+(wants `?file_hash=` or automatic links), no HTTP for `with_text` (wants
+`text.style=overlore:silver[@2]`), a shared description can't be fixed
+once for all its assets, `description: ""` stores an empty text instead of
+clearing, `cost` has no unit. `@overlore`: a cost basis beside the cost
+(rate-table edition, reported by the service, estimated). `@owl`: a step
+should reference an earlier step's output (low priority); where a placement
+instruction ("where the red ring is") goes; old records with only settings
+and `prompt_sent`; `q` to search descriptions and recipe text.
+For types, Thomas's decisions relayed: **each app gets its own store**,
+plus a common store to copy from, files deduplicated in R2 (so deleting a
+file must know every store: DD today deletes an object no row *in its own
+store* uses, and vacuum treats its prefix as its own); **an app keeps tags
+of its own**, searchable and usable in its index keys; texts content-addressed,
+so an index keys on the description's hash (Overlore's `content_hash` and
+`look` tags go); **custom art styles** (Owl: Thomas asked), promoted when
+several apps use one; ground recorded wherever possible (a prop's anchor;
+a drop's ground line with scale). Also: Overlore's retro leaves the art
+styles (`ascii` later); `panel` suits Overlore; pools stay as tag
+filters (`find_pool`, `count_pool_assets`); Owl's frames are drops
+(`owl:frame`, `derived-from` with position); `rating` in the first
+vocabulary; areas in 0-1 fractions; links across stores by file hash;
+curio's HTTP needs (vocabulary, per-type tag order, multi-value shape,
+uses filters/counts/edits with curio's override, 409 on deleting what's in
+use, retype, image fields on video). **Open:** Thomas on what goes into
+0.13 before the tag, and the open choices; replies to all three.
+
 Recipes (`recipe.cr`, `recipes.cr`): texts, recipe_settings, named_texts,
 recipes (a row per step), recipe_fields, recipe_legacy; `store(recipe:)`,
 `recipe`, `set_recipe`, `with_text`, `named_texts`;
