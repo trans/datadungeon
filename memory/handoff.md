@@ -187,7 +187,9 @@ shared standard is the tag vocabulary, a type naming only the tags in its
 key; uses never in a key. Names: `drop` (backdrop), `scrim` (overlay);
 the panel's name, `sprite`/`prop` and `map` still open.
 
-**0.13 built 2026-10-13 on branch `recipes` (uncommitted, not released).**
+**0.13 on main as `54121b7` (pushed 2026-10-13), not tagged:** Thomas: tag
+`v0.13.0` after the reviews sent the same day to `@overlore`, `@mj`, `@owl`
+and `@curio` (types and recipes) come back.
 Recipes (`recipe.cr`, `recipes.cr`): texts, recipe_settings, named_texts,
 recipes (a row per step), recipe_fields, recipe_legacy; `store(recipe:)`,
 `recipe`, `set_recipe`, `with_text`, `named_texts`;
