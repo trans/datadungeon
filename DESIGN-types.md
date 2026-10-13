@@ -34,7 +34,9 @@ Names settled so far (Thomas, 2026-10-13): `drop` for a backdrop, `scrim`
 for an overlay, `prop` for an object (a sprite). The names come from stagecraft rather than film, since apps
 build rooms and scenes from these assets. Still open: what to call a panel
 (`tableau` suggests something more special than an ordinary shot, such as
-Overlore's hero shots), and `map`. Not `scene` for a
+Overlore's hero shots). `map` stays until a better word comes (Thomas,
+2026-10-13; `scan` was considered, but a scanned page is a picture people
+read). Not `scene` for a
 drop: setting the scene is the whole arrangement, drop, props and scrims
 together, not the drop alone.
 
@@ -48,7 +50,7 @@ together, not the drop alone.
 | **prop** | an object, cropped close to its edges, placed by the app | around it |
 | **texture** | a material with no subject or edges, filling an area | either |
 | **icon** | a small indicator: a button, a rating; mostly SVG, or Lottie when it moves | either |
-| **map** *(name open)* | for programs, not people: a depth map, a mask, a matte | n/a |
+| **map** | for programs, not people: a depth map, a mask, a matte | n/a |
 
 - **Opacity is part of the type,** so it's checked when stored: a drop or
   a panel with transparent pixels, in any frame, is refused. DataDungeon
@@ -61,10 +63,8 @@ together, not the drop alone.
 - **A prop that holds something** (a picture frame, a sheet of paper, a
   speech bubble) needs the position of its opening or writing area, as
   data on the prop. **Open:** a table of named areas.
-- **Why `map` is open:** a game's map of a place is a picture people read,
-  and it would sit oddly under a type named for depth maps and masks.
-  Candidates: `map` anyway; `pass`, from compositing, where depth, matte and
-  normal images are all passes.
+- **A map of a place** (a game's world map) is a picture people read, so
+  it's a panel or a drop, not a `map`.
 
 ### Sound
 
@@ -187,17 +187,48 @@ Three things follow.
 3. **Keys are the apps', not the type's** (Thomas, 2026-10-13). There's no
    one key per type. An app registers indexes (0.11) for the searches it
    makes often, over the shared tags; an index is only a faster path to
-   facts every app can see, and anything else is a tag filter. **Open:**
-   0.12's type's own index does more than lookups today, so its other jobs
-   need homes: `get(type, tags)` (a tag search, which the planner already
-   does), `prune`'s keep-last per key (per an app's index), and best
-   match's traits (per an index, or chosen per search).
+   facts every app can see, and anything else is a tag filter. `get` and
+   best match keep working without a key per type: `get(type, tags)`
+   becomes a tag search, which the planner runs from the narrowest start,
+   an app's index when one covers the tags; best match compares the tags
+   named in an app's index or in the query, each by its kind from the
+   vocabulary (a set, a scale, a colour, a cycle).
 
 **Where it's kept** (Thomas, 2026-10-13, to discuss further): a table in
 the store, each tag with a short description of what it means, seeded with
 the agreed tags. **Open:** the first vocabulary (Overlore's `art-style`,
 Owl's `style` and the park store's `look` look like one tag), and how a
 tag is added.
+
+### First vocabulary: `art-style` (in progress, Thomas, 2026-10-13)
+
+One tag, `art-style`, for how a picture is drawn or rendered (Overlore's
+`art_style`; the park store's and Owl's `style`).
+
+| Value | What it looks like | Today |
+|---|---|---|
+| `golden-comic` | Golden Age comics | Overlore's `golden` |
+| `silver-comic` | Silver Age comics | Overlore's `silver` |
+| `modern-comic` | modern comics | Overlore's `modern` |
+| `dark-manga` | dark manga | Overlore's `manga` |
+| `fantasy` | fantasy art as on book covers, slightly painterly | Overlore's `fantasy` |
+| `photorealism` | looks real, however it was made, near-real 3D included | Overlore's `realism`, the park's `real` |
+| `pixel` | pixel art of the 16-bit kind, the common middle | Overlore's `pixel`, the park's `16-bit` |
+| `3d-cartoon` | 3D that looks sculpted and lit, rounded and exaggerated: the Toy Story middle ground | Overlore's `3d` |
+| `ascii` | text-mode art, ASCII made dynamic and modern; a picture of characters, or the characters themselves (ANSI art, asciinema's asciicast when it moves) | Overlore's `retro` |
+
+- Eras and neighbours get values only when someone makes them: `pixel8`,
+  `low-poly` (the clunky early 3D, which some games choose today),
+  `3d-anime` (3D made to look hand-drawn: cel shading, outlines). The near-real end of
+  pixel art and 3D is `photorealism`. The park's `32-bit` props: `pixel`,
+  or `photorealism`, by how they look.
+- The park's `look` tag (day, night, clean, dark, dingy) isn't art style.
+  It's two separate tags (Thomas, 2026-10-13): the lighting (day, dawn,
+  dusk, night, and `dark`, a moonless night, very dark outside) and the
+  subject's condition (clean, dingy). **Open:** the tags' names
+  (`lighting` and `condition` proposed; `lighting` is a quality of light,
+  apart from the picture's `light` field, which is its direction). Overlore's `look` (a hash of
+  the room's text) goes once the description is a text reference.
 
 **Types are agreed, not added by apps** (Thomas, 2026-10-13): the list is
 DataDungeon's and changes in a release, by agreement.
@@ -254,8 +285,6 @@ vocabulary. Apps keep `register_index` for their own fast lookups (Thomas,
 
 ## Open, collected
 
-- Names: the panel, `map`.
-- New homes for what the type's own index does today: `get` and best
-  match's traits. Prune follows uses (above).
+- The panel's name.
 - The first shared vocabulary, its descriptions, and how a tag is added.
 - Release: with the recipes, as 0.13.
