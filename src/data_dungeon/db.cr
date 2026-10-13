@@ -23,6 +23,11 @@ module DataDungeon
 
   class DB
     TIME_FORMAT = "%F %T"
+    # How long a write waits for another connection's write lock.
+    BUSY_TIMEOUT_MS = 5000
+    # Uses counted in memory are written once there are this many
+    # (touch_asset).
+    USAGE_WRITE_AT = 1000
 
     @db : ::DB::Database
     @indexer : AssetIndexer? = nil
@@ -32,6 +37,12 @@ module DataDungeon
     # once unreferenced, happen under this lock so neither interleaves with the
     # other inside this process.
     @object_lock = Mutex.new(:reentrant)
+    # Uses counted since they were last written: asset id => {uses, last
+    # use}. See touch_asset.
+    @usage = {} of Int64 => {Int32, Time}
+    @usage_lock = Mutex.new
+    @usage_count = 0
+    @usage_try_at = USAGE_WRITE_AT
     # Registered asset types, loaded from asset_types when the DB opens.
     @types = {} of String => AssetType
     getter? read_only = false
@@ -72,7 +83,7 @@ module DataDungeon
       # tags and sidecars whichever connection runs them, and a write that
       # meets another connection's open transaction waits for it (up to 5 s)
       # rather than failing at once with "database is locked".
-      @db = ::DB.open("sqlite3://#{path}?foreign_keys=on&busy_timeout=5000")
+      @db = ::DB.open("sqlite3://#{path}?foreign_keys=on&busy_timeout=#{BUSY_TIMEOUT_MS}")
       @storage = storage || (cache_root ? LocalStorage.new(cache_root) : nil)
       if read_only
         @db.setup_connection { |conn| conn.exec("PRAGMA query_only = ON"); nil }
@@ -88,8 +99,14 @@ module DataDungeon
       end
     end
 
+    # Writes the uses not yet written (touch_asset), then closes.
     def close : Nil
       @indexer.try(&.close)
+      begin
+        flush_usage
+      rescue
+        # closing matters more than a usage count
+      end
       @db.close
     end
 
@@ -2756,13 +2773,70 @@ module DataDungeon
 
     # ── Touch ──
 
+    # Counts a use of the asset (`last_used_at`, `use_count`), as `get` does
+    # unless told `touch: false`. The count is kept in memory, so a read
+    # doesn't wait on a disk sync. Every USAGE_WRITE_AT uses are written in
+    # one transaction, if the write lock is free (if not, a hundred uses
+    # later), and the rest at close or by flush_usage. Until then a record
+    # shows the counts as last written, and counts not yet written are lost
+    # if the process dies: they're a hint for eviction, not a record of
+    # plays.
     def touch_asset(id : Int64) : Nil
       return if @read_only
-      now = Time.utc.to_s(TIME_FORMAT)
-      @db.exec(
-        "UPDATE assets SET last_used_at = ?, use_count = use_count + 1 WHERE id = ?",
-        now, id
-      )
+      now = Time.utc
+      full = @usage_lock.synchronize do
+        uses = @usage[id]?.try(&.[0]) || 0
+        @usage[id] = {uses + 1, now}
+        (@usage_count += 1) >= @usage_try_at
+      end
+      flush_usage(wait: false) if full
+    end
+
+    # Writes the uses counted since the last write (touch_asset). With
+    # `wait: false`, gives up at once if another connection holds the write
+    # lock, keeping the counts for later. Returns whether they were written.
+    def flush_usage(wait : Bool = true) : Bool
+      return true if @read_only || @usage_lock.synchronize { @usage.empty? }
+      @db.using_connection do |conn|
+        conn.exec("PRAGMA busy_timeout = 0") unless wait
+        begin
+          immediate(conn) { write_usage(conn) }
+          true
+        rescue ex : SQLite3::Exception
+          raise ex unless ex.code == LibSQLite3::Code::BUSY.value
+          @usage_lock.synchronize { @usage_try_at = @usage_count + 100 }
+          false
+        ensure
+          conn.exec("PRAGMA busy_timeout = #{BUSY_TIMEOUT_MS}") unless wait
+        end
+      end
+    end
+
+    # Writes the waiting uses, inside a write transaction. If writing fails,
+    # they wait again.
+    private def write_usage(conn : ::DB::Connection) : Nil
+      usage = @usage_lock.synchronize do
+        taken = @usage
+        @usage = {} of Int64 => {Int32, Time}
+        @usage_count = 0
+        @usage_try_at = USAGE_WRITE_AT
+        taken
+      end
+      begin
+        usage.each do |id, (uses, last)|
+          conn.exec("UPDATE assets SET last_used_at = ?, use_count = use_count + ? WHERE id = ?",
+            last.to_s(TIME_FORMAT), uses, id)
+        end
+      rescue ex
+        @usage_lock.synchronize do
+          usage.each do |id, (uses, last)|
+            later = @usage[id]?
+            @usage[id] = later ? {uses + later[0], later[1]} : {uses, last}
+            @usage_count += uses
+          end
+        end
+        raise ex
+      end
     end
 
     # ── Tags ──

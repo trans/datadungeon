@@ -41,6 +41,7 @@ describe DataDungeon::SemanticIndex do
 
     db.connection.scalar("SELECT COUNT(*) FROM memo_query_cache").as(Int64).should eq 0
     db.connection.scalar("SELECT SUM(match_count) FROM memo_chunks").as(Int64).should eq 0
+    db.flush_usage
     db.find_asset_by_id(red.id).not_nil!.use_count.should eq 0
 
     db.update_asset(red.id, tags: {"hair_color" => "black"}, description: "A wandering knight")

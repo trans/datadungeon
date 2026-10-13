@@ -78,6 +78,7 @@ describe DataDungeon::API do
       object.status_code.should eq 200
       object.headers["Content-Type"].should eq "image/webp"
       object.body.should eq "a"
+      db.flush_usage
       db.find_asset_by_id(a.id).not_nil!.use_count.should eq 0 # browsing doesn't count as use
 
       call(api, "GET", "/dd/assets/999", "r").status_code.should eq 404

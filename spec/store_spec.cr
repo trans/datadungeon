@@ -41,8 +41,62 @@ describe DataDungeon::DB do
     got = db.get("venue", tags)
     got.should_not be_nil
     got.not_nil!.id.should eq rec.id
+    db.find_asset_by_id(rec.id).not_nil!.use_count.should eq 0 # counted in memory
+    db.flush_usage.should be_true
     db.find_asset_by_id(rec.id).not_nil!.use_count.should eq 1 # get touched it
   ensure
+    db.try(&.close)
+    FileUtils.rm_rf(dir) if dir
+  end
+
+  it "counts uses in memory and writes them every thousand, and the rest at close" do
+    dir = File.tempname("dd-store")
+    Dir.mkdir_p(dir)
+    db = open_db(dir)
+    tags = {"venue" => "arcade", "style" => "silver"}
+    a = db.store("venue", tags, bytes: "a".to_slice, content_type: "image/webp",
+      image: DataDungeon::ImageMeta.new(compression: "original"))
+    b = db.store("venue", {"venue" => "pier", "style" => "silver"}, bytes: "b".to_slice,
+      content_type: "image/webp", image: DataDungeon::ImageMeta.new(compression: "original"))
+
+    599.times { db.get("venue", tags) }
+    400.times { db.touch_asset(b.id) }
+    db.find_asset_by_id(a.id).not_nil!.use_count.should eq 0
+    db.get("venue", tags) # the thousandth use
+    db.find_asset_by_id(a.id).not_nil!.use_count.should eq 600
+    db.find_asset_by_id(b.id).not_nil!.use_count.should eq 400
+
+    3.times { db.touch_asset(b.id) }
+    db.close
+    db = open_db(dir)
+    db.find_asset_by_id(b.id).not_nil!.use_count.should eq 403
+  ensure
+    db.try(&.close)
+    FileUtils.rm_rf(dir) if dir
+  end
+
+  it "doesn't wait for another connection's write lock to count a use" do
+    dir = File.tempname("dd-store")
+    Dir.mkdir_p(dir)
+    db = open_db(dir)
+    tags = {"venue" => "arcade", "style" => "silver"}
+    a = db.store("venue", tags, bytes: "a".to_slice, content_type: "image/webp",
+      image: DataDungeon::ImageMeta.new(compression: "original"))
+
+    other = ::DB.open("sqlite3://#{db.path}")
+    other.using_connection do |conn|
+      conn.exec("BEGIN IMMEDIATE") # another process writing
+      elapsed = Time.measure { 1100.times { db.get("venue", tags) } }
+      elapsed.should be < 1.second # busy_timeout is 5 s; nobody waited it out
+      db.flush_usage(wait: false).should be_false
+      conn.exec("COMMIT")
+    end
+
+    db.find_asset_by_id(a.id).not_nil!.use_count.should eq 0
+    db.flush_usage(wait: false).should be_true
+    db.find_asset_by_id(a.id).not_nil!.use_count.should eq 1100
+  ensure
+    other.try(&.close)
     db.try(&.close)
     FileUtils.rm_rf(dir) if dir
   end
