@@ -166,8 +166,8 @@ measurements; the asset's description as a text reference; release.
 rather than a 0.12.1): `@owl` stored its older scenes, props and frames
 `permanent: false` and wants to mark them. Tell `@owl` when it's tagged.
 
-**Standard asset types (from `@overlore` and Thomas, received
-2026-10-13; not yet written up).** DD defines a short list of types by role,
+**Standard asset types (from `@overlore` and Thomas, 2026-10-13; written
+up in `DESIGN-types.md`, uncommitted).** DD defines a short list of types by role,
 each spanning media (pictures: backdrop, panel, overlay, sprite, texture,
 icon, map; sound: speech, dialogue, music, ambience, effect, recording;
 text: prose, script, transcript, log; document, data; 3D: set, prop, figure,
@@ -181,6 +181,11 @@ scripts in Yarn Spinner's line syntax; recipe shapes for chat text,
 dialogue, steps and assemblies; the description as a text reference
 (`@overlore`: yes); and whether the per-asset recipe row is one row or one
 per field (one per asset plus one per field used; the doc needs fixing).
+Settled the same day (Thomas): **tags are claims** ("something in it has
+red hair"), no character entities; so tags hold several values, and the
+shared standard is the tag vocabulary, a type naming only the tags in its
+key; uses never in a key. Names: `drop` (backdrop), `scrim` (overlay);
+the panel's name, `sprite`/`prop` and `map` still open.
 
 **0.12.1: usage counted in memory (Thomas, 2026-10-13; released `v0.12.1`
 at `6feb72a`).** From `@pirateship`'s finding
