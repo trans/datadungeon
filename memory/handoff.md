@@ -216,8 +216,22 @@ filters (`find_pool`, `count_pool_assets`); Owl's frames are drops
 vocabulary; areas in 0-1 fractions; links across stores by file hash;
 curio's HTTP needs (vocabulary, per-type tag order, multi-value shape,
 uses filters/counts/edits with curio's override, 409 on deleting what's in
-use, retype, image fields on video). **Open:** Thomas on what goes into
-0.13 before the tag, and the open choices; replies to all three.
+use, retype, image fields on video). `@mj` (in at 21:07, `.ai`
+`826a50e`; it had been reading another mailbox): picture order should be
+**preamble · subject · description · staging · theme · style · rules**
+(rules last; with staging last every mj `prompt_sent` differs and is
+stored whole; order effect on models unmeasured); keep staging's text (the
+renderer's wording changes with a camera version), but file it with the
+repeating short fields, and never query staging prose (the vectors are the
+truth; words get left/right backwards); width/height must be the returned
+size (DD measures the file, so it is); `bytes`; cost with an estimated
+flag (arcana-ai 0.5.2 now prices OpenAI exactly); seed only meaningful for
+`klein`; a refusal is not an asset. Vocabulary: three pixel tiers kept at
+once (`pixel-32`, `pixel-16`, `pixel-8`: a narrative degradation stage),
+or `pixel` plus a coarseness tag; `night` must not imply dark (projectors
+on). Types: whether a picture tiles, a field (DESIGN-types already has
+`tileable` as maker-set). **Open:** Thomas on what goes into 0.13 before
+the tag, and the open choices; replies to all four.
 
 Recipes (`recipe.cr`, `recipes.cr`): texts, recipe_settings, named_texts,
 recipes (a row per step), recipe_fields, recipe_legacy; `store(recipe:)`,
