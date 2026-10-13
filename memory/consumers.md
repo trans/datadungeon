@@ -92,7 +92,10 @@ so `width`/`height` are what the bytes say, not what was asked. Overlore's
   since `9fe2421` (2026-10-12), no code changes; its `voices.db` was backed
   up and upgraded, all 488 voices found by traits. Moving its voices into
   the park store waits until the park store is on 0.12 (`@cattacula`,
-  2026-10-13).
+  2026-10-13). On 0.12.1 since its `26738f1` (2026-10-13): `voice_generate`'s
+  cache check passes `touch: false` (at boot it ran once per beat, counting
+  about 488 plays each start); `voice_audio`'s `get` is a real play and
+  counts.
 - **Pirateship** registers `voice` (traits `pool i voice fmt`), reads
   through `db.read`, and stores `description`/`generated` (`412f9be`,
   pushed 2026-10-07). On `~> 0.12.0` since its `46e4713` (pushed
