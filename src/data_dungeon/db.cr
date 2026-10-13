@@ -27,7 +27,7 @@ module DataDungeon
     BUSY_TIMEOUT_MS = 5000
     # Uses counted in memory are written once there are this many
     # (touch_asset).
-    USAGE_WRITE_AT = 1000
+    USAGE_WRITE_AT = 100
 
     @db : ::DB::Database
     @indexer : AssetIndexer? = nil
@@ -96,6 +96,7 @@ module DataDungeon
         end
       else
         setup_schema
+        DB.opened(self)
       end
     end
 
@@ -107,7 +108,38 @@ module DataDungeon
       rescue
         # closing matters more than a usage count
       end
+      DB.closed(self)
       @db.close
+    end
+
+    # Read-write DBs not yet closed, whose uses are written when the process
+    # exits (`exit`, the end of the program, or a server's shutdown: Kemal
+    # calls `exit` on SIGINT and SIGTERM). A process killed outright loses them.
+    @@open = [] of DB
+    @@open_lock = Mutex.new
+    @@at_exit = false
+
+    protected def self.opened(db : DB) : Nil
+      @@open_lock.synchronize do
+        @@open << db
+        unless @@at_exit
+          @@at_exit = true
+          at_exit { flush_open_usage }
+        end
+      end
+    end
+
+    protected def self.closed(db : DB) : Nil
+      @@open_lock.synchronize { @@open.delete(db) }
+    end
+
+    # Writes the uses waiting in every open DB, as at exit. :nodoc:
+    def self.flush_open_usage : Nil
+      @@open_lock.synchronize { @@open.dup }.each do |db|
+        db.flush_usage
+      rescue
+        # a usage count isn't worth failing an exit over
+      end
     end
 
     # ── Schema ──
@@ -2776,11 +2808,11 @@ module DataDungeon
     # Counts a use of the asset (`last_used_at`, `use_count`), as `get` does
     # unless told `touch: false`. The count is kept in memory, so a read
     # doesn't wait on a disk sync. Every USAGE_WRITE_AT uses are written in
-    # one transaction, if the write lock is free (if not, a hundred uses
-    # later), and the rest at close or by flush_usage. Until then a record
-    # shows the counts as last written, and counts not yet written are lost
-    # if the process dies: they're a hint for eviction, not a record of
-    # plays.
+    # one transaction, if the write lock is free (if not, ten uses later),
+    # and the rest at close, when the process exits, or by flush_usage.
+    # Until then a record shows the counts as last written, and a process
+    # killed outright loses those not yet written: they're a hint for
+    # eviction, not a record of plays.
     def touch_asset(id : Int64) : Nil
       return if @read_only
       now = Time.utc
@@ -2804,7 +2836,7 @@ module DataDungeon
           true
         rescue ex : SQLite3::Exception
           raise ex unless ex.code == LibSQLite3::Code::BUSY.value
-          @usage_lock.synchronize { @usage_try_at = @usage_count + 100 }
+          @usage_lock.synchronize { @usage_try_at = @usage_count + USAGE_WRITE_AT // 10 }
           false
         ensure
           conn.exec("PRAGMA busy_timeout = #{BUSY_TIMEOUT_MS}") unless wait

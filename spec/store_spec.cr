@@ -49,7 +49,7 @@ describe DataDungeon::DB do
     FileUtils.rm_rf(dir) if dir
   end
 
-  it "counts uses in memory and writes them every thousand, and the rest at close" do
+  it "counts uses in memory and writes them every hundred, and the rest at close" do
     dir = File.tempname("dd-store")
     Dir.mkdir_p(dir)
     db = open_db(dir)
@@ -59,17 +59,21 @@ describe DataDungeon::DB do
     b = db.store("venue", {"venue" => "pier", "style" => "silver"}, bytes: "b".to_slice,
       content_type: "image/webp", image: DataDungeon::ImageMeta.new(compression: "original"))
 
-    599.times { db.get("venue", tags) }
-    400.times { db.touch_asset(b.id) }
+    59.times { db.get("venue", tags) }
+    40.times { db.touch_asset(b.id) }
     db.find_asset_by_id(a.id).not_nil!.use_count.should eq 0
-    db.get("venue", tags) # the thousandth use
-    db.find_asset_by_id(a.id).not_nil!.use_count.should eq 600
-    db.find_asset_by_id(b.id).not_nil!.use_count.should eq 400
+    db.get("venue", tags) # the hundredth use
+    db.find_asset_by_id(a.id).not_nil!.use_count.should eq 60
+    db.find_asset_by_id(b.id).not_nil!.use_count.should eq 40
 
     3.times { db.touch_asset(b.id) }
     db.close
     db = open_db(dir)
-    db.find_asset_by_id(b.id).not_nil!.use_count.should eq 403
+    db.find_asset_by_id(b.id).not_nil!.use_count.should eq 43
+
+    db.touch_asset(b.id)
+    DataDungeon::DB.flush_open_usage # what runs at exit
+    db.find_asset_by_id(b.id).not_nil!.use_count.should eq 44
   ensure
     db.try(&.close)
     FileUtils.rm_rf(dir) if dir

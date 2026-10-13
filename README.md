@@ -101,11 +101,13 @@ each candidate's tags.
 
 `get`, `get_by_id` and `get_with_meta` count a use of what they return
 (`use_count`, `last_used_at`; pass `touch: false` for a check that isn't a
-use). Uses are counted in memory and written a thousand at a time, if the
-write lock is free, and the rest at `close` or by `flush_usage`, so a read
-never waits on the disk or on another process's write. Until then a
-record shows the counts as last written, and a process that dies loses
-those not yet written: they're a hint for eviction, not a record of plays.
+use). Uses are counted in memory and written a hundred at a time, if the
+write lock is free, and the rest at `close`, when the process exits
+(including a Kemal server's shutdown on SIGINT or SIGTERM), or by
+`flush_usage`, so a read never waits on the disk or on another process's
+write. Until then a
+record shows the counts as last written, and a process killed outright
+loses those not yet written: they're a hint for eviction, not a record of plays.
 
 `rename_tag(type, from, to)` renames a tag on all of a type's assets and in
 its registration; keys hold values, not names, so they normally stay the same.
