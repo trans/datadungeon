@@ -187,6 +187,18 @@ shared standard is the tag vocabulary, a type naming only the tags in its
 key; uses never in a key. Names: `drop` (backdrop), `scrim` (overlay);
 the panel's name, `sprite`/`prop` and `map` still open.
 
+**0.13 built 2026-10-13 on branch `recipes` (uncommitted, not released).**
+Recipes (`recipe.cr`, `recipes.cr`): texts, recipe_settings, named_texts,
+recipes (a row per step), recipe_fields, recipe_legacy; `store(recipe:)`,
+`recipe`, `set_recipe`, `with_text`, `named_texts`, `prune_texts`;
+`has_recipe`, `GET /assets/:id/recipe`; description as a text reference;
+`update_asset(permanent:)`; `pool_key` aliases gone. Changed from the plan:
+DD keeps old `generation` values whole (each app converts its own with
+`set_recipe`), since it can't read their formats. 154 specs; all five apps
+type-check; copies of all five stores upgrade with every description and
+record intact (Overlore 1,165 assets, 900 descriptions -> 859 texts, 916
+records kept, 26 ms); `get` unchanged (26.7 us). Release notes drafted.
+
 **Plan (Thomas left the order to me, 2026-10-13):** 0.13 recipes (with
 the texts table, the description as a text reference,
 `update_asset(permanent:)`, 0.12's deprecated `pool_key` names removed);
