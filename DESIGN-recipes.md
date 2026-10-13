@@ -181,9 +181,9 @@ each chunk) the database's pages are compressed when stored anyway.
 
 ## Open
 
-- **The asset's `description`:** whether it becomes a reference into the
-  texts table, so the asset's own description and its recipe's
-  description field are one text. `@overlore` is for it (2026-10-13):
+- **The asset's `description`: decided, a reference into the texts table**
+  (Thomas, 2026-10-13), so the asset's own description and its recipe's
+  description field are one text. `@overlore` asked for it (2026-10-13):
   otherwise a room's LOOK text is stored once in texts and again on every
   picture of the room, up to 60 times. A clip's words would be the same
   reference, which is why its `transcript` assets can go.

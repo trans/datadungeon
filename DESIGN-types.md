@@ -31,10 +31,10 @@ How one app uses it is that app's business.
 ## The types
 
 Names settled so far (Thomas, 2026-10-13): `drop` for a backdrop, `scrim`
-for an overlay. The names come from stagecraft rather than film, since apps
+for an overlay, `prop` for an object (a sprite). The names come from stagecraft rather than film, since apps
 build rooms and scenes from these assets. Still open: what to call a panel
 (`tableau` suggests something more special than an ordinary shot, such as
-Overlore's hero shots), `sprite` or `prop`, and `map`. Not `scene` for a
+Overlore's hero shots), and `map`. Not `scene` for a
 drop: setting the scene is the whole arrangement, drop, props and scrims
 together, not the drop alone.
 
@@ -45,7 +45,7 @@ together, not the drop alone.
 | **drop** | a place, the set things stand in front of | never |
 | **panel** *(name open)* | a framed moment, shown as it is | never |
 | **scrim** | a frame's whole size, laid over a drop or panel | mostly |
-| **sprite** *(or `prop`)* | an object, cropped close to its edges, placed by the app | around it |
+| **prop** | an object, cropped close to its edges, placed by the app | around it |
 | **texture** | a material with no subject or edges, filling an area | either |
 | **icon** | a small indicator: a button, a rating; mostly SVG, or Lottie when it moves | either |
 | **map** *(name open)* | for programs, not people: a depth map, a mask, a matte | n/a |
@@ -56,11 +56,11 @@ together, not the drop alone.
   check costs almost nothing.
 - **A scrim's link** (`placed-on`) names the one drop or panel it fits.
   Without one, it's generic and goes over any: rain, fog, a vignette.
-- **A sprite sheet** is a sprite whose grid is data on it. DataDungeon has
+- **A sprite sheet** is a prop whose grid is data on it. DataDungeon has
   kept that since 0.11.1 (`ImageAnimation`: frame size and columns).
-- **A sprite that holds something** (a picture frame, a sheet of paper, a
+- **A prop that holds something** (a picture frame, a sheet of paper, a
   speech bubble) needs the position of its opening or writing area, as
-  data on the sprite. **Open:** which field.
+  data on the prop. **Open:** a table of named areas.
 - **Why `map` is open:** a game's map of a place is a picture people read,
   and it would sit oddly under a type named for depth maps and masks.
   Candidates: `map` anyway; `pass`, from compositing, where depth, matte and
@@ -114,7 +114,7 @@ markup (`[sighs/]`). There's no registered content type: `text/plain`, or a
 | Type | What it is |
 |---|---|
 | **set** | a place, to be inside or look into |
-| **prop** | an object seen from outside, placed by the app (if `prop` replaces `sprite`, the two are one type) |
+| **prop** | an object seen from outside, placed by the app: the same type as a picture's prop |
 | **figure** | a character's body, usually rigged |
 | **motion** | movement for a skeleton, without geometry |
 
@@ -132,7 +132,7 @@ texture, its normal and roughness images maps.
 - **font:** one type.
 
 Video otherwise does a picture's jobs, moving, so the picture types cover
-it: a looping fire is a drop, rain a scrim, a flickering torch a sprite.
+it: a looping fire is a drop, rain a scrim, a flickering torch a prop.
 
 ### Properties and measurements
 
@@ -147,8 +147,10 @@ it: a looping fire is a drop, rain a scrim, a flickering torch a sprite.
   transparency, later.
 - **The media from the content,** with the content type as the first guess.
   An app's stated media that the content contradicts is refused, not
-  corrected. **Open:** whether a moving picture (an animated WebP) is
-  still `image` with its animation, as now, or becomes `video`.
+  corrected. **Anything that moves is `video`** (Thomas, 2026-10-13), an
+  animated WebP, GIF or APNG included, so a still drop and a moving one are
+  told apart by `media` whatever the file format. The content type
+  (`image/webp`) still says how to show it.
 
 ## Tags are claims
 
@@ -191,9 +193,14 @@ Three things follow.
    does), `prune`'s keep-last per key (per an app's index), and best
    match's traits (per an index, or chosen per search).
 
-**Open:** the first vocabulary (Overlore's `art-style`, Owl's `style` and
-the park store's `look` look like one tag), and where it's kept
-(DataDungeon's source, like the types, or a table apps add to).
+**Where it's kept** (Thomas, 2026-10-13, to discuss further): a table in
+the store, each tag with a short description of what it means, seeded with
+the agreed tags. **Open:** the first vocabulary (Overlore's `art-style`,
+Owl's `style` and the park store's `look` look like one tag), and how a
+tag is added.
+
+**Types are agreed, not added by apps** (Thomas, 2026-10-13): the list is
+DataDungeon's and changes in a release, by agreement.
 
 ## Uses
 
@@ -204,11 +211,34 @@ mark one asset with two uses.
 - **Never in a key.** Overlore finds its rooms by the drop's tags, with its
   use as a filter. The search planner already starts from a tag when it's
   the narrowest way in.
-- **Kept apart from tags,** so a use can't collide with a tag of the same
-  name. **Proposed:** a table of its own (asset, consumer, name), counted
-  as tags are so the planner can start from it.
-- **Open:** whether uses replace the `used-by` links the park store gives
-  its props (0.9). Those say who uses an asset, but not how.
+- **A table of their own** (asset, consumer, name), kept apart from tags so
+  a use can't collide with a tag of the same name, and counted as tags are
+  so the planner can start from it (Thomas, 2026-10-13).
+- **They replace the `used-by` links** the park store gives its props
+  (0.9), which say who uses an asset but not how.
+
+## Areas
+
+A prop that holds something has an opening or a writing area; a drop has a
+floor, where things can stand. An asset can have several. **Decided
+(Thomas, 2026-10-13), built when an app first needs it:** a table of named
+areas (asset, name, rectangle, and for a video an optional frame range):
+`opening`, `writing`, `floor`.
+
+## Pruning and eviction in a shared store
+
+Two operations exist today, and no app calls either (checked 2026-10-13).
+`prune` deletes retired assets (takes replaced through `supersedes:`, or
+retired by hand), keeping each key's last few if asked; it retires
+nothing. Eviction, for lack of use, is `eviction_candidates`: the least
+recently used assets not marked permanent, for the app to delete. A third,
+keeping the best few of a pool of interchangeable pictures, doesn't exist.
+
+A pool is one app's view, and so is a lack of use: pictures Overlore can
+spare may include the one Owl depends on. So no app deletes for everyone
+(Thomas, 2026-10-13). An app drops its own use; DataDungeon deletes an
+asset only when no app uses it and it's retired, or unused and evictable,
+as a stored file is deleted only when no asset refers to it.
 
 ## Moving existing stores
 
@@ -217,19 +247,15 @@ each of its types becomes a standard type and a use, with its tags kept
 and renamed to the shared vocabulary where they differ. Overlore has
 worked out its own already (its 15 types; its 116 `transcript` assets go,
 since a clip's words are its recipe's text). DataDungeon provides the
-calls; the one-way part, as 0.12's keys were, is the schema. **Open:** what
-stays of `register_type` once types and the vocabulary are DataDungeon's.
-Apps would still register their own indexes.
+calls; the one-way part, as 0.12's keys were, is the schema.
+`register_type` goes: types are DataDungeon's, and tags are defined in the
+vocabulary. Apps keep `register_index` for their own fast lookups (Thomas,
+2026-10-13).
 
 ## Open, collected
 
-- Names: the panel, `sprite` or `prop`, `map`.
-- New homes for what the type's own index does today: `get`, `prune`'s
-  keep-last, best match's traits.
-- The first shared vocabulary.
-- Where the vocabulary lives.
-- Uses: their own table; whether they replace `used-by` links.
-- A holder sprite's opening or writing area.
-- Whether a moving picture's media is `video`.
-- What stays of `register_type`.
+- Names: the panel, `map`.
+- New homes for what the type's own index does today: `get` and best
+  match's traits. Prune follows uses (above).
+- The first shared vocabulary, its descriptions, and how a tag is added.
 - Release: with the recipes, as 0.13.
