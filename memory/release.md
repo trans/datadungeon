@@ -33,9 +33,8 @@ worktree branch (`registration-required`), this checkout left at
 (`path: ../../../datadungeon`) and 0.12's first open upgrades its
 `voices.db` one way. Fast-forward this checkout when Cattacula has moved
 to GitHub, or when Thomas says. **Cattacula moved 2026-10-12** (its
-`9fe2421`), so nothing links here now; the fast-forward is due (the
-first try, 2026-10-13, was stopped by the permission check, so it
-waits on Thomas).
+`9fe2421`), so nothing links here now. **Fast-forwarded to `2698701`
+2026-10-13**, with Thomas's go-ahead.
 
 When a commit that bumps `shard.yml`'s version is pushed, offer to tag and
 push `vX.Y.Z` too (tag pushes are outward-facing, so confirm first). Check

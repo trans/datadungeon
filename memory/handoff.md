@@ -71,7 +71,7 @@ tag names starting with `@` are refused. Lesson: put a consumer's
 accepted asks into the design doc when accepting them.
 
 **0.12 released 2026-10-11: `v0.12.0` at `2698701` on GitHub's main
-(this checkout still at `f8a0898`, see release.md).** Storing needs a registered type; the type's own
+(this checkout fast-forwarded to it 2026-10-13, see release.md).** Storing needs a registered type; the type's own
 order is an index in asset_keys (consumer and name empty); the
 `pool_key` and `pool` columns go on the first read-write open (one-way;
 a read-only open before that fails); `AssetRecord#key` and `key_for`
