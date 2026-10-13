@@ -187,6 +187,17 @@ shared standard is the tag vocabulary, a type naming only the tags in its
 key; uses never in a key. Names: `drop` (backdrop), `scrim` (overlay);
 the panel's name, `sprite`/`prop` and `map` still open.
 
+**Plan (Thomas left the order to me, 2026-10-13):** 0.13 recipes (with
+the texts table, the description as a text reference,
+`update_asset(permanent:)`, 0.12's deprecated `pool_key` names removed);
+meanwhile the tag vocabulary with Thomas; 0.14 standard types (each app
+then moves its own, one at a time); 0.15 embeddings and semantic search in
+`dd-serve`; later areas, dialogue/sequence/document recipes, audio
+measuring, 3D. `DESIGN-types.md` (main `a8d1d08`, not pushed) holds the
+settled names (drop, scrim, prop, map), the art styles (golden-comic,
+silver-comic, modern-comic, dark-manga, fantasy, photorealism, pixel,
+3d-cartoon, ascii), lighting vs condition, uses, areas, pruning.
+
 **0.12.1: usage counted in memory (Thomas, 2026-10-13; released `v0.12.1`
 at `6feb72a`).** From `@pirateship`'s finding
 (performance.md). `touch_asset` counts in memory; every 1,000 uses
