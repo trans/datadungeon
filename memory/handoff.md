@@ -116,7 +116,7 @@ goes to Overlore as one more (maybe weighted) reaction, not straight into
 which win whatever the rating. DD never learns the reaction words.
 
 **Embeddings registry (draft, Thomas, 2026-10-11): `DESIGN-embeddings.md`,
-not yet committed in the code repo.** Semantic search is built but unused:
+committed as a draft in `a5febfd`.** Semantic search is built but unused:
 not in `dd-serve`, no consumer. Decided: named entries per consumer and
 type; same set of parts shares one recipe and its vectors; a recipe is a
 set, written in one fixed order (measured: order moves vectors about as much
@@ -125,7 +125,7 @@ tags + `description`, `prompt`, `view`; `default` entry; one model per
 store. **Next:** Thomas reads it through.
 
 **Recipes (Thomas, 2026-10-12: tables, not a compressed log;
-`DESIGN-recipes.md`, uncommitted).** `generation` leaves the assets row,
+`DESIGN-recipes.md`, a draft, `a5febfd`).** `generation` leaves the assets row,
 split into parameter sets and long texts each stored once by hash, with a
 small row per asset; prompts passed in parts; a part equal to the
 description points at it; measurements (loudness, `kept`) move out. About
