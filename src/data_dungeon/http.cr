@@ -36,6 +36,8 @@ module DataDungeon
   #     GET    /assets/:id                 an asset, its tags, custom tags, metadata (with a
   #                                          picture's view and light readably) and links
   #     GET    /assets/:id/object          its bytes, streamed from the storage
+  #     GET    /assets/:id/recipe          how it was made (DB#recipe), steps and named texts
+  #                                          (owner:name@version) included; 404 when it has none
   #     GET    /assets/:id/links           its links, and the links to it
   #     POST   /maintenance/check          check_consistency's report
   #     GET    /types/:type/matches        best matches, given a matcher (MatchIndex):
@@ -43,7 +45,8 @@ module DataDungeon
   #                                          dominant-color=#aa3311) &require=a,b &weight.<k>=<n> &limit=
   #     GET    /assets/:id/similar         the assets closest to this one: ?require= &weight.<k>= &limit=
   #
-  #     PATCH  /assets/:id                 {tags, description, flagged, rating, image}: update_asset;
+  #     PATCH  /assets/:id                 {tags, description, flagged, rating, permanent, image}:
+  #                                          update_asset;
   #                                          image holds the fields an application sets, view
   #                                          and light as {side, yaw, pitch, roll}
   #     DELETE /assets/:id
@@ -120,6 +123,10 @@ module DataDungeon
         end
       elsif method == "GET" && parts.size == 3 && parts[0] == "assets" && parts[2] == "object" && id
         object(context, id)
+      elsif method == "GET" && parts.size == 3 && parts[0] == "assets" && parts[2] == "recipe" && id
+        @db.find_asset_by_id(id) || return error(context, 404, "No asset #{id}")
+        recipe = @db.recipe(id) || return error(context, 404, "Asset #{id} has no recipe")
+        respond(context, {recipe: recipe})
       elsif method == "PUT" && parts.size == 3 && parts[0] == "assets" && parts[2] == "keyframes" && id
         @db.find_asset_by_id(id) || return error(context, 404, "No asset #{id}")
         given = JSON.parse(context.request.body.try(&.gets_to_end) || "[]").as_a
@@ -274,6 +281,7 @@ module DataDungeon
       tags = body["tags"]?.try(&.as_h.transform_values(&.as_s))
       rec = @db.update_asset(id, tags: tags, description: body["description"]?.try(&.as_s),
         flagged: body["flagged"]?.try(&.as_bool), rating: body["rating"]?.try(&.as_i),
+        permanent: body["permanent"]?.try(&.as_bool),
         image: body["image"]?.try { |fields| image_fields(fields) })
       respond(context, {asset: rec, tags: @db.load_tags(id)})
     end

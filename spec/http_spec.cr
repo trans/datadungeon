@@ -184,6 +184,28 @@ describe DataDungeon::API do
     end
   end
 
+  it "shows an asset's recipe, and marks an asset permanent" do
+    with_api("dd-api-recipe") do |api, db|
+      recipe = DataDungeon::Recipe.new("picture", settings: {"model" => "flux-dev"},
+        fields: {"subject" => DataDungeon::Recipe.text("A pier at dusk.")}, seed: 3)
+      made = db.store("backdrop", {"art-style" => "pixel", "rating" => "g"}, bytes: "m".to_slice,
+        content_type: "image/webp", recipe: recipe)
+      plain = store_backdrop(db, "golden", "p")
+
+      json(call(api, "GET", "/dd/assets/#{made.id}", "r"))["asset"]["has_recipe"].should eq true
+      shown = json(call(api, "GET", "/dd/assets/#{made.id}/recipe", "r"))["recipe"]
+      shown["form"].should eq "picture"
+      shown["fields"]["subject"]["text"].should eq "A pier at dusk."
+      shown["settings"].should eq({"model" => "flux-dev"})
+      shown["seed"].should eq 3
+      call(api, "GET", "/dd/assets/#{plain.id}/recipe", "r").status_code.should eq 404
+      call(api, "GET", "/dd/assets/999/recipe", "r").status_code.should eq 404
+
+      edited = json(call(api, "PATCH", "/dd/assets/#{plain.id}", "w", {permanent: true}))
+      edited["asset"]["permanent"].should eq true
+    end
+  end
+
   it "needs the read token to read, and the write token to write" do
     with_api("dd-api-auth") do |api, db|
       rec = store_backdrop(db, "golden", "a")

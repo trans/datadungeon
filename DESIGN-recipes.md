@@ -144,7 +144,7 @@ below).
 
 ### Filling it
 
-- `store(…, recipe: {...})` takes the standard shape, with each prompt field's text
+- `store(…, recipe:)` takes the standard shape, with each prompt field's text
   given whole (named texts with their name). `generation:` is accepted for a
   release and kept as the old free-form record until moved.
 - `@mj`'s `shoot` returns its prompt in labelled parts (`prompt_parts`, roles
@@ -154,13 +154,70 @@ below).
   passes the fields and sends the joined string. Its `description` on an
   asset becomes only the part that changes.
 
+## 0.13: the calls
+
+```crystal
+recipe = DataDungeon::Recipe.new("picture",
+  settings: {"camera" => "mj:camera:flare", "camera-version" => 1, "model" => "flux-dev",
+             "size" => "1024x1024", "steps" => 4},             # stored once by hash
+  fields: {"preamble" => DataDungeon::Recipe.named("overlore:house", "Draw …"),
+           "subject"  => DataDungeon::Recipe.text("A tall elf with red braids."),
+           "style"    => DataDungeon::Recipe.named("overlore:silver", "Silver Age comic …")},
+  prompt_sent: sent,                  # kept only if it differs from the fields joined
+  seed: 1234, cost: 0.04, generated_at: time, references: [portrait.file_hash.not_nil!])
+db.store("panel", tags, bytes: png, content_type: "image/png", recipe: recipe)
+
+db.recipe(id)                         # => Recipe?, named texts as handles: "overlore:silver@2"
+db.set_recipe(id, recipe)             # give an asset its recipe later (moving old records);
+                                      # replace: true to replace one, drop_generation: true
+                                      # to let the old record go
+db.with_text("style", "overlore:silver")    # asset ids, any version; "overlore:silver@2" for one
+```
+
+- **Forms and their fields,** in joining order. A field another form
+  doesn't have is refused.
+  - `picture`: preamble, subject, description, theme, style, rules, staging.
+  - `speech`: style (the speaking instructions), text (what's spoken).
+  - `text` (from a chat model): instructions, description (the part that
+    changes).
+  - A step with no prompt (a matte, a depth map) has settings and
+    references only.
+- **Steps:** `Recipe.new(…, steps: [edit, matte])` for an asset made in
+  steps, each a recipe of its own; a single recipe is one step.
+- **Named texts:** written `owner:name`, with `@version` when reading one
+  back. The owner is the app (its `consumer:`), and only it adds wordings
+  under its names; any app uses them as they are. A wording seen before
+  gets its old version; a new one the next number.
+- **`prompt_sent`:** for a picture, compared with its fields joined by one
+  space, empty ones skipped, and kept only if it differs. For speech and
+  text it's kept as given, if given.
+- **The asset's `description`** is a text in the same table (decided
+  2026-10-13). `store(…, description:)` and `AssetRecord#description` stay
+  as they are; a recipe's `description` field and the asset's description
+  are one row when the words are the same.
+- **Rows and HTTP:** `AssetRecord#has_recipe?` (JSON `has_recipe`), the
+  cheap flag `@curio` asked for; `GET /assets/:id/recipe` returns the
+  recipe, steps and handles included.
+- **Dialogue and assembled recipes** (a cast, a timeline) come when an app
+  stores the first one.
+
 ## Moving existing records
 
-The first open by the release that builds this moves each `generation` value
-it can read into the standard shape, keeps what it can't as the asset's
-legacy record, and drops the column (one way, as 0.12's keys were). Before
-that, `@overlore` drops or rewrites its start-up migrations that read
-`generation` in SQL (`voices_to_mp3`, `level_voices`).
+DataDungeon can't read each app's own `generation` format, so it doesn't
+try (changed 2026-10-13, from moving what it can read). The first open by
+0.13 moves every `generation` value, as it is, into a table of old records
+and drops the column; `AssetRecord#generation` and `store(…, generation:)`
+keep working through 0.13, reading and writing that table. Each app then
+converts its own records with `set_recipe`, one app at a time, as it
+converts its types; the old record stays until the app says it can go
+(`drop_generation: true`). Descriptions move into the texts table the same
+way. Each column is dropped only after every value reads back the same
+from where it moved; otherwise the open fails, leaving the store as it
+was. It's one way, as 0.12's keys were. Thomas, 2026-10-13: be very
+careful with deleting, so DataDungeon deletes no text and replaces no
+recipe unless told to. Before Overlore opens its store with
+0.13, it drops or rewrites its start-up migrations that read `generation`
+in SQL (`voices_to_mp3`, `level_voices`).
 
 ## Considered first: compressed segments
 

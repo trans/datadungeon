@@ -69,7 +69,8 @@ record = db.store("portrait", traits, custom: %w[race],
   description: image_prompt,
   generated: true,
   generator: "runware:flux-dev-v1",
-  generation: %({"width":512,"height":512}),
+  recipe: DataDungeon::Recipe.new("picture", settings: {"model" => "flux-dev", "size" => "512x512"},
+    fields: {"subject" => DataDungeon::Recipe.text(image_prompt)}),
   image: DataDungeon::ImageMeta.new(compression: "normalize", target_format: "webp")
 )
 record.key                                          # "portrait.silver.pg.f.ape.purple-skin.red-hair"
@@ -188,8 +189,7 @@ type's keys into its own index and drops the column, and an older
 DataDungeon can't open the store after that; assets of a type nobody
 registered keep their tags and id, with no key. `description` is the text used to describe an asset; for a
 generated image, it holds the prompt. `generated` records whether the asset
-was generated. `generator` and `generation` retain provider/model information
-and JSON parameters.
+was generated, `generator` what made it, and its recipe (below) how.
 
 `DB#store` stores objects by content: each object's storage key is the SHA-256
 of its bytes under a directory named for the first two hex characters, with an
@@ -215,6 +215,61 @@ rescue File::NotFoundError
   # the file is gone; the row is left as it is
 end
 ```
+
+## Recipes
+
+A recipe says how an asset was made, in one shape every app shares, so an
+asset one app made can be read by another (`DESIGN-recipes.md`): its form
+(`picture`, `speech`, or `text` from a chat model), the settings it was
+made with, the words it was given by prompt field, and what's its own:
+seed, cost, when, and the files it was made from, by hash.
+
+```crystal
+recipe = DataDungeon::Recipe.new("picture",
+  settings: {"camera" => "mj:camera:flare", "model" => "flux-dev", "steps" => 4},
+  fields: {"preamble" => DataDungeon::Recipe.named("overlore:house", "Draw one panel."),
+           "subject"  => DataDungeon::Recipe.text("A tall elf with red braids."),
+           "style"    => DataDungeon::Recipe.named("overlore:silver", "Silver Age comic art.")},
+  prompt_sent: sent, seed: 7, cost: 0.04, generated_at: Time.utc, references: [portrait.file_hash.not_nil!])
+db.store("panel", tags, bytes: png, content_type: "image/png", recipe: recipe)
+
+db.recipe(id)                               # => Recipe?, named texts read back as "overlore:silver@2"
+db.with_text("style", "overlore:silver")    # the assets using any of its wordings; "@2" for one
+db.named_texts("style", "overlore")         # [{name, version, text}]
+db.set_recipe(id, recipe)                   # give an asset made before 0.13 its recipe
+```
+
+- **Fields,** in the order they're joined: a picture's preamble, subject,
+  description, theme, style, rules, staging; speech's style (the speaking
+  instructions) and text; a chat text's instructions and description (the
+  part that changes). A step without a prompt (a matte, a depth map) has
+  the form `""`, and an asset made in steps `Recipe.in_steps([edit, matte])`.
+- **Named texts** are wordings an app reuses: `owner:name`, the owner being
+  the app (`DB.new(…, consumer:)`). Only the owner adds a wording under its
+  name; any app uses the wordings as they are. Each new wording is the
+  next version, and one seen before keeps its old one.
+- **What a picture's provider was sent** is compared with its fields joined
+  by one space (empty ones skipped) and kept only if it differs.
+- **Every wording is stored once,** in one table of texts, the asset's own
+  description included: a portrait's description and the subject of every
+  panel showing it are one row. Settings are stored once too.
+- `AssetRecord#has_recipe?` (JSON `has_recipe`) says whether there's one to
+  ask for; `GET /assets/:id/recipe` returns it over HTTP.
+
+Before 0.13 an asset's `generation` was free-form JSON on its row. The first
+read-write open by 0.13 moves each one, as it is, into a table of old
+records and drops the column, since only each app can read its own;
+`generation` keeps reading and writing that table through 0.13. Descriptions
+move into the texts table the same way. Each column is dropped only after
+every value is checked to read back the same from where it went; otherwise
+the open fails and leaves the store as it was. It's one way: an older
+DataDungeon can't open the store afterwards.
+
+`set_recipe` keeps what an asset has: it refuses to replace a recipe
+without `replace: true`, and keeps the old `generation` record unless given
+`drop_generation: true`, once the app is sure the recipe holds everything
+it said. A text an asset or a recipe uses can't be deleted (a foreign key
+refuses it), and DataDungeon deletes none.
 
 ## Image fields
 
@@ -325,8 +380,9 @@ db.list_assets("voice", retired: true)        # what was retired or superseded
 
 Search words come from a full-text index (SQLite FTS5) of each asset's type
 and tag values, kept current as assets change. `update_asset(id, tags:,
-description:, flagged:, rating:)` edits an asset in place without storing
-its bytes again; a rating and a flag change which asset `get` prefers.
+description:, flagged:, rating:, permanent:)` edits an asset in place
+without storing its bytes again; a rating and a flag change which asset
+`get` prefers.
 
 `link(from, rel, to, data)` relates an asset to another asset
 (`derived-from`) or to a name (`used-by`, `"boardwalk.holidayland"`),
@@ -367,14 +423,15 @@ HTTP::Server.new([api, app_handler])
 | `PATCH`, `DELETE /assets/:id` | edit (with `image` fields, views readably) or delete (write token) |
 | `PUT /assets/:id/keyframes` | an animation's checkpoints (write token) |
 | `POST`, `DELETE /assets/:id/links` | link (with `data`) or unlink (write token) |
+| `GET /assets/:id/recipe` | how it was made (404 when it has no recipe) |
 | `POST /assets/:id/retire`, `/assets/:id/reinstate` | retire or reinstate (write token) |
 | `POST /maintenance/prune` | `{type, keep_last, retired_before}`: delete retired assets (write token) |
 | `POST /maintenance/measure` | `{type, all}`: measure stored pictures (write token) |
 | `POST /types/:type/promote`, `/maintenance/vacuum` | (write token) |
 
-An asset in JSON carries its `key` (and, through 0.12, the same value as
-`pool_key`, its name before 0.12), `rating` and `flagged`, which `PATCH`
-sets.
+An asset in JSON carries its `key` (`pool_key` before 0.12, and both names
+through 0.12), `rating`, `flagged` and `permanent`, which `PATCH` sets, and
+`has_recipe`.
 
 ## Best matches
 

@@ -32,6 +32,8 @@ module DataDungeon
     # When it was retired, by a newer take superseding it or on its own; a
     # retired asset is kept but left out of lookups, listings and searches.
     getter retired_at : String?
+    # Whether it has a recipe (DB#recipe), so a reader knows to ask for it.
+    getter? has_recipe : Bool
 
     def retired? : Bool
       !@retired_at.nil?
@@ -57,18 +59,8 @@ module DataDungeon
       @flagged : Bool = false,
       @made_at : String? = nil,
       @retired_at : String? = nil,
+      @has_recipe : Bool = false,
     )
-    end
-
-    @[Deprecated("Use `key`: since 0.12 the type's own order is an index like any other.")]
-    def pool_key : String?
-      @key
-    end
-
-    # JSON still carries `pool_key` beside `key` through 0.12, for readers
-    # written before the rename.
-    protected def on_to_json(json : ::JSON::Builder)
-      json.field "pool_key", @key
     end
   end
 

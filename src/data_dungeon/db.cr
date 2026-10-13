@@ -157,8 +157,7 @@ module DataDungeon
         use_count     INTEGER DEFAULT 0,
         permanent     INTEGER DEFAULT 0,
         generator     TEXT,
-        generation    TEXT,
-        description   TEXT,
+        description_id INTEGER REFERENCES texts(id),
         generated     INTEGER NOT NULL DEFAULT 0,
         rating        INTEGER,
         flagged       INTEGER DEFAULT 0,
@@ -437,8 +436,11 @@ module DataDungeon
       a.id, a.asset_type, a.media, a.content_type, a.file_path,
       (SELECT k.key FROM asset_indexes i JOIN asset_keys k ON k.index_id = i.id AND k.asset_id = a.id
        WHERE i.asset_type = a.asset_type AND i.consumer = '' AND i.name = '') AS key,
-      a.file_hash, a.created_at, a.last_used_at, a.use_count, a.permanent, a.generator, a.generation,
-      a.description, a.generated, a.rating, a.flagged, a.made_at, a.retired_at
+      a.file_hash, a.created_at, a.last_used_at, a.use_count, a.permanent, a.generator,
+      (SELECT generation FROM recipe_legacy WHERE asset_id = a.id) AS generation,
+      (SELECT text FROM texts WHERE id = a.description_id) AS description,
+      a.generated, a.rating, a.flagged, a.made_at, a.retired_at,
+      EXISTS (SELECT 1 FROM recipes WHERE asset_id = a.id) AS has_recipe
     SQL
 
     # The id of a type's own index, for a query taking the type as an argument.
@@ -657,6 +659,9 @@ module DataDungeon
               conn.exec("ALTER TABLE assets ADD COLUMN #{column} TEXT") unless assets_columns.has_key?(column)
             end
             conn.exec("UPDATE assets SET made_at = created_at WHERE made_at IS NULL")
+            conn.exec(TEXTS_SCHEMA)
+            RECIPE_SCHEMAS.split(";").each { |sql| conn.exec(sql.strip) unless sql.strip.empty? }
+            migrate_recipes(conn)
             conn.exec("DROP INDEX IF EXISTS idx_assets_single_key") # keys stopped being unique in 0.11
             ASSETS_INDEXES.split(";").each { |sql| conn.exec(sql.strip) unless sql.strip.empty? }
             conn.exec("DROP INDEX IF EXISTS idx_assets_lookup") # keys now name their type
@@ -731,13 +736,14 @@ module DataDungeon
         tags = table_columns(conn, "asset_tags")
         types = table_columns(conn, "asset_types")
         current = !assets.has_key?("pool_key") && !assets.has_key?("pool") && !types.has_key?("pool") &&
-                  assets.has_key?("description") && assets.has_key?("generated") &&
+                  assets.has_key?("description_id") && !assets.has_key?("generation") && assets.has_key?("generated") &&
                   assets.has_key?("made_at") && assets.has_key?("retired_at") &&
                   table_columns(conn, "image_meta").has_key?("measured") &&
                   !unique_file_path?(conn) && tags.has_key?("custom") && tags.has_key?("asset_type") &&
                   types.has_key?("sets") && types.has_key?("facets") && types.has_key?("weights") &&
                   %w[image_meta image_animation image_keyframes audio_meta video_meta text_meta asset_links asset_search asset_search_terms asset_changes
-                    asset_indexes asset_keys asset_tag_counts].none? { |table| table_columns(conn, table).empty? }
+                    asset_indexes asset_keys asset_tag_counts texts recipe_settings named_texts recipes recipe_fields
+                    recipe_legacy].none? { |table| table_columns(conn, table).empty? }
         raise ReadOnlyError.new("The database needs upgrading: open it read-write once first") unless current
       end
     end
@@ -871,21 +877,26 @@ module DataDungeon
     private def migrate_assets_schema(conn : ::DB::Connection) : Bool
       columns = table_columns(conn, "assets")
       return false unless columns.has_key?("canonical_key") || columns["pool_key"]? == 1 ||
-                          !columns.has_key?("description") || !columns.has_key?("generated") ||
+                          !(columns.has_key?("description") || columns.has_key?("description_id")) ||
+                          !columns.has_key?("generated") ||
                           unique_file_path?(conn)
 
-      description = columns.has_key?("description") ? "description" : "NULL"
+      kept = ->(column : String) { columns.has_key?(column) ? column : "NULL" }
       generated = columns.has_key?("generated") ? "generated" : "CASE WHEN generator IS NULL THEN 0 ELSE 1 END"
 
-      conn.exec(ASSETS_SCHEMA.sub("IF NOT EXISTS assets", "assets_migrated"))
+      # Also with the columns before 0.13, which migrate_recipes moves on.
+      conn.exec(ASSETS_SCHEMA.sub("IF NOT EXISTS assets", "assets_migrated")
+        .sub("description_id INTEGER REFERENCES texts(id),",
+             "description_id INTEGER REFERENCES texts(id), generation TEXT, description TEXT,"))
       conn.exec(<<-SQL)
         INSERT INTO assets_migrated
         (id, asset_type, media, content_type, file_path, file_hash,
          created_at, last_used_at, use_count, permanent, generator,
-         generation, description, generated, rating, flagged)
+         description_id, generation, description, generated, rating, flagged)
         SELECT id, asset_type, media, content_type, file_path, file_hash,
                created_at, last_used_at, use_count, permanent, generator,
-               generation, #{description}, #{generated}, rating, flagged
+               #{kept.call("description_id")}, #{kept.call("generation")}, #{kept.call("description")},
+               #{generated}, rating, flagged
         FROM assets
       SQL
       conn.exec("DROP TABLE assets")
@@ -966,9 +977,11 @@ module DataDungeon
       custom : Array(String) = [] of String,
       made_at : Time? = nil,
       supersedes : Int64? = nil,
+      recipe : Recipe? = nil,
     ) : Int64
       writable!
       validate_store(asset_type, media, tags, custom, image, audio, video, text)
+      recipe.try(&.check)
       tags = normalize_traits(registered(asset_type), tags)
 
       now = Time.utc.to_s(TIME_FORMAT)
@@ -981,14 +994,19 @@ module DataDungeon
             INSERT INTO assets
             (asset_type, media, content_type, file_path, file_hash,
              created_at, last_used_at, use_count, permanent,
-             generator, generation, description, generated, rating, flagged, made_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, NULL, 0, ?)
+             generator, description_id, generated, rating, flagged, made_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, NULL, 0, ?)
           SQL
             asset_type, media, content_type, file_path, file_hash,
             now, now, permanent ? 1 : 0,
-            generator, generation, description, generated ? 1 : 0, made_at.try(&.to_s(TIME_FORMAT)) || now
+            generator, description.try { |words| put_text(conn, words) }, generated ? 1 : 0,
+            made_at.try(&.to_s(TIME_FORMAT)) || now
           )
           asset_id = conn.scalar("SELECT last_insert_rowid()").as(Int64)
+          if old = generation
+            conn.exec("INSERT INTO recipe_legacy (asset_id, generation) VALUES (?, ?)", asset_id, old)
+          end
+          recipe.try { |made| write_recipe(conn, asset_id, made) }
 
           tags.each do |k, v|
             conn.exec(
@@ -1108,6 +1126,7 @@ module DataDungeon
       custom : Array(String) = [] of String,
       made_at : Time? = nil,
       supersedes : Int64? = nil,
+      recipe : Recipe? = nil,
     ) : AssetRecord
       writable!
       store = @storage || raise "DataDungeon::DB has no storage backend; construct with cache_root: or storage:"
@@ -1118,6 +1137,7 @@ module DataDungeon
       m = media || DB.media_of(ct)
       # Reject bad arguments before writing, so a refused store leaves no object.
       validate_store(asset_type, m, tags, custom, image, audio, video, text)
+      recipe.try(&.check)
 
       data = bytes || File.open(source_path.not_nil!, "rb", &.getb_to_end)
 
@@ -1160,6 +1180,7 @@ module DataDungeon
             text: text,
             made_at: made_at,
             supersedes: supersedes,
+            recipe: recipe,
           )
         rescue ex
           release_object(storage_key) if wrote # no row will own it
@@ -1369,14 +1390,15 @@ module DataDungeon
     end
 
     # Edit an asset in place, without storing its bytes again: replace its
-    # tags, or change its description, flag or rating, or the image fields
+    # tags, or change its description, flag, rating or `permanent`, or the image fields
     # the application sets (ImageMeta::SET_FIELDS, and an animation's frames
     # for a sprite sheet). Arguments left nil stay as they are. A registered
     # type's traits are normalized and its keys derived again. A tag stays
     # custom while its value is unchanged. A `rating` and `flagged` decide
     # which of several candidates `get` and best matches prefer.
     def update_asset(id : Int64, *, tags : Hash(String, String)? = nil, description : String? = nil,
-                     flagged : Bool? = nil, rating : Int32? = nil, image : ImageMeta? = nil) : AssetRecord
+                     flagged : Bool? = nil, rating : Int32? = nil, image : ImageMeta? = nil,
+                     permanent : Bool? = nil) : AssetRecord
       writable!
       rec = find_asset_by_id(id) || raise ArgumentError.new("No asset #{id}")
       if image && rec.media != "image"
@@ -1384,7 +1406,10 @@ module DataDungeon
       end
       @object_lock.synchronize do
         write_transaction do |conn|
-          conn.exec("UPDATE assets SET description = ? WHERE id = ?", description, id) unless description.nil?
+          if words = description
+            conn.exec("UPDATE assets SET description_id = ? WHERE id = ?", put_text(conn, words), id)
+          end
+          conn.exec("UPDATE assets SET permanent = ? WHERE id = ?", permanent ? 1 : 0, id) unless permanent.nil?
           conn.exec("UPDATE assets SET flagged = ? WHERE id = ?", flagged ? 1 : 0, id) unless flagged.nil?
           conn.exec("UPDATE assets SET rating = ? WHERE id = ?", rating, id) unless rating.nil?
           replace_tags(conn, rec, tags) if tags
@@ -2438,11 +2463,6 @@ module DataDungeon
     def key_for(asset_type : String, traits : Hash(String, String)) : String
       type = registered(asset_type)
       type.key(query_traits(type, traits))
-    end
-
-    @[Deprecated("Use `key_for`.")]
-    def pool_key_for(asset_type : String, traits : Hash(String, String)) : String
-      key_for(asset_type, traits)
     end
 
     # The key prefix shared by assets whose first `size` traits (by default,
@@ -3504,6 +3524,7 @@ module DataDungeon
         flagged: (rs.read(Int32?) || 0) != 0,
         made_at: rs.read(String?),
         retired_at: rs.read(String?),
+        has_recipe: rs.read(Int64) != 0,
       )
     end
   end

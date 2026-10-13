@@ -268,7 +268,8 @@ describe "DataDungeon::DB browsing" do
       json = JSON.parse(rec.to_json)
       json["asset_type"].should eq "backdrop"
       json["key"].should eq "backdrop.golden.pg"
-      json["pool_key"].should eq json["key"] # the old name, through 0.12
+      json["pool_key"]?.should be_nil # the old name went in 0.13
+      json["has_recipe"].should eq false
       JSON.parse(db.get_with_meta_by_id(rec.id, touch: false).not_nil![1].not_nil!.to_json)["width"].should eq 64
       JSON.parse(db.registration("backdrop").to_json)["pool_traits"].should eq ["art-style", "rating"]
     end
