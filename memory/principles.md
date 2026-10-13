@@ -1,6 +1,6 @@
 # Principles
 
-*Updated 2026-10-08*
+*Updated 2026-10-13*
 
 ## DD stays generic
 
@@ -17,6 +17,24 @@ coding things just for Infocomic's use case.
   examples are fine in specs.
 - 0.7.0 moved the last Infocomic-only code (prompts, portrait index, image
   cache layout) out to Infocomic.
+
+## Be very careful with deleting
+
+Thomas, 2026-10-13, reviewing 0.13. Whatever DataDungeon deletes, replaces
+or drops is gone for every app sharing the store.
+
+- Keep by default; deleting or replacing takes an explicit argument
+  (`set_recipe(replace: true)`, `drop_generation: true`), never a default.
+- Don't add a sweep (delete what nothing refers to) unless someone needs
+  it: a later table that refers to the same rows, missed by the sweep,
+  turns it into data loss. 0.13 dropped its `prune_texts` for this.
+- Let SQLite refuse instead: a foreign key on every reference to shared
+  rows (texts), so a mistaken delete fails rather than orphans.
+- A migration that drops a column first checks every value reads back the
+  same from where it moved, and raises otherwise, so the open's
+  transaction leaves the store as it was.
+- No app deletes for everyone: an app drops its own use (DESIGN-types.md,
+  pruning).
 
 ## No underscores in asset names
 

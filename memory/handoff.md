@@ -190,11 +190,14 @@ the panel's name, `sprite`/`prop` and `map` still open.
 **0.13 built 2026-10-13 on branch `recipes` (uncommitted, not released).**
 Recipes (`recipe.cr`, `recipes.cr`): texts, recipe_settings, named_texts,
 recipes (a row per step), recipe_fields, recipe_legacy; `store(recipe:)`,
-`recipe`, `set_recipe`, `with_text`, `named_texts`, `prune_texts`;
+`recipe`, `set_recipe`, `with_text`, `named_texts`;
 `has_recipe`, `GET /assets/:id/recipe`; description as a text reference;
-`update_asset(permanent:)`; `pool_key` aliases gone. Changed from the plan:
+`update_asset(permanent:)`; `pool_key` aliases gone. After Thomas's "be very
+careful with DELETE": `set_recipe` keeps an existing recipe and the old
+record unless told, `prune_texts` removed, `description_id` a foreign key,
+the column drops verified first (principles.md). Changed from the plan:
 DD keeps old `generation` values whole (each app converts its own with
-`set_recipe`), since it can't read their formats. 154 specs; all five apps
+`set_recipe`), since it can't read their formats. 155 specs; all five apps
 type-check; copies of all five stores upgrade with every description and
 record intact (Overlore 1,165 assets, 900 descriptions -> 859 texts, 916
 records kept, 26 ms); `get` unchanged (26.7 us). Release notes drafted.
