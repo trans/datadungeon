@@ -6,7 +6,7 @@
 |---|---|---|---|
 | Overlore (formerly Infocomic) | `~/Projects/infocomics/infocomic` | images, transcripts, banter, decrees | GitHub, `~> 0.12.0` since its `863ba42` (2026-10-11); was this checkout |
 | Cattacula | `~/Projects/siliconcircus.lol/cattacula/service` | TTS voice audio (`voices.db`) | GitHub, `~> 0.12.0` since its `9fe2421` (2026-10-12); was this checkout |
-| Pirateship | `~/Projects/siliconcircus.lol/pirateship` | parrot TTS voices (`data/voices.db`) | GitHub, `~> 0.7.0` |
+| Pirateship | `~/Projects/siliconcircus.lol/pirateship` | parrot TTS voices (`data/voices.db`) | GitHub, `~> 0.12.0` (0.12.0 installed 2026-10-13); agent `@pirateship` |
 | Silicon Circus venues | via the `siliconcircus` agent | venue images, about one per attraction | — |
 | Silicon Circus park store | `~/Projects/siliconcircus.lol/assets` | the park's shared assets: Cattacula's voices (copied), fronts, sprites, props | GitHub, `~> 0.11.0` (0.11.2 installed, 2026-10-13); `just serve` runs dd-serve on 127.0.0.1:12782 |
 | Owl | `~/my/world/ofwords/owl` | scenes, props, frames and depth maps (`owl_*` types), its scene graph in `owl_*` tables in the same file | GitHub, `~> 0.12.0` since its `03ffc98` (2026-10-12); agent `@owl` (joined 2026-10-12) |
@@ -95,9 +95,16 @@ so `width`/`height` are what the bytes say, not what was asked. Overlore's
   2026-10-13).
 - **Pirateship** registers `voice` (traits `pool i voice fmt`), reads
   through `db.read`, and stores `description`/`generated` (`412f9be`,
-  pushed 2026-10-07). Its live `data/voices.db` upgrades from the 0.3 schema
-  the next time it starts. Its uncommitted training-camp work (from
-  2026-08-26) isn't ours; leave it.
+  pushed 2026-10-07). On `~> 0.12.0` since 2026-10-13, no code changes
+  (`@pirateship`, at Thomas's request). Its live `data/voices.db` is still
+  the 0.3 schema (14 voices; never opened by 0.7) and goes straight to 0.12
+  on its next start, backed up beside the original. On a copy that one
+  open worked: 14 assets current, keys `voice.<pool>.<i>.onyx.mp3` in
+  `asset_keys`, `canonical_key` and `pool` gone, objects untouched, every
+  clip byte-identical, nothing re-voiced. **Thomas, 2026-10-13:** it keeps
+  its own store for now; joining one Silicon Circus store is decided
+  later. Its uncommitted training-camp work (from 2026-08-26) isn't ours;
+  leave it.
 - **Infocomic** is moving every asset except its favicon to `DB#store`
   (Thomas's call, 2026-10-07), in stages: storage and serving, pictures,
   voices, text, its repo art, then the existing rows (its TODO.md,
