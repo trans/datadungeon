@@ -1,15 +1,15 @@
 # Consumers
 
-*Updated 2026-10-12*
+*Updated 2026-10-13*
 
 | App | Checkout | Uses DD for | Builds against |
 |---|---|---|---|
 | Overlore (formerly Infocomic) | `~/Projects/infocomics/infocomic` | images, transcripts, banter, decrees | GitHub, `~> 0.12.0` since its `863ba42` (2026-10-11); was this checkout |
-| Cattacula | `~/Projects/siliconcircus.lol/cattacula/service` | TTS voice audio (`voices.db`) | this checkout (`lib/data_dungeon` symlink) |
+| Cattacula | `~/Projects/siliconcircus.lol/cattacula/service` | TTS voice audio (`voices.db`) | GitHub, `~> 0.12.0` since its `9fe2421` (2026-10-12); was this checkout |
 | Pirateship | `~/Projects/siliconcircus.lol/pirateship` | parrot TTS voices (`data/voices.db`) | GitHub, `~> 0.7.0` |
 | Silicon Circus venues | via the `siliconcircus` agent | venue images, about one per attraction | — |
-| Silicon Circus park store | `~/Projects/siliconcircus.lol/assets` | the park's shared assets: Cattacula's voices (copied), fronts, sprites, props | GitHub, `~> 0.8.0`; `just serve` runs dd-serve on 127.0.0.1:12782 |
-| Owl | `~/my/world/ofwords/owl` | scenes, props, frames and depth maps (`owl_*` types), its scene graph in `owl_*` tables in the same file | GitHub, `~> 0.11.2`; agent `@owl` (joined 2026-10-12) |
+| Silicon Circus park store | `~/Projects/siliconcircus.lol/assets` | the park's shared assets: Cattacula's voices (copied), fronts, sprites, props | GitHub, `~> 0.11.0` (0.11.2 installed, 2026-10-13); `just serve` runs dd-serve on 127.0.0.1:12782 |
+| Owl | `~/my/world/ofwords/owl` | scenes, props, frames and depth maps (`owl_*` types), its scene graph in `owl_*` tables in the same file | GitHub, `~> 0.12.0` since its `03ffc98` (2026-10-12); agent `@owl` (joined 2026-10-12) |
 
 ## Where the files are
 
@@ -24,7 +24,11 @@ All on local disk as of 2026-10-07; no app uses `S3Storage` yet.
 - **Cattacula:** `service/data/voices.db`, objects in `service/data/voices/`.
 - **Pirateship:** `data/voices.db`, objects in `data/voice-blobs/`.
 
-## Builds from this checkout (being retired)
+## Builds from this checkout (retired 2026-10-12)
+
+**No consumer builds from this checkout any more** since Cattacula's
+`9fe2421` (2026-10-12); every app installs from GitHub. The rest of this
+section is the history.
 
 Infocomic and Cattacula compile straight from this working tree, so any
 uncommitted DD edit is live for them at once, including while the
@@ -35,8 +39,8 @@ rename, when a half-edited tree would have broken a collaborator's build.
 (`github: trans/datadungeon`, `version: ~> X.Y.Z`), as Pirateship and the
 park store do, so DD's main branch moving never changes their build and
 each upgrades when ready. It came up because 0.11 couldn't merge while
-Overlore built from here (handoff.md). Until Overlore and Cattacula have
-switched, the precautions below still apply.
+Overlore built from here (handoff.md). The precautions below applied until both had
+switched.
 
 - Develop breaking or multi-step changes in a git worktree (in the
   scratchpad, with `lib` symlinked to this checkout's).
@@ -84,7 +88,11 @@ so `width`/`height` are what the bytes say, not what was asked. Overlore's
 ## Where each stands
 
 - **Cattacula** registers `voice` (traits `bit beat voice fmt`) and reads
-  through `db.read` (`a2a0f12`, `35d6e92`, pushed).
+  through `db.read` (`a2a0f12`, `35d6e92`, pushed). On 0.12 from GitHub
+  since `9fe2421` (2026-10-12), no code changes; its `voices.db` was backed
+  up and upgraded, all 488 voices found by traits. Moving its voices into
+  the park store waits until the park store is on 0.12 (`@cattacula`,
+  2026-10-13).
 - **Pirateship** registers `voice` (traits `pool i voice fmt`), reads
   through `db.read`, and stores `description`/`generated` (`412f9be`,
   pushed 2026-10-07). Its live `data/voices.db` upgrades from the 0.3 schema
@@ -148,9 +156,21 @@ Owl keeps every picture in DD (`Store#put_image`: types `owl_scene`,
 `owl_prop`, `owl_frame`, `owl_depth`, and `owl_voice` for clips; tags
 `world` (slugs like `the-valley-c092`), `kind`, `style`; a `generation`
 record) and its scene graph in its own `owl_*` tables in the
-same SQLite file. None of its types is registered, so **0.12 refuses its
-stores until it registers them**; pinned `~> 0.11.2`, it's safe until it
-bumps. Depth maps: Depth Anything V2 in ONNX Runtime, about 30 ms a picture
-on the GPU, under a second on the CPU, an 8-bit grayscale PNG kept as an
-asset; the picture-to-depth mapping is its own table (`owl_depth`), not a
-DD link.
+same SQLite file. Depth maps: Depth Anything V2 in ONNX Runtime, about
+30 ms a picture on the GPU, under a second on the CPU, an 8-bit grayscale
+PNG kept as an asset.
+
+**On 0.12 since its `03ffc98` (2026-10-12)**, tested on a copy; its live
+store upgrades on its next start, backed up. All five types registered at
+start-up with `pool_traits` `world` (`kind`, `style` plain tags). Depth
+maps are `depth-of` links from the map to its picture (its `owl_depth`
+table moved over and dropped), stored `permanent: false`; everything else
+`permanent: true` now. On `AlreadyStored` (the same bytes under another
+world's tags) it reuses the held asset by id.
+
+**Asked 2026-10-12:** its older scenes, props and frames were stored
+`permanent: false`; can that be changed? Not in 0.12 (`update_asset`
+doesn't take it). Nothing evicts on its own (only `eviction_candidates`
+reads the flag, and owl doesn't call it), so nothing is at risk. Reply
+drafted offering `update_asset(permanent:)` in a 0.12.1, waiting on
+Thomas. Owl will send its view on recipes separately.

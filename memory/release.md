@@ -1,6 +1,6 @@
 # Releases
 
-*Updated 2026-10-11*
+*Updated 2026-10-13*
 
 ## Tag every release
 
@@ -32,7 +32,10 @@ worktree branch (`registration-required`), this checkout left at
 `f8a0898` (0.11.2's code), because Cattacula still builds from it
 (`path: ../../../datadungeon`) and 0.12's first open upgrades its
 `voices.db` one way. Fast-forward this checkout when Cattacula has moved
-to GitHub, or when Thomas says.
+to GitHub, or when Thomas says. **Cattacula moved 2026-10-12** (its
+`9fe2421`), so nothing links here now; the fast-forward is due (the
+first try, 2026-10-13, was stopped by the permission check, so it
+waits on Thomas).
 
 When a commit that bumps `shard.yml`'s version is pushed, offer to tag and
 push `vX.Y.Z` too (tag pushes are outward-facing, so confirm first). Check
