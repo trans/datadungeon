@@ -166,8 +166,8 @@ measurements; the asset's description as a text reference; release.
 rather than a 0.12.1): `@owl` stored its older scenes, props and frames
 `permanent: false` and wants to mark them. Tell `@owl` when it's tagged.
 
-**0.12.1: usage counted in memory (Thomas, 2026-10-13; built on branch
-`usage-in-memory`, not yet committed).** From `@pirateship`'s finding
+**0.12.1: usage counted in memory (Thomas, 2026-10-13; released `v0.12.1`
+at `6feb72a`).** From `@pirateship`'s finding
 (performance.md). `touch_asset` counts in memory; every 1,000 uses
 (`USAGE_WRITE_AT`) are written in one transaction if the write lock is
 free (`busy_timeout` 0 for that try; if busy, again 100 uses later), the
