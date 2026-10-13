@@ -166,6 +166,22 @@ measurements; the asset's description as a text reference; release.
 rather than a 0.12.1): `@owl` stored its older scenes, props and frames
 `permanent: false` and wants to mark them. Tell `@owl` when it's tagged.
 
+**Standard asset types (from `@overlore` and Thomas, received
+2026-10-13; not yet written up).** DD defines a short list of types by role,
+each spanning media (pictures: backdrop, panel, overlay, sprite, texture,
+icon, map; sound: speech, dialogue, music, ambience, effect, recording;
+text: prose, script, transcript, log; document, data; 3D: set, prop, figure,
+motion; sequence; font), with rules (a backdrop or panel has no
+transparency) and properties (tileable, loopable, template, language).
+**Thomas, 2026-10-13: an app's use is not a registered type.** A room is
+just a backdrop image; `overlore:room` is a tag saying how Overlore uses it,
+so Overlore finds it easily. (I had read `@overlore`'s "subtype, registered
+under a type with its traits" as a registration.) Also in the message:
+scripts in Yarn Spinner's line syntax; recipe shapes for chat text,
+dialogue, steps and assemblies; the description as a text reference
+(`@overlore`: yes); and whether the per-asset recipe row is one row or one
+per field (one per asset plus one per field used; the doc needs fixing).
+
 **0.12.1: usage counted in memory (Thomas, 2026-10-13; released `v0.12.1`
 at `6feb72a`).** From `@pirateship`'s finding
 (performance.md). `touch_asset` counts in memory; every 1,000 uses
