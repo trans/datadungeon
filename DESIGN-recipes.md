@@ -1,6 +1,6 @@
 # Recipes: a shared standard for how assets were made
 
-*Draft 2026-10-12, with Thomas, `@overlore` and `@mj`. Nothing here is built yet.*
+*Draft 2026-10-12, with Thomas, `@overlore` and `@mj`; updated 2026-10-13. Nothing here is built yet. The types it applies to are in `DESIGN-types.md`.*
 
 ## Why
 
@@ -43,6 +43,26 @@ that several apps share.
   instructions); the **text** spoken.
 - **Per asset:** cost, `generated_at`, seed, and references by file hash
   (also kept as `derived-from` links, which can be queried).
+
+Shapes still to add (`@overlore`, 2026-10-13):
+
+- **Text from a chat model** (banter scripts, decrees): model and settings;
+  the instructions as a named text (`overlore:banter@1`); the part that
+  changes (a decree's quest title; nothing, for a banter script); and the
+  output's format.
+- **A dialogue** spoken in one take (ElevenLabs's Text to Dialogue): the
+  script by reference, a cast (each speaker's voice and settings), and the
+  provider's own settings. Overlore would keep each take and cut it into a
+  speech clip per line, linked to the take; a cut's recipe is the take by
+  hash and the turn's times, so a recut costs nothing.
+- **Made in steps:** a layer is a camera edit of its drop, then a matte
+  that keeps what the edit changed. The edit isn't stored, so the recipe
+  needs both steps. A recipe as a list of steps covers that, and the
+  depth map below.
+- **Assembled:** a document or a sequence is made of other assets, so its
+  recipe is its layout (the parts in order, the exporter's version) or its
+  timeline.
+- **Not made here:** imported files have no recipe.
 
 What doesn't fit the standard isn't forced into it: an app keeps it in a
 table of its own in the same database, keyed by asset id (as Memo's tables
@@ -103,9 +123,10 @@ text), stored once; the rows aren't typed. Around it:
   together in the data. A room's LOOK text is shared by its pictures in
   every style, theme and rating.
 
-Each asset with a recipe has one small row: its settings, its named texts and
-descriptions by field, and what's its own (seed, cost, `generated_at`,
-references). Reading a record back is one query; a drift audit (every
+Each asset with a recipe has one small row for what's its own (its
+settings, seed, cost, `generated_at`, references), plus one row for each
+prompt field it uses (asset, field, text), whether the text is named or
+not. `@overlore` asked which was meant (2026-10-13); this is it. Reading a record back is one query; a drift audit (every
 picture from one camera with one parameter set, by `made_at`) is plain SQL.
 
 Prompt fields are joined with one space, an empty one skipped; each is whole
@@ -162,7 +183,10 @@ each chunk) the database's pages are compressed when stored anyway.
 
 - **The asset's `description`:** whether it becomes a reference into the
   texts table, so the asset's own description and its recipe's
-  description field are one text.
+  description field are one text. `@overlore` is for it (2026-10-13):
+  otherwise a room's LOOK text is stored once in texts and again on every
+  picture of the room, up to 60 times. A clip's words would be the same
+  reference, which is why its `transcript` assets can go.
 - **Measurements from `@mj`'s side:** asked 2026-10-12 whether its camera
   returns any that should be kept.
 - **Release:** 0.13, beside the embeddings registry
