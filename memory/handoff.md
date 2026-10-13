@@ -173,8 +173,18 @@ at `6feb72a`).** From `@pirateship`'s finding
 free (`busy_timeout` 0 for that try; if busy, again 100 uses later), the
 rest at `close` or by `flush_usage`. Thomas chose a cap alone over riding
 on DD's own writes or a timer. Lost on a crash: a hint for eviction, not
-a record. 143 specs; a `get` with a use counted is 22 us against 21 without
-(was about 5 ms for the fsync). `synchronous` stays FULL.
+a record. 143 specs; `synchronous` stays FULL.
+
+**0.12.2 (`v0.12.2` at `616b752`, 2026-10-13):** `@pirateship` found 1,000
+too many for a quiet server and wanted counts kept at shutdown. Uses are
+written 100 at a time (busy: again 10 later); read-write DBs register
+themselves and one `at_exit` writes their uses, which covers Kemal (it
+calls `exit` on SIGINT/SIGTERM; checked with a real SIGTERM: 0 uses before,
+7 after). Every app runs on Kemal; only Overlore closes its DB itself.
+Measured on xfs: a get counting a use averages 40.5 us against 26.7 us
+(one ~1.4 ms sync per 100). Lesson: the 0.12.1 figure (22 vs 21 us) was
+measured on tmpfs (`/tmp`), where syncs are free; time disk costs on a
+real disk (`touch_bench.cr` takes a directory).
 
 ## Current state (2026-10-07)
 
