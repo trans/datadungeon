@@ -200,6 +200,10 @@ and the back (style, rules) and leaves the rest in the description, in
 order, so the fields joined are exactly what was sent and no prompt is kept
 whole; a prompt that fills no field is all description. Overlore splits its
 916 records that way; Owl was told the same.
+**The order gets tested** (Thomas, 2026-10-14): `@mj`, with Thomas's help,
+will analyse whether another field order works better, after researching
+whether the image providers give guidance on prompt order. Until then the
+0.13 order stands. Owl told the same day.
 
 **The hub: what `@curio` needs from each store** (2026-10-14, `.ai`
 `8ba2938`; Thomas: the hub waits until current work is done): the bucket
