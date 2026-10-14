@@ -242,9 +242,9 @@ foreign keys checked after). 164 specs; the five apps type-check; copies
 of the four 0.13.0 stores (Owl, Cattacula, Pirateship, park) change in
 `named_texts` alone, and Overlore's 0.12 copy upgrades with 0 differences.
 **Released: `v0.13.1` at `4df221b` (2026-10-14);** a fresh `~> 0.13.0`
-install resolves it. **Open:** notices to all five (Thomas: "let them all
-know", Cattacula included), curio told about `/purpose`, Overlore answered
-on "first seen".
+install resolves it. Notices sent the same day to all five (`mail/sent/*-v0.13.1.md`):
+curio told about `/purpose`, Overlore answered on "first seen" (the order
+of calls).
 `@overlore` accepted it the same day, having read the held draft through
 Thomas (`mail/received/20261014-083946Z-@overlore--style-purposes-yes-it-works-for-us-go-ahead-with-0-9aeed7b6.md`);
 the reply went anyway, as the record. **Its question, to answer in the

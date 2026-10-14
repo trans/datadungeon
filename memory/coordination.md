@@ -23,6 +23,10 @@
   does the work across stores, such as the hub (DESIGN-types.md, "Shared
   files"). So what people or several stores need goes to curio, and DD
   gives each store the calls curio builds on.
+- **Thomas, 2026-10-14: "let them all know" is the go-ahead.** When he
+  asks for mail to go ("let X know", "let them all know"), write it and
+  send it; don't hold it for a second look ("just send them please").
+  Mail he hasn't asked for still waits for him.
 - `.ai/mail/` holds our mail as files: drafts, outbox, the committed
   `sent/` record, and the inbox, where mail that didn't come live lands
   (see README.md).
