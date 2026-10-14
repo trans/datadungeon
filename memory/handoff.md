@@ -191,11 +191,15 @@ the panel's name, `sprite`/`prop` and `map` still open.
 sent 2026-10-13 to `@overlore`, `@mj`, `@owl` and `@curio` came back and
 were answered (`.ai` `029db8b`). All five apps type-check against it,
 copies of all five stores upgrade cleanly, S3 specs pass on Garage.
-**Next:** upgrade notes to each app, held for Thomas (Overlore: rewrite
-`voices_to_mp3`/`level_voices` first, compose in the new field order,
-then `set_recipe` its 916 records; Owl: `permanent:`, and move its whole
-prompts out of descriptions; curio: the recipe endpoint, filters,
-`description_hash`, `everywhere`).
+Upgrade notices sent 2026-10-14 to `@overlore`, `@owl`, `@curio` (with the
+park store's move) and `@pirateship` (`.ai/mail/sent/*-v0.13.0.md`); none to
+Cattacula, which has no agent.
+**Thomas, through `@overlore` (2026-10-14): the description is the fallback
+field.** An app fills what fields it can from the front (preamble, subject)
+and the back (style, rules) and leaves the rest in the description, in
+order, so the fields joined are exactly what was sent and no prompt is kept
+whole; a prompt that fills no field is all description. Overlore splits its
+916 records that way; Owl was told the same.
 
 **The hub: what `@curio` needs from each store** (2026-10-14, `.ai`
 `8ba2938`; Thomas: the hub waits until current work is done): the bucket
