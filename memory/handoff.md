@@ -266,7 +266,12 @@ counts use across stores, and clears the shared bucket (deleting a file
 only when no store uses it). Apps copy what they choose into their own
 store (`copied-from`), so a store going down breaks no other; the bytes
 stay one file in the bucket. Owl's library code is a small version and
-would be its first user. **Open:** the hub's design and place in the plan.
+would be its first user. **Thomas, 2026-10-14: `@curio` builds the hub**
+(it's almost set up for it), so it's no DataDungeon release; DD offers each
+store's search, use counts, uses (0.14), `GET /objects` and shared storage
+(0.13), and perhaps later a copy that records a row for a file already in
+the bucket. Thomas also approved `watercolor` (spelled to match `color`)
+and `painted-animation`; art style takes no label in keys.
 
 Recipes (`recipe.cr`, `recipes.cr`): texts, recipe_settings, named_texts,
 recipes (a row per step), recipe_fields, recipe_legacy; `store(recipe:)`,
