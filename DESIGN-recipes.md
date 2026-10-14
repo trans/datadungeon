@@ -35,14 +35,28 @@ that several apps share.
 
 - **A picture:** camera and its version, model, size, format, the camera's
   own settings (`klein`'s steps and CFG, `dhero`'s input fidelity), seed;
-  the prompt in fields: **preamble · subject · description · theme · style ·
-  rules · staging** (`staging`: the camera's words for `view` and `light`,
-  `@mj`); and `prompt_sent`, what the provider received.
+  the prompt in fields: **preamble · subject · description · staging ·
+  theme · style · rules** (`staging`: the camera's words for `view` and
+  `light`, `@mj`); and `prompt_sent`, what the provider received. The rules
+  come last, where a model takes them as the final word: "nothing else in
+  frame" means little if words follow it (`@mj`, 2026-10-13, from its
+  practice; whether models mind the order is unmeasured). Staging was last
+  only because `@mj`'s `shoot` took one string and added its words at the
+  end; once it takes the fields, it puts staging in its place, and its
+  `prompt_sent` equals the fields joined, so it isn't stored again. A
+  placement instruction ("make the change where the red ring is drawn",
+  `@owl`) is a rule (proposed): staging is only the camera's words.
 - **Speech:** model, voice, speed, format and the processing settings
   (`playback-rate`, `leveled-to`, …); the **style** (the speaking
   instructions); the **text** spoken.
-- **Per asset:** cost, `generated_at`, seed, and references by file hash
-  (also kept as `derived-from` links, which can be queried).
+- **Per asset:** cost in US dollars, and how it was reached (its basis:
+  the service's own bill, `reported: runware`; a rate table,
+  `priced: arcana-ai 0.5.2`; or `estimated`), since a cost without it can't
+  be audited and the same camera's basis changes over time (`@overlore`,
+  `@mj`); `generated_at`; seed (only `klein` honours one, so elsewhere
+  `@mj` returns none); and references by file hash. A reference is found
+  with `list_assets(file_hash:)`; DataDungeon makes no `derived-from` link
+  from it, since the file may be in another store or never stored.
 
 Shapes still to add (`@overlore`, 2026-10-13):
 
@@ -77,7 +91,12 @@ which is what turned 29 parameter sets into 449. Overlore's two are dropped
 layer in 0.5 ms (its opaque pixels over the backdrop's size), and the
 loudness is in the clip's ID3 tag, with the original recording kept,
 retired. A measurement someone does need would be a field of the asset, as
-a picture's dominant colour is.
+a picture's dominant colour is. `@mj`'s (2026-10-13) are facts about the
+file, so they're fields: the size it snapped to, which DataDungeon measures
+from the file itself (the size asked for is the recipe's, and the two
+can't be told from each other later), and its size in bytes. A refusal
+isn't an asset: there's no picture, and the same prompt may pass next
+time.
 
 A derived asset made by a deterministic model, such as a depth map from a
 picture, is the opposite of a generated one: its recipe (the source's file
@@ -114,6 +133,14 @@ text), stored once; the rows aren't typed. Around it:
   changes over time; two wordings in use at once get two names
   (`overlore:silver` for places, `overlore:silver-figure` for figures), or
   their versions would flip back and forth.
+- **Staging:** no caller names it, but `@mj`'s renderer has a small closed
+  set of phrasings (a few bearings by a few heights), so a million
+  pictures have a few dozen, each stored once. It's kept, not rebuilt from
+  `view` and `light`: the wording changes with a camera's version, and
+  rebuilding old records in today's phrasing would make `prompt_sent`'s
+  check pass or fail for reasons that aren't the record's. Nobody should
+  search its words: the vectors are the truth (within 20° of a view is one
+  dot product), and words get a picture's left and right backwards.
 - **Descriptions:** the long texts that are mostly new (a room's LOOK text,
   a character's description, a spoken line), unnamed texts in the same
   table. "Subject" and "description" are prompt fields, as "style" is: where an
@@ -164,7 +191,8 @@ recipe = DataDungeon::Recipe.new("picture",
            "subject"  => DataDungeon::Recipe.text("A tall elf with red braids."),
            "style"    => DataDungeon::Recipe.named("overlore:silver", "Silver Age comic …")},
   prompt_sent: sent,                  # kept only if it differs from the fields joined
-  seed: 1234, cost: 0.04, generated_at: time, references: [portrait.file_hash.not_nil!])
+  seed: 1234, cost: 0.04, cost_basis: "reported: runware", generated_at: time,
+  references: [portrait.file_hash.not_nil!])
 db.store("panel", tags, bytes: png, content_type: "image/png", recipe: recipe)
 
 db.recipe(id)                         # => Recipe?, named texts as handles: "overlore:silver@2"
@@ -172,11 +200,14 @@ db.set_recipe(id, recipe)             # give an asset its recipe later (moving o
                                       # replace: true to replace one, drop_generation: true
                                       # to let the old record go
 db.with_text("style", "overlore:silver")    # asset ids, any version; "overlore:silver@2" for one
+db.list_assets(texts: {"style" => "overlore:silver"})  # the same, with the other filters
+db.list_assets(file_hash: hash)       # the assets holding a recipe's reference
+db.update_asset(id, description: "…", everywhere: true)  # for every asset sharing it
 ```
 
 - **Forms and their fields,** in joining order. A field another form
   doesn't have is refused.
-  - `picture`: preamble, subject, description, theme, style, rules, staging.
+  - `picture`: preamble, subject, description, staging, theme, style, rules.
   - `speech`: style (the speaking instructions), text (what's spoken).
   - `text` (from a chat model): instructions, description (the part that
     changes).
@@ -190,14 +221,22 @@ db.with_text("style", "overlore:silver")    # asset ids, any version; "overlore:
   gets its old version; a new one the next number.
 - **`prompt_sent`:** for a picture, compared with its fields joined by one
   space, empty ones skipped, and kept only if it differs. For speech and
-  text it's kept as given, if given.
+  text it's kept as given, if given. An old record whose parts are lost
+  (`@owl`'s whole prompts) is its settings and `prompt_sent`, no fields.
 - **The asset's `description`** is a text in the same table (decided
   2026-10-13). `store(…, description:)` and `AssetRecord#description` stay
   as they are; a recipe's `description` field and the asset's description
-  are one row when the words are the same.
+  are one row when the words are the same. A blank description clears it.
+  The JSON carries `description_hash`, the same in every store, and
+  `list_assets(description_hash:)` finds every asset sharing one. A typo is
+  fixed for all of them with `update_asset(…, everywhere: true)` (`@curio`;
+  Overlore's sharing is about to grow, Thomas): a new text, with every
+  asset that pointed at the old one pointed at it. The old text stays,
+  since a recipe may record it as what a provider was sent.
 - **Rows and HTTP:** `AssetRecord#has_recipe?` (JSON `has_recipe`), the
   cheap flag `@curio` asked for; `GET /assets/:id/recipe` returns the
-  recipe, steps and handles included.
+  recipe, steps and handles included; `GET /assets` filters by
+  `file_hash`, `description_hash` and `text.<field>=owner:name[@version]`.
 - **Dialogue and assembled recipes** (a cast, a timeline) come when an app
   stores the first one.
 
@@ -244,7 +283,11 @@ each chunk) the database's pages are compressed when stored anyway.
   otherwise a room's LOOK text is stored once in texts and again on every
   picture of the room, up to 60 times. A clip's words would be the same
   reference, which is why its `transcript` assets can go.
-- **Measurements from `@mj`'s side:** asked 2026-10-12 whether its camera
-  returns any that should be kept.
-- **Release:** 0.13, beside the embeddings registry
-  (`DESIGN-embeddings.md`), or on its own.
+- **Measurements from `@mj`'s side:** answered 2026-10-13 (above).
+- **A step that refers to an earlier step's result** (`@owl`, low
+  priority): most Owl pictures are made from a copy of the last one changed
+  in the player's browser (a crop, the view bent by its depth map), never
+  stored, so it has no hash. A reference to an earlier step would record
+  it. Nothing breaks without it.
+- **Release:** 0.13, on its own; the embeddings registry
+  (`DESIGN-embeddings.md`) in 0.15.
