@@ -163,6 +163,15 @@ more is kept; if not, it's kept whole, so a camera that added words of its
 own shows up (`@mj` returns it in every result so this can be checked rather
 than trusted).
 
+**The description is the fallback field** (Thomas, through `@overlore`,
+2026-10-14). An app fills what fields it can, from the front (preamble,
+subject) and from the back (style, rules), and leaves the rest in the
+description, in its order. An empty field (say, theme) means the
+description covered it, as far as it mattered. Since the description sits
+in the middle, the fields joined are exactly the prompt that was sent, so
+no prompt is kept whole: one that fills no field is all description. Old
+records are split this way as far as each goes.
+
 Size: a few dozen bytes per asset, the distinct settings and named texts
 (hundreds), and the descriptions. On a million pictures, about 50 MB besides
 the descriptions; descriptions are the one part worth compressing, if they
