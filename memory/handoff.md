@@ -187,9 +187,29 @@ shared standard is the tag vocabulary, a type naming only the tags in its
 key; uses never in a key. Names: `drop` (backdrop), `scrim` (overlay);
 the panel's name, `sprite`/`prop` and `map` still open.
 
-**0.13 on main as `54121b7` (pushed 2026-10-13), not tagged:** Thomas: tag
-`v0.13.0` after the reviews sent the same day to `@overlore`, `@mj`, `@owl`
-and `@curio` (types and recipes) come back.
+**0.13 released: `v0.13.0` at `ec9298e` (2026-10-14),** after the reviews
+sent 2026-10-13 to `@overlore`, `@mj`, `@owl` and `@curio` came back and
+were answered (`.ai` `029db8b`). All five apps type-check against it,
+copies of all five stores upgrade cleanly, S3 specs pass on Garage.
+**Next:** upgrade notes to each app, held for Thomas (Overlore: rewrite
+`voices_to_mp3`/`level_voices` first, compose in the new field order,
+then `set_recipe` its 916 records; Owl: `permanent:`, and move its whole
+prompts out of descriptions; curio: the recipe endpoint, filters,
+`description_hash`, `everywhere`).
+
+**The hub: what `@curio` needs from each store** (2026-10-14, `.ai`
+`8ba2938`; Thomas: the hub waits until current work is done): the bucket
+itself marked shared, checked on open, rather than each app's `shared:`
+(one app leaving it out deletes others' files; a store older than 0.13
+must never use the bucket); each store registering itself in the bucket
+(name, where served, last opened), so the hub clears only when every
+registered one answers; `GET /objects` paged or streamed, a page in one
+transaction; the run's start judged by the bucket's clock (a marker's
+date); a copy recorded without the bytes, over HTTP (tags, description,
+recipe, image fields, `copied-from`), checking the file and refreshing its
+date; text hashes in a recipe's JSON (versions are per store); a stable
+sort with a cursor for merging; `GET /store` (name, version, shared, which
+bucket); later a change feed (`asset_changes`).
 
 **Reviews in (2026-10-13; `@mj` still out; originals at `.ai` `0905d20`).**
 For 0.13 (recipes): `@curio`: references can't be followed to assets

@@ -1,6 +1,6 @@
 # Releases
 
-*Updated 2026-10-13*
+*Updated 2026-10-14*
 
 ## Tag every release
 
@@ -9,7 +9,7 @@ Releases 0.4.0 to 0.6.x were committed and pushed but never tagged, which
 blocked Pirateship's upgrade. `v0.7.0` was tagged at `dc38d81` on
 2026-10-07, annotated, with a `vX.Y.Z: <summary>` message like `v0.3.5`,
 and `v0.8.0` at `d01f4ec` the same day; `v0.9.0` at `2b79d46` on
-2026-10-08; `v0.10.0` at `7618531` on 2026-10-09; `v0.11.0` at `9279ff1` the same day, `v0.11.1` at `e0e3a42` (image fields, media, `pool:` ignored), `v0.11.2` at `0ffdcac` (curio's list rows and view counts) on 2026-10-10. `v0.12.0` at `2698701` on 2026-10-11 (registration required, the type's own key an index, ranking by rating); `v0.12.1` at `6feb72a` on 2026-10-13 (uses counted in memory), `v0.12.2` at `616b752` the same day (written a hundred at a time, and at exit; a fresh `~> 0.12.0` install resolves it). 0.7.1-0.7.3 were held and never tagged. `~> 0.7.0`
+2026-10-08; `v0.10.0` at `7618531` on 2026-10-09; `v0.11.0` at `9279ff1` the same day, `v0.11.1` at `e0e3a42` (image fields, media, `pool:` ignored), `v0.11.2` at `0ffdcac` (curio's list rows and view counts) on 2026-10-10. `v0.12.0` at `2698701` on 2026-10-11 (registration required, the type's own key an index, ranking by rating); `v0.12.1` at `6feb72a` on 2026-10-13 (uses counted in memory), `v0.12.2` at `616b752` the same day (written a hundred at a time, and at exit; a fresh `~> 0.12.0` install resolves it). `v0.13.0` at `ec9298e` on 2026-10-14 (recipes, descriptions as shared texts, cost basis, shared storage; a fresh `~> 0.13.0` install resolves it). 0.7.1-0.7.3 were held and never tagged. `~> 0.7.0`
 (Pirateship) doesn't reach 0.8, and `~> 0.8.0` (the park store) doesn't
 reach 0.9.
 
