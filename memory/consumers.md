@@ -4,7 +4,7 @@
 
 | App | Checkout | Uses DD for | Builds against |
 |---|---|---|---|
-| Overlore (formerly Infocomic) | `~/Projects/infocomics/infocomic` | images, transcripts, banter, decrees | GitHub, `~> 0.12.0` since its `863ba42` (2026-10-11); was this checkout |
+| Overlore (formerly Infocomic) | `~/Projects/overlore` (moved from `~/Projects/infocomics/infocomic` 2026-10-14) | images, transcripts, banter, decrees | GitHub, `~> 0.12.0` since its `863ba42` (2026-10-11); was this checkout |
 | Cattacula | `~/Projects/siliconcircus.lol/cattacula/service` | TTS voice audio (`voices.db`) | GitHub, 0.13.0 since its `55587c5` (2026-10-14); `~> 0.12.0` since `9fe2421` (2026-10-12) |
 | Pirateship | `~/Projects/siliconcircus.lol/pirateship` | parrot TTS voices (`data/voices.db`) | GitHub, `~> 0.13.0` since its `a4dcabe` (2026-10-14); agent `@pirateship` |
 | Silicon Circus venues | via the `siliconcircus` agent | venue images, about one per attraction | — |
@@ -53,6 +53,18 @@ Pirateship installs from GitHub, so it only sees tagged releases (see
 release.md).
 
 ## Overlore's plan (from `@overlore`, 2026-10-09)
+
+**2026-10-14, recipes:** its live store stays on 0.12 (the server never
+restarted on its 0.13.0 build) and converts once, straight to 0.13.1,
+asset by asset in id order, passing no version numbers. Each art style's
+wording is named `overlore:<standard style>/<purpose>` (golden →
+`golden-comic`, silver → `silver-comic`, modern → `modern-comic`,
+`fantasy`, realism → `photorealism`, 3d → `3d-cartoon`, manga →
+`dark-manga`, `pixel`), with purposes `place` (rooms, backdrops, hero
+shots, centerfolds, door views) and `figure` (portraits, panels); each
+style has exactly those two wordings. Style fields that aren't a style's
+wording ("in the same style as the reference image", a room's neighbours)
+stay plain texts.
 
 - Waits for 0.11.1, then passes `supersedes:` in `level_voices`,
   `voices_to_mp3` and `TTSBase#clip`, adds `retired_at IS NULL` to their

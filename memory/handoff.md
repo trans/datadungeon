@@ -211,8 +211,7 @@ records say was sent. Before changing it, store those records'
 `prompt_sent` explicitly (or record the order with each recipe). Owl is on
 0.13 with every record converted (consumers.md).
 
-**Style wordings (`@overlore`, 2026-10-14; waiting on Thomas, no reply
-drafted).** Thomas's rule, passed on by Overlore: no custom top-level
+**Style wordings (`@overlore`, 2026-10-14).** Thomas's rule, passed on by Overlore: no custom top-level
 styles; a variant of a style is the same style. `overlore:silver-figure`
 reads as a style of its own, which DESIGN-recipes.md invites ("two wordings
 in use at once get two names"). Overlore suggests: a wording filed under
@@ -226,6 +225,22 @@ would leave them unfound by name: `with_text` follows
 `recipe_fields.named_id`, which a plain text leaves empty, so naming a
 wording later must also name the records already holding that exact text
 in that field (a backfill on DD's side, or matching on `text_id`).
+**Thomas, 2026-10-14: yes to a purpose column,** if it fixes this without
+other grief. Checked: the only named text in any live store is Owl's
+`owl:narrator` (11 records); Overlore's store isn't on 0.13, so it can
+convert once, with names and purposes, on 0.13.1 (no backfill needed). The
+cost is one rebuild of `named_texts` in 0.13.0 stores (its unique
+constraints change; ids kept, checked before the old table goes), and a
+`/purpose` in the written form that curio must parse. DESIGN-recipes.md
+updated (not yet committed); reply sent 2026-10-14
+(`mail/sent/20261014-081331Z-@overlore--style-purpose.md`). **Open:**
+build 0.13.1; tell `@curio` about `/purpose`.
+`@overlore` accepted it the same day, having read the held draft through
+Thomas (`mail/received/20261014-083946Z-@overlore--style-purposes-yes-it-works-for-us-go-ahead-with-0-9aeed7b6.md`);
+the reply went anyway, as the record. **Its question, to answer in the
+0.13.1 notice:** in a conversion, is "first seen" the order of
+`set_recipe` calls or the recipe's `generated_at`? As built, the order of
+calls (`put_named` takes the next number when it inserts).
 
 **The hub: what `@curio` needs from each store** (2026-10-14, `.ai`
 `8ba2938`; Thomas: the hub waits until current work is done): the bucket
