@@ -206,6 +206,25 @@ describe DataDungeon::API do
     end
   end
 
+  it "finds assets by file and by description, and changes a shared description everywhere" do
+    with_api("dd-api-shared") do |api, db|
+      a = db.store("backdrop", {"art-style" => "pixel", "rating" => "g"}, bytes: "a".to_slice,
+        content_type: "image/webp", description: "A pier.")
+      b = db.store("backdrop", {"art-style" => "golden", "rating" => "g"}, bytes: "b".to_slice,
+        content_type: "image/webp", description: "A pier.")
+      hash = json(call(api, "GET", "/dd/assets/#{a.id}", "r"))["asset"]["description_hash"].as_s
+      listed = json(call(api, "GET", "/dd/assets?description_hash=#{hash}&count=1", "r"))
+      listed["total"].should eq 2
+      json(call(api, "GET", "/dd/assets?file_hash=#{b.file_hash}", "r"))["assets"].as_a.map(&.["asset"]["id"]).should eq [b.id]
+      json(call(api, "GET", "/dd/assets?text.style=overlore:silver", "r"))["assets"].as_a.should be_empty
+      call(api, "GET", "/dd/assets?text.style=silver", "r").status_code.should eq 400
+
+      call(api, "PATCH", "/dd/assets/#{a.id}", "w", {description: "A long pier.", everywhere: true})
+      db.find_asset_by_id(b.id).not_nil!.description.should eq "A long pier."
+      json(call(api, "GET", "/dd/objects", "r"))["objects"].as_a.map(&.as_s).should eq [a.file_path, b.file_path].sort
+    end
+  end
+
   it "needs the read token to read, and the write token to write" do
     with_api("dd-api-auth") do |api, db|
       rec = store_backdrop(db, "golden", "a")

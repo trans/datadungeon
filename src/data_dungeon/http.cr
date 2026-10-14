@@ -24,7 +24,11 @@ module DataDungeon
   #                                          ?type= &q= (whole words, catt* for a start)
   #                                          &tag.<key>= &link.<rel>=<name> (or <name>.*
   #                                          for it and the names under it, <start>*)
-  #                                          &unlinked=<rel> &limit= &page=<n> or &before=<id>
+  #                                          &unlinked=<rel> &file_hash=<sha-256>
+  #                                          &description_hash=<sha-256> (every asset sharing
+  #                                          a description) &text.<field>=<owner:name> (a
+  #                                          recipe's named text; @<version> for one wording)
+  #                                          &limit= &page=<n> or &before=<id>
   #                                          &count=1 (a total), &meta=1 (each picture's fields,
   #                                          and its view readably)
   #                                          picture fields: &field.<name>=<low>..<high> (either
@@ -40,13 +44,15 @@ module DataDungeon
   #                                          (owner:name@version) included; 404 when it has none
   #     GET    /assets/:id/links           its links, and the links to it
   #     POST   /maintenance/check          check_consistency's report
+  #     GET    /objects                    every object key the store's rows use (object_keys),
+  #                                          for clearing a shared bucket
   #     GET    /types/:type/matches        best matches, given a matcher (MatchIndex):
   #                                          ?trait.<k>=<v> &field.<f>=<v> (view=back-left,
   #                                          dominant-color=#aa3311) &require=a,b &weight.<k>=<n> &limit=
   #     GET    /assets/:id/similar         the assets closest to this one: ?require= &weight.<k>= &limit=
   #
-  #     PATCH  /assets/:id                 {tags, description, flagged, rating, permanent, image}:
-  #                                          update_asset;
+  #     PATCH  /assets/:id                 {tags, description, everywhere, flagged, rating,
+  #                                          permanent, image}: update_asset;
   #                                          image holds the fields an application sets, view
   #                                          and light as {side, yaw, pitch, roll}
   #     DELETE /assets/:id
@@ -114,6 +120,8 @@ module DataDungeon
         respond(context, {promoted: @db.promote(parts[1], body["trait"].as_s, body["value"].as_s)})
       elsif method == "GET" && parts == ["assets"]
         list(context)
+      elsif method == "GET" && parts == ["objects"]
+        respond(context, {objects: @db.object_keys})
       elsif parts.size == 2 && parts[0] == "assets" && id
         case method
         when "GET"    then show(context, id)
@@ -170,7 +178,8 @@ module DataDungeon
     private def list(context) : Nil
       params = context.request.query_params
       type, q, unlinked = params["type"]?, params["q"]?, params["unlinked"]?
-      tags, links = prefixed(params, "tag."), prefixed(params, "link.")
+      tags, links, texts = prefixed(params, "tag."), prefixed(params, "link."), prefixed(params, "text.")
+      file_hash, description_hash = params["file_hash"]?, params["description_hash"]?
       limit = page_param(context, "limit", PAGE)
       page = page_param(context, "page", 1, max: Int32::MAX // MAX_PAGE)
       raise ArgumentError.new("page counts from 1") if page < 1
@@ -178,7 +187,8 @@ module DataDungeon
       retired = retired_param(context)
       image = image_filter(params)
       assets = @db.list_assets(type, tags, q: q, links: links, unlinked: unlinked, limit: limit,
-        offset: (page - 1) * limit, before: before, retired: retired, image: image)
+        offset: (page - 1) * limit, before: before, retired: retired, image: image,
+        file_hash: file_hash, description_hash: description_hash, texts: texts)
       tags_by_id = @db.load_tags_batch(assets.map(&.id))
       metas = params["meta"]? == "1" ? @db.load_image_meta_batch(assets.map(&.id)) : nil
       respond(context, {
@@ -189,7 +199,8 @@ module DataDungeon
         end,
         page:  page,
         next:  assets.size == limit ? assets.last?.try(&.id) : nil,
-        total: params["count"]? == "1" ? @db.count_assets(type, tags, q: q, links: links, unlinked: unlinked, retired: retired, image: image) : nil,
+        total: params["count"]? == "1" ? @db.count_assets(type, tags, q: q, links: links, unlinked: unlinked, retired: retired, image: image,
+                  file_hash: file_hash, description_hash: description_hash, texts: texts) : nil,
       })
     end
 
@@ -280,7 +291,7 @@ module DataDungeon
       body = JSON.parse(context.request.body.try(&.gets_to_end) || "{}")
       tags = body["tags"]?.try(&.as_h.transform_values(&.as_s))
       rec = @db.update_asset(id, tags: tags, description: body["description"]?.try(&.as_s),
-        flagged: body["flagged"]?.try(&.as_bool), rating: body["rating"]?.try(&.as_i),
+        everywhere: body["everywhere"]?.try(&.as_bool) || false, flagged: body["flagged"]?.try(&.as_bool), rating: body["rating"]?.try(&.as_i),
         permanent: body["permanent"]?.try(&.as_bool),
         image: body["image"]?.try { |fields| image_fields(fields) })
       respond(context, {asset: rec, tags: @db.load_tags(id)})

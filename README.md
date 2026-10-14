@@ -230,17 +230,20 @@ recipe = DataDungeon::Recipe.new("picture",
   fields: {"preamble" => DataDungeon::Recipe.named("overlore:house", "Draw one panel."),
            "subject"  => DataDungeon::Recipe.text("A tall elf with red braids."),
            "style"    => DataDungeon::Recipe.named("overlore:silver", "Silver Age comic art.")},
-  prompt_sent: sent, seed: 7, cost: 0.04, generated_at: Time.utc, references: [portrait.file_hash.not_nil!])
+  prompt_sent: sent, seed: 7, cost: 0.04, cost_basis: "reported: runware", generated_at: Time.utc,
+  references: [portrait.file_hash.not_nil!])
 db.store("panel", tags, bytes: png, content_type: "image/png", recipe: recipe)
 
 db.recipe(id)                               # => Recipe?, named texts read back as "overlore:silver@2"
 db.with_text("style", "overlore:silver")    # the assets using any of its wordings; "@2" for one
+db.list_assets(texts: {"style" => "overlore:silver"})   # the same as a listing filter
 db.named_texts("style", "overlore")         # [{name, version, text}]
 db.set_recipe(id, recipe)                   # give an asset made before 0.13 its recipe
 ```
 
 - **Fields,** in the order they're joined: a picture's preamble, subject,
-  description, theme, style, rules, staging; speech's style (the speaking
+  description, staging, theme, style, rules (the rules last, where a model
+  takes them as the final word); speech's style (the speaking
   instructions) and text; a chat text's instructions and description (the
   part that changes). A step without a prompt (a matte, a depth map) has
   the form `""`, and an asset made in steps `Recipe.in_steps([edit, matte])`.
@@ -249,7 +252,11 @@ db.set_recipe(id, recipe)                   # give an asset made before 0.13 its
   name; any app uses the wordings as they are. Each new wording is the
   next version, and one seen before keeps its old one.
 - **What a picture's provider was sent** is compared with its fields joined
-  by one space (empty ones skipped) and kept only if it differs.
+  by one space (empty ones skipped) and kept only if it differs. An old
+  record whose parts are lost can be its settings and `prompt_sent` alone.
+- **Cost** is in US dollars, and `cost_basis` says how it was reached: the
+  service's own bill (`reported: runware`), a rate table
+  (`priced: arcana-ai 0.5.2`), or `estimated`.
 - **Every wording is stored once,** in one table of texts, the asset's own
   description included: a portrait's description and the subject of every
   panel showing it are one row. Settings are stored once too.
@@ -342,15 +349,25 @@ db.path_for(record)   # a URL: under public_url, or presigned without one
 any other S3-compatible service. Objects are uploaded with their content type
 and immutable cache headers, since content-addressed objects never change.
 Connections are kept alive, and requests the service turns away for load
-(429, 5xx) are retried with backoff. Give DataDungeon a bucket, or a `prefix:`
-in one, of its own: `check_consistency` treats every object under it as
-DataDungeon's.
+(429, 5xx) are retried with backoff. Give a store a bucket, or a `prefix:`
+in one, of its own, or share it as below: `check_consistency` treats every
+object under it as the store's.
 
 With remote storage, lookups don't confirm that each record's object still
 exists, since that would cost a round trip per read; `check_consistency` finds
 any drift. Read objects with `DB#read`, or stream them with `DB#open`, rather
 than opening `path_for`, which is only a file path for local storage.
 `DB#find_by_hash` finds the assets holding given bytes, by their SHA-256.
+
+Stores can share one bucket, each object kept once by its hash, with
+`shared: true` on the storage (`DD_SHARED_STORAGE=1` for dd-serve). A store
+can't know whether another still uses an object, so DataDungeon never
+deletes one there: deleting or pruning an asset removes its row only, and
+`vacuum` won't delete objects. It also writes each object it stores even
+when it's there, so the object's date is when a store last relied on it.
+Clearing objects no store uses is for a program that asks every store for
+`object_keys` (`GET /objects`) and keeps whatever any of them names, and
+anything written since it began.
 
 Run the specs with `crystal spec`. The S3 specs need a server:
 `scripts/garage-test` runs them against a throwaway single-node
@@ -376,13 +393,19 @@ db.list_assets(links: {"used-by" => "boardwalk"}, limit: 50, before: last_id)
 db.list_assets(links: {"used-by" => "boardwalk.*"})   # boardwalk and names under it
 db.list_assets("prop", unlinked: "used-by")   # what nothing uses
 db.list_assets("voice", retired: true)        # what was retired or superseded
+db.list_assets(file_hash: hash)               # the assets holding a file, such as a recipe's reference
+db.list_assets(description_hash: rec.description_hash)   # every asset sharing a description
 ```
 
 Search words come from a full-text index (SQLite FTS5) of each asset's type
 and tag values, kept current as assets change. `update_asset(id, tags:,
 description:, flagged:, rating:, permanent:)` edits an asset in place
 without storing its bytes again; a rating and a flag change which asset
-`get` prefers.
+`get` prefers. A blank description clears it. Assets can share one
+description (the same `description_hash`, its SHA-256, the same in every
+store); a new one is that asset's alone, unless `everywhere: true` gives it
+to every asset that shared the old one, as for a typo. The old wording is
+kept, since a recipe may record it as what a provider was sent.
 
 `link(from, rel, to, data)` relates an asset to another asset
 (`derived-from`) or to a name (`used-by`, `"boardwalk.holidayland"`),
@@ -418,9 +441,11 @@ HTTP::Server.new([api, app_handler])
 | `GET /assets?type=&q=&tag.<key>=&link.<rel>=&unlinked=&limit=&page=&before=&count=1` | a page of assets with their tags, and `next` (`&meta=1`: each picture's fields and view too) |
 | `…?retired=only` or `=include` | retired assets, or all, in listings and counts |
 | `…?field.<name>=<low>..<high>&view=back-left&view.side=&view.yaw=&view.pitch=&view.within=` | by picture fields (and `light.` alike) |
+| `…?file_hash=&description_hash=&text.<field>=<owner:name>[@<version>]` | by file, by shared description, by a recipe's named text |
 | `GET /assets/:id`, `/assets/:id/object`, `/assets/:id/links` | an asset with its tags, metadata and links; its bytes; its links |
 | `POST /maintenance/check` | the consistency report |
-| `PATCH`, `DELETE /assets/:id` | edit (with `image` fields, views readably) or delete (write token) |
+| `GET /objects` | every object key the store's rows use, for clearing a shared bucket |
+| `PATCH`, `DELETE /assets/:id` | edit (with `image` fields, views readably, and `everywhere` for a shared description) or delete (write token) |
 | `PUT /assets/:id/keyframes` | an animation's checkpoints (write token) |
 | `POST`, `DELETE /assets/:id/links` | link (with `data`) or unlink (write token) |
 | `GET /assets/:id/recipe` | how it was made (404 when it has no recipe) |
@@ -430,8 +455,8 @@ HTTP::Server.new([api, app_handler])
 | `POST /types/:type/promote`, `/maintenance/vacuum` | (write token) |
 
 An asset in JSON carries its `key` (`pool_key` before 0.12, and both names
-through 0.12), `rating`, `flagged` and `permanent`, which `PATCH` sets, and
-`has_recipe`.
+through 0.12), `rating`, `flagged` and `permanent`, which `PATCH` sets,
+`description_hash`, and `has_recipe`.
 
 ## Best matches
 

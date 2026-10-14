@@ -11,7 +11,8 @@ module DataDungeon
   # `public_url` serve every repeat. Connections are pooled and kept alive,
   # and a request the service turns away for load (429, 5xx) is retried with
   # backoff. Give DataDungeon a bucket, or a `prefix` within one, of its own:
-  # the consistency sweep treats every object under it as DataDungeon's.
+  # the consistency sweep treats every object under it as DataDungeon's. A
+  # bucket several stores share is `shared: true` (see Storage#shared?).
   class S3Storage < Storage
     IMMUTABLE = "public, max-age=31536000, immutable"
     RETRYABLE = [429, 500, 502, 503, 504]
@@ -43,6 +44,7 @@ module DataDungeon
       @url_expires : Time::Span = 1.hour,
       @retries : Int32 = 3,
       pool_size : Int32 = 8,
+      @shared : Bool = false,
     )
       @access_key = access_key
       @secret_key = secret_key
@@ -59,10 +61,10 @@ module DataDungeon
     # A Cloudflare R2 bucket in the given account.
     def self.r2(account_id : String, bucket : String, *, access_key : String, secret_key : String,
                 prefix : String = "", public_url : String? = nil, url_expires : Time::Span = 1.hour,
-                retries : Int32 = 3, pool_size : Int32 = 8) : S3Storage
+                retries : Int32 = 3, pool_size : Int32 = 8, shared : Bool = false) : S3Storage
       new(bucket, endpoint: "https://#{account_id}.r2.cloudflarestorage.com", region: "auto",
         access_key: access_key, secret_key: secret_key, prefix: prefix, public_url: public_url,
-        url_expires: url_expires, retries: retries, pool_size: pool_size)
+        url_expires: url_expires, retries: retries, pool_size: pool_size, shared: shared)
     end
 
     def write(key : String, bytes : Bytes, content_type : String? = nil) : Nil

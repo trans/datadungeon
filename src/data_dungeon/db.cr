@@ -439,6 +439,7 @@ module DataDungeon
       a.file_hash, a.created_at, a.last_used_at, a.use_count, a.permanent, a.generator,
       (SELECT generation FROM recipe_legacy WHERE asset_id = a.id) AS generation,
       (SELECT text FROM texts WHERE id = a.description_id) AS description,
+      (SELECT hash FROM texts WHERE id = a.description_id) AS description_hash,
       a.generated, a.rating, a.flagged, a.made_at, a.retired_at,
       EXISTS (SELECT 1 FROM recipes WHERE asset_id = a.id) AS has_recipe
     SQL
@@ -999,7 +1000,7 @@ module DataDungeon
           SQL
             asset_type, media, content_type, file_path, file_hash,
             now, now, permanent ? 1 : 0,
-            generator, description.try { |words| put_text(conn, words) }, generated ? 1 : 0,
+            generator, description.presence.try { |words| put_text(conn, words) }, generated ? 1 : 0,
             made_at.try(&.to_s(TIME_FORMAT)) || now
           )
           asset_id = conn.scalar("SELECT last_insert_rowid()").as(Int64)
@@ -1158,7 +1159,7 @@ module DataDungeon
       end
 
       id = @object_lock.synchronize do
-        wrote = !store.exists?(storage_key)
+        wrote = store.shared? || !store.exists?(storage_key)
         store.write(storage_key, data, ct) if wrote
         begin
           store_asset(
@@ -1372,7 +1373,7 @@ module DataDungeon
       storage_key = object_key(file_hash, rec.content_type)
 
       @object_lock.synchronize do
-        wrote = !store.exists?(storage_key)
+        wrote = store.shared? || !store.exists?(storage_key)
         store.write(storage_key, data, rec.content_type) if wrote
         begin
           updated = write_transaction do |conn|
@@ -1396,18 +1397,33 @@ module DataDungeon
     # type's traits are normalized and its keys derived again. A tag stays
     # custom while its value is unchanged. A `rating` and `flagged` decide
     # which of several candidates `get` and best matches prefer.
+    #
+    # A blank description clears it. Assets can share one description (the
+    # same `description_hash`); a new one is this asset's alone unless
+    # `everywhere: true`, which gives it to every asset in the store that
+    # shared this one's, as when fixing a typo. The old wording stays in the
+    # store either way: a recipe may record it as what a provider was sent.
     def update_asset(id : Int64, *, tags : Hash(String, String)? = nil, description : String? = nil,
-                     flagged : Bool? = nil, rating : Int32? = nil, image : ImageMeta? = nil,
-                     permanent : Bool? = nil) : AssetRecord
+                     everywhere : Bool = false, flagged : Bool? = nil, rating : Int32? = nil,
+                     image : ImageMeta? = nil, permanent : Bool? = nil) : AssetRecord
       writable!
+      raise ArgumentError.new("everywhere: true changes a description, and none was given") if everywhere && description.nil?
       rec = find_asset_by_id(id) || raise ArgumentError.new("No asset #{id}")
       if image && rec.media != "image"
         raise ArgumentError.new("Asset #{id} is #{rec.media}, so it has no image fields")
       end
+      changed = [id]
       @object_lock.synchronize do
         write_transaction do |conn|
           if words = description
-            conn.exec("UPDATE assets SET description_id = ? WHERE id = ?", put_text(conn, words), id)
+            text_id = words.presence.try { |text| put_text(conn, text) }
+            old = conn.query_one("SELECT description_id FROM assets WHERE id = ?", id, as: Int64?)
+            if everywhere && old
+              changed = conn.query_all("SELECT id FROM assets WHERE description_id = ?", old, as: Int64)
+              conn.exec("UPDATE assets SET description_id = ? WHERE description_id = ?", text_id, old)
+            else
+              conn.exec("UPDATE assets SET description_id = ? WHERE id = ?", text_id, id)
+            end
           end
           conn.exec("UPDATE assets SET permanent = ? WHERE id = ?", permanent ? 1 : 0, id) unless permanent.nil?
           conn.exec("UPDATE assets SET flagged = ? WHERE id = ?", flagged ? 1 : 0, id) unless flagged.nil?
@@ -1425,7 +1441,7 @@ module DataDungeon
           reindex(conn, [id]) if tags || image
         end
       end
-      @indexer.try(&.enqueue_asset(id))
+      changed.each { |changed_id| @indexer.try(&.enqueue_asset(changed_id)) }
       find_asset_by_id(id).not_nil!
     end
 
@@ -1663,10 +1679,12 @@ module DataDungeon
       end
     end
 
-    # Unlink an object once no row references it. Callers hold @object_lock.
+    # Unlink an object once no row references it, unless other stores share
+    # the storage (Storage#shared?). Callers hold @object_lock.
     private def release_object(key : String) : Nil
       store = @storage
       return unless store
+      return if store.shared?
       referenced = @db.query_one?("SELECT 1 FROM assets WHERE file_path = ? LIMIT 1", key, as: Int64)
       store.delete(key) unless referenced
     end
@@ -1789,8 +1807,11 @@ module DataDungeon
     # `nil` both), newest filed first: of one type or of all, carrying every
     # one of `tags` (normalized for a registered type), matching every word
     # of `q`, linked by each relation in `links` to a name (or a pattern:
-    # `boardwalk.*`, `boardwalk*`, see `links_to`), and with no
-    # `unlinked` link. Each word of `q` is the type or a tag value (or a part
+    # `boardwalk.*`, `boardwalk*`, see `links_to`), with no `unlinked` link,
+    # with the file `file_hash` (to follow a recipe's reference), the
+    # description `description_hash` (every asset sharing one), and using
+    # each named text in `texts` (prompt field => `owner:name`, any wording,
+    # or `owner:name@version`). Each word of `q` is the type or a tag value (or a part
     # of one), in any order, as in a search box: `cattacula night` finds
     # `front.boardwalk.cattacula.night`; `catt*` matches the start of a
     # word; and `red-hair` matches only a labelled trait spelled that way. Skip `offset` assets for a numbered
@@ -1800,8 +1821,11 @@ module DataDungeon
     def list_assets(asset_type : String? = nil, tags : Hash(String, String) = {} of String => String, *,
                     q : String? = nil, links : Hash(String, String) = {} of String => String,
                     unlinked : String? = nil, limit : Int32 = 50, offset : Int32 = 0,
-                    before : Int64? = nil, retired : Bool? = false, image : ImageFilter? = nil) : Array(AssetRecord)
-      from, where, args, order = asset_filter(asset_type, tags, q, links, unlinked, retired, image, limit + offset) || return [] of AssetRecord
+                    before : Int64? = nil, retired : Bool? = false, image : ImageFilter? = nil,
+                    file_hash : String? = nil, description_hash : String? = nil,
+                    texts : Hash(String, String) = {} of String => String) : Array(AssetRecord)
+      from, where, args, order = asset_filter(asset_type, tags, q, links, unlinked, retired, image, limit + offset,
+        file_hash, description_hash, texts) || return [] of AssetRecord
       if before
         where += " AND #{order} < ?"
         args << before
@@ -1818,8 +1842,11 @@ module DataDungeon
     # page. It reads every match, so ask only when the total is wanted.
     def count_assets(asset_type : String? = nil, tags : Hash(String, String) = {} of String => String, *,
                      q : String? = nil, links : Hash(String, String) = {} of String => String,
-                     unlinked : String? = nil, retired : Bool? = false, image : ImageFilter? = nil) : Int64
-      from, where, args, _ = asset_filter(asset_type, tags, q, links, unlinked, retired, image, nil) || return 0_i64
+                     unlinked : String? = nil, retired : Bool? = false, image : ImageFilter? = nil,
+                     file_hash : String? = nil, description_hash : String? = nil,
+                     texts : Hash(String, String) = {} of String => String) : Int64
+      from, where, args, _ = asset_filter(asset_type, tags, q, links, unlinked, retired, image, nil,
+        file_hash, description_hash, texts) || return 0_i64
       @db.scalar("SELECT COUNT(*) FROM #{from} WHERE #{where}", args: args).as(Int64)
     end
 
@@ -1838,7 +1865,9 @@ module DataDungeon
     # Counting every match never walks.
     private def asset_filter(asset_type : String?, tags : Hash(String, String), q : String?,
                              links : Hash(String, String), unlinked : String?, retired : Bool?,
-                             image : ImageFilter?, reach : Int32?) : {String, String, Array(::DB::Any), String}?
+                             image : ImageFilter?, reach : Int32?, file_hash : String? = nil,
+                             description_hash : String? = nil,
+                             texts : Hash(String, String) = {} of String => String) : {String, String, Array(::DB::Any), String}?
       tags = normalize_tags(asset_type, tags) if asset_type
       clauses = [retired_clause(retired)]
       args = [] of ::DB::Any
@@ -1890,6 +1919,19 @@ module DataDungeon
       if rel = unlinked
         clauses << "NOT EXISTS (SELECT 1 FROM asset_links l WHERE l.from_id = #{id} AND l.rel = ?)"
         args << rel
+      end
+      if hash = file_hash
+        clauses << "a.file_hash = ?"
+        args << hash
+      end
+      if hash = description_hash
+        clauses << "a.description_id = (SELECT id FROM texts WHERE hash = ?)"
+        args << hash
+      end
+      texts.each do |field, name|
+        sql, text_args = using_text(field, name)
+        clauses << "#{id} IN (#{sql})"
+        args.concat(text_args)
       end
       image.try { |filter| image_clause(filter, id, clauses, args) }
       {from, clauses.join(" AND "), args, order}
@@ -3200,10 +3242,17 @@ module DataDungeon
 
     # ── Consistency sweep (fsck / vacuum) ──
 
+    # Every object key this store's rows use, retired assets' included: what
+    # a program clearing a shared bucket keeps (Storage#shared?).
+    def object_keys : Array(String)
+      @db.query_all("SELECT DISTINCT file_path FROM assets ORDER BY file_path", as: String)
+    end
+
     # Report-only reconciliation of the index against the storage backend.
     # Walks both directions of divergence: rows whose object is missing, and
     # stored objects with no owning row (leaked blobs — e.g. from deletes made
-    # before v0.3.4, when delete_asset didn't unlink). Changes nothing.
+    # before v0.3.4, when delete_asset didn't unlink). Changes nothing. In
+    # shared storage, other stores' objects are among those with no row here.
     def check_consistency : ConsistencyReport
       store = @storage || raise "DataDungeon::DB has no storage backend; construct with cache_root: or storage:"
 
@@ -3238,7 +3287,10 @@ module DataDungeon
       delete_orphan_objects : Bool = false,
     ) : ConsistencyReport
       writable! if delete_missing_rows || delete_orphan_objects
-      @storage || raise "DataDungeon::DB has no storage backend; construct with cache_root: or storage:"
+      store = @storage || raise "DataDungeon::DB has no storage backend; construct with cache_root: or storage:"
+      if delete_orphan_objects && store.shared?
+        raise ArgumentError.new("the storage is shared: an object this store doesn't use may be another's")
+      end
       report = check_consistency
 
       if delete_missing_rows
@@ -3519,6 +3571,7 @@ module DataDungeon
         generator: rs.read(String?),
         generation: rs.read(String?),
         description: rs.read(String?),
+        description_hash: rs.read(String?),
         generated: (rs.read(Int32?) || 0) != 0,
         rating: rs.read(Int32?),
         flagged: (rs.read(Int32?) || 0) != 0,

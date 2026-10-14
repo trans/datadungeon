@@ -6,6 +6,8 @@
 #   DD_S3_BUCKET        a bucket, with DD_S3_ENDPOINT, DD_S3_ACCESS_KEY,
 #                       DD_S3_SECRET_KEY, and optionally DD_S3_REGION (auto)
 #                       and DD_S3_PREFIX
+#   DD_SHARED_STORAGE   1 when other stores keep objects there too: nothing is
+#                       deleted from it (Storage#shared?)
 #   DD_READ_TOKEN       needed to read; required unless only this machine listens
 #   DD_WRITE_TOKEN      enables writes; without it the database opens read-only
 #   DD_HOST, DD_PORT    where to listen (127.0.0.1:7077)
@@ -26,12 +28,14 @@ def required(name : String) : String
 end
 
 database = required("DD_DATABASE")
+shared = setting("DD_SHARED_STORAGE") == "1"
 storage =
   if bucket = setting("DD_S3_BUCKET")
     DataDungeon::S3Storage.new(bucket, endpoint: required("DD_S3_ENDPOINT"), region: setting("DD_S3_REGION") || "auto",
-      access_key: required("DD_S3_ACCESS_KEY"), secret_key: required("DD_S3_SECRET_KEY"), prefix: setting("DD_S3_PREFIX") || "")
+      access_key: required("DD_S3_ACCESS_KEY"), secret_key: required("DD_S3_SECRET_KEY"), prefix: setting("DD_S3_PREFIX") || "",
+      shared: shared)
   elsif root = setting("DD_CACHE_ROOT")
-    DataDungeon::LocalStorage.new(root)
+    DataDungeon::LocalStorage.new(root, shared: shared)
   else
     abort "dd-serve: set DD_CACHE_ROOT or DD_S3_BUCKET"
   end

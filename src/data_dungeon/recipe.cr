@@ -8,9 +8,10 @@ module DataDungeon
   struct Recipe
     include JSON::Serializable
 
-    # Each form's prompt fields, in the order they're joined.
+    # Each form's prompt fields, in the order they're joined. A picture's
+    # rules come last, where a model takes them as the final word (`@mj`).
     FIELDS = {
-      "picture" => %w[preamble subject description theme style rules staging],
+      "picture" => %w[preamble subject description staging theme style rules],
       "speech"  => %w[style text],
       "text"    => %w[instructions description],
     }
@@ -49,7 +50,11 @@ module DataDungeon
     # differs from the fields joined (`joined`).
     getter prompt_sent : String?
     getter seed : Int64?
+    # In US dollars.
     getter cost : Float64?
+    # How the cost was reached: the service's own bill (`reported: runware`),
+    # priced from a rate table (`priced: arcana-ai 0.5.2`), or `estimated`.
+    getter cost_basis : String?
     getter generated_at : Time?
     # The files it was made from, by hash.
     getter references : Array(String)
@@ -57,8 +62,9 @@ module DataDungeon
 
     def initialize(@form : String, settings : Hash = {} of String => JSON::Any,
                    @fields : Hash(String, Text) = {} of String => Text, @prompt_sent : String? = nil,
-                   seed : Int? = nil, cost : Number? = nil, @generated_at : Time? = nil,
-                   @references : Array(String) = [] of String, @steps : Array(Recipe) = [] of Recipe)
+                   seed : Int? = nil, cost : Number? = nil, @cost_basis : String? = nil,
+                   @generated_at : Time? = nil, @references : Array(String) = [] of String,
+                   @steps : Array(Recipe) = [] of Recipe)
       @settings = JSON.parse(settings.to_json).as_h
       @seed = seed.try(&.to_i64)
       @cost = cost.try(&.to_f64)
@@ -66,7 +72,7 @@ module DataDungeon
 
     # This recipe with what the provider was sent.
     def with_prompt_sent(sent : String?) : Recipe
-      Recipe.new(@form, @settings, @fields, sent, @seed, @cost, @generated_at, @references, @steps)
+      Recipe.new(@form, @settings, @fields, sent, @seed, @cost, @cost_basis, @generated_at, @references, @steps)
     end
 
     # A recipe made of steps, each a recipe of its own, in order.
@@ -95,7 +101,7 @@ module DataDungeon
     def check : Nil
       unless @steps.empty?
         unless @form.empty? && @fields.empty? && @settings.empty? && @prompt_sent.nil? && @seed.nil? &&
-               @cost.nil? && @generated_at.nil? && @references.empty?
+               @cost.nil? && @cost_basis.nil? && @generated_at.nil? && @references.empty?
           raise ArgumentError.new("a recipe made of steps has nothing of its own: each step says it")
         end
         raise ArgumentError.new("a recipe's steps are recipes without steps") unless @steps.all?(&.steps.empty?)
@@ -115,6 +121,8 @@ module DataDungeon
         raise ArgumentError.new("the #{field} field has no words") if text.text.empty?
         text.handle
       end
+      raise ArgumentError.new("a cost basis says how a cost was reached; this recipe has no cost") if @cost_basis && @cost.nil?
+      raise ArgumentError.new("a cost basis has words") if @cost_basis.try(&.blank?)
       @references.each do |ref|
         raise ArgumentError.new("a reference is a file's SHA-256, in hex (#{ref.inspect})") unless ref.matches?(/\A[0-9a-f]{64}\z/)
       end

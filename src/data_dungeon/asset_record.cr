@@ -23,6 +23,9 @@ module DataDungeon
     getter generator : String?
     getter generation : String?
     getter description : String?
+    # The description's SHA-256, the same in every store: assets with the
+    # same hash share one description (`list_assets(description_hash:)`).
+    getter description_hash : String?
     getter generated : Bool
     getter rating : Int32?
     getter flagged : Bool
@@ -54,6 +57,7 @@ module DataDungeon
       @generator : String? = nil,
       @generation : String? = nil,
       @description : String? = nil,
+      @description_hash : String? = nil,
       @generated : Bool = false,
       @rating : Int32? = nil,
       @flagged : Bool = false,

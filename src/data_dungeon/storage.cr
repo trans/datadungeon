@@ -6,6 +6,14 @@ module DataDungeon
   # DataDungeon backend-agnostic: LocalStorage here, S3Storage (R2, Garage,
   # MinIO, AWS) in `data_dungeon/s3`.
   abstract class Storage
+    # Whether other stores keep their objects here too, sharing each by its
+    # hash. DataDungeon can't know whether another store still uses an
+    # object, so it never deletes one from shared storage, and it writes an
+    # object even when it's there, so the object's date says when a store
+    # last relied on it. Clearing objects no store uses is for a program
+    # that reads every store's list (`DB#object_keys`).
+    getter? shared : Bool = false
+
     # Write bytes at the given key, creating any containers as needed. The
     # content type is a hint for backends that serve objects themselves.
     abstract def write(key : String, bytes : Bytes, content_type : String? = nil) : Nil
@@ -44,7 +52,7 @@ module DataDungeon
   class LocalStorage < Storage
     getter root : String
 
-    def initialize(@root : String)
+    def initialize(@root : String, *, @shared : Bool = false)
     end
 
     def resolve(key : String) : String

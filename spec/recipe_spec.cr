@@ -217,6 +217,7 @@ describe DataDungeon::Recipe do
     raw = ::DB.open("sqlite3://#{path}")
     raw.exec("ALTER TABLE assets ADD COLUMN generation TEXT")
     raw.exec("ALTER TABLE assets ADD COLUMN description TEXT")
+    raw.exec("DROP INDEX idx_assets_description")
     raw.exec("ALTER TABLE assets DROP COLUMN description_id")
     raw.exec("UPDATE assets SET description = 'A room.', generation = ? WHERE id = ?", %({"prompt":"a room"}), a.id)
     raw.exec("UPDATE assets SET description = 'A room.' WHERE id = ?", b.id)
@@ -247,7 +248,83 @@ describe DataDungeon::Recipe do
       updated.description.should eq "A larger room."
       updated.permanent.should be_true
       db.update_asset(rec.id, permanent: false).permanent.should be_false
+    end
+  end
 
+  it "joins a picture's fields with the staging before the rules" do
+    with_db("dd-recipe-order") do |db|
+      fields = {"rules"    => "No text.", "staging" => "Seen from the left.", "style" => "Silver Age comic art.",
+                "theme"    => "Autumn.", "description" => "A long hall.", "subject" => "A dwarf.",
+                "preamble" => "Draw one panel."}
+      sent = "Draw one panel. A dwarf. A long hall. Seen from the left. Autumn. Silver Age comic art. No text."
+      recipe = DataDungeon::Recipe.new("picture", fields: fields.transform_values { |words| DataDungeon::Recipe.text(words) },
+        prompt_sent: sent)
+      recipe.joined.should eq sent
+      rec = store_panel(db, "a", recipe)
+      got = db.recipe(rec.id).not_nil!
+      got.fields.keys.should eq %w[preamble subject description staging theme style rules]
+      got.prompt_sent.should eq sent
+      db.connection.scalar("SELECT COUNT(*) FROM texts WHERE text = ?", sent).as(Int64).should eq 0
+    end
+  end
+
+  it "keeps a cost's basis, and a whole prompt whose parts are lost" do
+    with_db("dd-recipe-cost") do |db|
+      priced = DataDungeon::Recipe.new("picture", fields: {"subject" => DataDungeon::Recipe.text("A.")},
+        cost: 0.04, cost_basis: "reported: runware")
+      db.recipe(store_panel(db, "a", priced).id).not_nil!.cost_basis.should eq "reported: runware"
+      expect_raises(ArgumentError, /no cost/) do
+        store_panel(db, "b", DataDungeon::Recipe.new("picture", cost_basis: "estimated"))
+      end
+
+      # An old record: the settings and the whole prompt, not its parts.
+      old = store_panel(db, "c")
+      whole = "A misty valley at dawn. Style: painterly fantasy. No text, no watermark."
+      db.set_recipe(old.id, DataDungeon::Recipe.new("picture", settings: {"steps" => 20}, prompt_sent: whole))
+      got = db.recipe(old.id).not_nil!
+      got.fields.should be_empty
+      got.prompt_sent.should eq whole
+      got.settings.should eq({"steps" => 20})
+    end
+  end
+
+  it "clears a description, and changes a shared one here or everywhere" do
+    with_db("dd-recipe-shared") do |db|
+      a = store_panel(db, "a", description: "A room.")
+      b = store_panel(db, "b", description: "A room.")
+      c = store_panel(db, "c", description: "A room.")
+      d = store_panel(db, "d", description: "A hall.")
+      hash = Digest::SHA256.hexdigest("A room.")
+      a.description_hash.should eq hash
+      db.list_assets(description_hash: hash).map(&.id).should eq [c.id, b.id, a.id]
+      db.count_assets(description_hash: hash).should eq 3
+
+      db.update_asset(a.id, description: "A room!").description.should eq "A room!" # this one alone
+      db.find_asset_by_id(b.id).not_nil!.description.should eq "A room."
+      db.update_asset(b.id, description: "The room.", everywhere: true)
+      [b, c].each { |rec| db.find_asset_by_id(rec.id).not_nil!.description.should eq "The room." }
+      db.find_asset_by_id(a.id).not_nil!.description.should eq "A room!"
+      db.find_asset_by_id(d.id).not_nil!.description.should eq "A hall."
+      db.connection.scalar("SELECT COUNT(*) FROM texts WHERE text = 'A room.'").as(Int64).should eq 1 # kept
+
+      cleared = db.update_asset(d.id, description: "")
+      cleared.description.should be_nil
+      cleared.description_hash.should be_nil
+      store_panel(db, "e", description: "").description.should be_nil
+      expect_raises(ArgumentError, /none was given/) { db.update_asset(a.id, everywhere: true) }
+    end
+  end
+
+  it "lists the assets with a file, or using a named text" do
+    with_db("dd-recipe-list") do |db|
+      first = store_panel(db, "a", picture("A", style: "Silver Age comic art."))
+      second = store_panel(db, "b", picture("B", style: "Silver Age comic art, heavy inks."))
+      plain = store_panel(db, "c")
+      db.list_assets(file_hash: plain.file_hash).map(&.id).should eq [plain.id]
+      db.list_assets(texts: {"style" => "overlore:silver"}).map(&.id).should eq [second.id, first.id]
+      db.list_assets("panel", texts: {"style" => "overlore:silver@2"}).map(&.id).should eq [second.id]
+      db.count_assets(texts: {"preamble" => "overlore:house", "style" => "overlore:silver@1"}).should eq 1
+      expect_raises(ArgumentError, /owner:name/) { db.list_assets(texts: {"style" => "silver"}) }
     end
   end
 end
