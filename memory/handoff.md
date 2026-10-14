@@ -230,8 +230,43 @@ flag (arcana-ai 0.5.2 now prices OpenAI exactly); seed only meaningful for
 once (`pixel-32`, `pixel-16`, `pixel-8`: a narrative degradation stage),
 or `pixel` plus a coarseness tag; `night` must not imply dark (projectors
 on). Types: whether a picture tiles, a field (DESIGN-types already has
-`tileable` as maker-set). **Open:** Thomas on what goes into 0.13 before
-the tag, and the open choices; replies to all four.
+`tileable` as maker-set).
+
+**Thomas's answers (2026-10-13):** the 0.13 list yes; shared descriptions
+will grow a good deal, so fix-for-all goes in too; **one shared bucket**,
+with another service (maybe curio) clearing unused files; the panel is a
+**`plug`** (stagecraft: a scenic insert), plus **`placard`** (intros, title
+cards, end credits); an app's own tags as two fields (owner, name), written
+`overlore:room-id`; **a use carries no data** (placement is a `placed-on`
+link); ground in whatever form gives perspective and scale (written up:
+points with a metre's size each, a raised stage its own set); pixel tiers
+`pixel-32`/`-16`/`-8`, `pixel` matching all. Thomas talks to `@owl` about
+custom styles and whether frames should be one video.
+**Built, not committed (2026-10-13):** picture order with rules last;
+`cost_basis` (USD); a blank description clears; `description_hash` in JSON
+and `list_assets(description_hash:)`; `update_asset(everywhere: true)`;
+filters `file_hash:` and `texts:` (`text.<field>=` over HTTP);
+`Storage#shared?` (`shared: true`, `DD_SHARED_STORAGE=1`: no deletes,
+always writes), `object_keys` / `GET /objects`. 162 specs; dd-serve
+type-checks; copies of all five live stores upgrade with 0 differences, 0
+FK violations, and a store opened by unreleased 0.13 gets `cost_basis` and
+the index. Design docs updated, release notes too. Replies to all four
+drafted, held.
+
+**From `@owl`, 2026-10-14 (Thomas's decisions; originals at `.ai`
+`c747a84`):** custom art styles wait for a 2.0 (maybe paid): Owl uses the
+standard values, a world's art style, theme and rating set apart. Owl asks
+for two values, `watercolour` (storybook) and `painted-animation`
+(hand-painted animation backgrounds). Frames stay stills (3-5 blended live
+with the depth map, scrubbed both ways; the last is the next place's
+picture); a video model's clip later would be one video. **The hub**
+(Thomas's idea): a DD service on the bus that knows every store, searches
+them as one, merges duplicates by hash, filters by rating and art style,
+counts use across stores, and clears the shared bucket (deleting a file
+only when no store uses it). Apps copy what they choose into their own
+store (`copied-from`), so a store going down breaks no other; the bytes
+stay one file in the bucket. Owl's library code is a small version and
+would be its first user. **Open:** the hub's design and place in the plan.
 
 Recipes (`recipe.cr`, `recipes.cr`): texts, recipe_settings, named_texts,
 recipes (a row per step), recipe_fields, recipe_legacy; `store(recipe:)`,
