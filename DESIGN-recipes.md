@@ -118,21 +118,30 @@ text), stored once; the rows aren't typed. Around it:
   what works.
 - **Named texts:** the short prompt fields that repeat (preamble, theme, style,
   rules; speech's style), each named by its owner: a row with **field,
-  owner, name, version** pointing at its text (Thomas,
-  2026-10-12: fields, not one string). The owner is the app that made it,
+  owner, name, purpose, version** pointing at its text (Thomas,
+  2026-10-12: fields, not one string; the purpose 2026-10-14). The owner is the app that made it,
   its consumer name (`DB.new(…, consumer: "overlore")`); only it adds
   wordings under its names. DataDungeon numbers a name's wordings by their
   hash, in the order first seen: the first is version 1, a changed one 2,
   and the old wording again is 1, so nobody bumps a version by hand.
-  `overlore:silver@2` is how one is written and shown, and taken apart on
+  `overlore:silver-comic@2` is how one is written and shown, and taken apart on
   the way in, as a view is shown as `back-left` and kept as numbers. Names
-  are shared: any app uses `overlore:silver` as it is, which is what makes
+  are shared: any app uses `overlore:silver-comic` as it is, which is what makes
   its pictures comparable to Overlore's; nobody renames another's (no
   aliases, until a need shows). Searchable like tags: every picture of one
   style, any version, or one version. Versions are for a wording that
-  changes over time; two wordings in use at once get two names
-  (`overlore:silver` for places, `overlore:silver-figure` for figures), or
-  their versions would flip back and forth.
+  changes over time. **No custom top-level styles** (Thomas, 2026-10-14,
+  through `@overlore`): a variant of a style is the same style, so a style
+  wording is named for its standard style (DESIGN-types.md), and two
+  wordings in use at once differ by **purpose**, what each is for:
+  `overlore:silver-comic/figure` and `overlore:silver-comic/place`. Each
+  purpose numbers its own versions, so nothing flips back and forth, and
+  the picture's style tag stays the standard one. The purpose is optional
+  (`owl:narrator` has none). The row is also the label a person sees
+  ("Silver Age comic, Overlore's figure wording, v2", the style's label
+  from the vocabulary): no second table, and no supersedes link, since
+  versions already say which wording came after which. Once the vocabulary
+  is in, DD can check that a picture style's name is a standard style.
 - **Staging:** no caller names it, but `@mj`'s renderer has a small closed
   set of phrasings (a few bearings by a few heights), so a million
   pictures have a few dozen, each stored once. It's kept, not rebuilt from
@@ -198,18 +207,19 @@ recipe = DataDungeon::Recipe.new("picture",
              "size" => "1024x1024", "steps" => 4},             # stored once by hash
   fields: {"preamble" => DataDungeon::Recipe.named("overlore:house", "Draw …"),
            "subject"  => DataDungeon::Recipe.text("A tall elf with red braids."),
-           "style"    => DataDungeon::Recipe.named("overlore:silver", "Silver Age comic …")},
+           "style"    => DataDungeon::Recipe.named("overlore:silver-comic/figure", "Silver Age comic …")},
   prompt_sent: sent,                  # kept only if it differs from the fields joined
   seed: 1234, cost: 0.04, cost_basis: "reported: runware", generated_at: time,
   references: [portrait.file_hash.not_nil!])
 db.store("panel", tags, bytes: png, content_type: "image/png", recipe: recipe)
 
-db.recipe(id)                         # => Recipe?, named texts as handles: "overlore:silver@2"
+db.recipe(id)                         # => Recipe?, named texts as handles: "overlore:silver-comic/figure@2"
 db.set_recipe(id, recipe)             # give an asset its recipe later (moving old records);
                                       # replace: true to replace one, drop_generation: true
                                       # to let the old record go
-db.with_text("style", "overlore:silver")    # asset ids, any version; "overlore:silver@2" for one
-db.list_assets(texts: {"style" => "overlore:silver"})  # the same, with the other filters
+db.with_text("style", "overlore:silver-comic")         # asset ids, any purpose or version;
+                                                       # "…/figure" for one purpose, "…/figure@2" one version
+db.list_assets(texts: {"style" => "overlore:silver-comic"})  # the same, with the other filters
 db.list_assets(file_hash: hash)       # the assets holding a recipe's reference
 db.update_asset(id, description: "…", everywhere: true)  # for every asset sharing it
 ```
@@ -224,10 +234,17 @@ db.update_asset(id, description: "…", everywhere: true)  # for every asset sha
     references only.
 - **Steps:** `Recipe.new(…, steps: [edit, matte])` for an asset made in
   steps, each a recipe of its own; a single recipe is one step.
-- **Named texts:** written `owner:name`, with `@version` when reading one
-  back. The owner is the app (its `consumer:`), and only it adds wordings
-  under its names; any app uses them as they are. A wording seen before
-  gets its old version; a new one the next number.
+- **Named texts:** written `owner:name`, or `owner:name/purpose`, with
+  `@version` when reading one back. The owner is the app (its `consumer:`),
+  and only it adds wordings under its names; any app uses them as they
+  are. A wording seen before gets its old version; a new one the next
+  number for its name and purpose. A search by `owner:name` finds every
+  purpose; `/purpose` narrows it to one.
+- **The purpose (0.13.1):** a store made by 0.13.0 gets the column by
+  rebuilding `named_texts` once, since its unique constraints change: the
+  rows are copied with their ids, so recipes still point at them, and the
+  copy is checked (row counts, foreign keys) before the old table goes.
+  Only Owl's store held a named text then (`owl:narrator`, 11 records).
 - **`prompt_sent`:** for a picture, compared with its fields joined by one
   space, empty ones skipped, and kept only if it differs. For speech and
   text it's kept as given, if given. An old record whose parts are lost
@@ -245,7 +262,8 @@ db.update_asset(id, description: "…", everywhere: true)  # for every asset sha
 - **Rows and HTTP:** `AssetRecord#has_recipe?` (JSON `has_recipe`), the
   cheap flag `@curio` asked for; `GET /assets/:id/recipe` returns the
   recipe, steps and handles included; `GET /assets` filters by
-  `file_hash`, `description_hash` and `text.<field>=owner:name[@version]`.
+  `file_hash`, `description_hash` and
+  `text.<field>=owner:name[/purpose][@version]`.
 - **Dialogue and assembled recipes** (a cast, a timeline) come when an app
   stores the first one.
 

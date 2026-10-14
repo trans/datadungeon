@@ -94,6 +94,35 @@ describe DataDungeon::Recipe do
     end
   end
 
+  it "files a style's wordings by purpose, each purpose numbering its own" do
+    with_db("dd-recipe-purpose") do |db|
+      styled = ->(subject : String, name : String, words : String) do
+        DataDungeon::Recipe.new("picture", fields: {"subject" => DataDungeon::Recipe.text(subject),
+                                                    "style"   => DataDungeon::Recipe.named(name, words)})
+      end
+      figure = store_panel(db, "a", styled.call("An elf.", "overlore:silver-comic/figure", "Silver Age comic art, one figure."))
+      place = store_panel(db, "b", styled.call("A hall.", "overlore:silver-comic/place", "Silver Age comic art, a wide room."))
+      inked = store_panel(db, "c", styled.call("A dwarf.", "overlore:silver-comic/figure", "Silver Age comic art, heavy inks."))
+      bare = store_panel(db, "d", styled.call("A cat.", "overlore:silver-comic", "Silver Age comic art."))
+
+      db.recipe(figure.id).not_nil!.fields["style"].name.should eq "overlore:silver-comic/figure@1"
+      db.recipe(place.id).not_nil!.fields["style"].name.should eq "overlore:silver-comic/place@1"
+      db.recipe(inked.id).not_nil!.fields["style"].name.should eq "overlore:silver-comic/figure@2"
+      db.recipe(bare.id).not_nil!.fields["style"].name.should eq "overlore:silver-comic@1" # a purpose is optional
+
+      db.with_text("style", "overlore:silver-comic").should eq [figure.id, place.id, inked.id, bare.id]
+      db.with_text("style", "overlore:silver-comic/figure").should eq [figure.id, inked.id]
+      db.with_text("style", "overlore:silver-comic/figure@2").should eq [inked.id]
+      db.list_assets(texts: {"style" => "overlore:silver-comic/place"}).map(&.id).should eq [place.id]
+      db.named_texts("style", "overlore").map { |(name, version, _)| {name, version} }.should eq [
+        {"silver-comic", 1}, {"silver-comic/figure", 1}, {"silver-comic/figure", 2}, {"silver-comic/place", 1},
+      ]
+      expect_raises(ArgumentError, /version 2, not 1/) do
+        store_panel(db, "e", styled.call("An orc.", "overlore:silver-comic/figure@1", "Silver Age comic art, heavy inks."))
+      end
+    end
+  end
+
   it "lets any app use a named wording, and only its owner add one" do
     dir = File.tempname("dd-recipe-owner")
     Dir.mkdir_p(dir)
@@ -108,6 +137,10 @@ describe DataDungeon::Recipe do
     owl.recipe(used.id).not_nil!.fields["style"].name.should eq "overlore:silver@1"
     expect_raises(ArgumentError, /overlore:silver is overlore's/) do
       store_panel(owl, "c", picture("C", style: "Owl's own take on silver."))
+    end
+    expect_raises(ArgumentError, %r{overlore:silver-comic/figure is overlore's}) do
+      store_panel(owl, "d", DataDungeon::Recipe.new("picture",
+        fields: {"style" => DataDungeon::Recipe.named("overlore:silver-comic/figure", "Owl's own figure.")}))
     end
     owl.find_assets_by_tags("panel", {"art-style" => "silver-comic"}).size.should eq 2 # the refused store left nothing
   ensure
@@ -157,6 +190,9 @@ describe DataDungeon::Recipe do
         DataDungeon::Recipe.new("picture", references: ["not-a-hash"]),
         DataDungeon::Recipe.new("", fields: {"subject" => DataDungeon::Recipe.text("A.")}),
         DataDungeon::Recipe.new("picture", fields: {"style" => DataDungeon::Recipe.named("silver", "A.")}),
+        DataDungeon::Recipe.new("picture", fields: {"style" => DataDungeon::Recipe.named("overlore:silver-comic/", "A.")}),
+        DataDungeon::Recipe.new("picture", fields: {"style" => DataDungeon::Recipe.named("overlore:silver-comic/Figure", "A.")}),
+        DataDungeon::Recipe.new("picture", fields: {"style" => DataDungeon::Recipe.named("overlore:silver-comic/a/b", "A.")}),
       ]
       bad.each do |recipe|
         expect_raises(ArgumentError) { store_panel(db, "a", recipe) }
@@ -313,6 +349,52 @@ describe DataDungeon::Recipe do
       store_panel(db, "e", description: "").description.should be_nil
       expect_raises(ArgumentError, /none was given/) { db.update_asset(a.id, everywhere: true) }
     end
+  end
+
+  it "gives a 0.13.0 store's named texts a purpose, keeping every recipe's names" do
+    dir = File.tempname("dd-recipe-purpose-migrate")
+    Dir.mkdir_p(dir)
+    path = File.join(dir, "assets.db")
+    db = DataDungeon::DB.new(path, cache_root: File.join(dir, "store"), consumer: "overlore")
+    db.register_type("panel", pool_traits: %w[art-style])
+    first = store_panel(db, "a", picture("A", style: "Silver Age comic art."))
+    second = store_panel(db, "b", picture("B", style: "Silver Age comic art, heavy inks."))
+    db.close
+    raw = ::DB.open("sqlite3://#{path}") # named_texts as 0.13.0 made it
+    raw.exec(<<-SQL)
+      CREATE TABLE named_texts_old (
+        id      INTEGER PRIMARY KEY,
+        field   TEXT NOT NULL,
+        owner   TEXT NOT NULL,
+        name    TEXT NOT NULL,
+        version INTEGER NOT NULL,
+        text_id INTEGER NOT NULL REFERENCES texts(id),
+        UNIQUE (field, owner, name, version),
+        UNIQUE (field, owner, name, text_id)
+      )
+    SQL
+    raw.exec("INSERT INTO named_texts_old SELECT id, field, owner, name, version, text_id FROM named_texts")
+    raw.exec("DROP TABLE named_texts")
+    raw.exec("ALTER TABLE named_texts_old RENAME TO named_texts")
+    ids = raw.query_all("SELECT id FROM named_texts ORDER BY id", as: Int64)
+    raw.close
+    ids.size.should eq 3 # house@1, silver@1, silver@2
+
+    expect_raises(DataDungeon::ReadOnlyError, /open it read-write once/) do
+      DataDungeon::DB.new(path, read_only: true)
+    end
+    db = DataDungeon::DB.new(path, cache_root: File.join(dir, "store"), consumer: "overlore")
+    db.connection.query_all("SELECT name FROM pragma_table_info('named_texts')", as: String).should contain "purpose"
+    db.connection.query_all("SELECT id FROM named_texts ORDER BY id", as: Int64).should eq ids
+    db.connection.query_all("PRAGMA foreign_key_check", &.read(::DB::Any)).should be_empty
+    db.recipe(second.id).not_nil!.fields["style"].name.should eq "overlore:silver@2"
+    db.with_text("style", "overlore:silver@1").should eq [first.id]
+    figure = store_panel(db, "c", DataDungeon::Recipe.new("picture",
+      fields: {"style" => DataDungeon::Recipe.named("overlore:silver/figure", "Silver Age comic art, heavy inks.")}))
+    db.recipe(figure.id).not_nil!.fields["style"].name.should eq "overlore:silver/figure@1" # its own numbering
+  ensure
+    db.try(&.close)
+    FileUtils.rm_rf(dir) if dir
   end
 
   it "lists the assets with a file, or using a named text" do

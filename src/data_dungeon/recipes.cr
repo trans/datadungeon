@@ -16,7 +16,8 @@ module DataDungeon
 
     # Settings are stored once by hash, as canonical JSON (keys sorted).
     # A named text is one wording of an owner's name for a prompt field,
-    # numbered in the order its wordings were first seen. A recipe is a row
+    # with what it's for (its purpose, empty for none), numbered per name
+    # and purpose in the order its wordings were first seen. A recipe is a row
     # per step (0 for a single recipe), and a row per prompt field it uses.
     # `sent_as_joined` says the provider was sent exactly the fields joined;
     # otherwise `prompt_sent_id` holds what it was sent, if that was given.
@@ -33,10 +34,11 @@ module DataDungeon
         field   TEXT NOT NULL,
         owner   TEXT NOT NULL,
         name    TEXT NOT NULL,
+        purpose TEXT NOT NULL DEFAULT '',
         version INTEGER NOT NULL,
         text_id INTEGER NOT NULL REFERENCES texts(id),
-        UNIQUE (field, owner, name, version),
-        UNIQUE (field, owner, name, text_id)
+        UNIQUE (field, owner, name, purpose, version),
+        UNIQUE (field, owner, name, purpose, text_id)
       );
       CREATE TABLE IF NOT EXISTS recipes (
         asset_id       INTEGER NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
@@ -71,7 +73,8 @@ module DataDungeon
     SQL
 
     # The asset's recipe, steps and all, with each named text as
-    # `owner:name@version`; nil when it has none.
+    # `owner:name@version` (`owner:name/purpose@version` with a purpose);
+    # nil when it has none.
     def recipe(id : Int64) : Recipe?
       rows = @db.query_all(<<-SQL, id, as: {Int32, String, String?, Int64?, Float64?, String?, String?, Int32, String?, String?})
         SELECT r.step, r.form, s.settings, r.seed, r.cost, r.cost_basis, r.generated_at, r.sent_as_joined, t.text, r.refs
@@ -84,7 +87,7 @@ module DataDungeon
 
       fields = Hash(Int32, Hash(String, Recipe::Text)).new { |hash, step| hash[step] = {} of String => Recipe::Text }
       @db.query(<<-SQL, id) do |rs|
-        SELECT f.step, f.field, t.text, n.owner, n.name, n.version
+        SELECT f.step, f.field, t.text, n.owner, n.name, n.purpose, n.version
         FROM recipe_fields f
         JOIN texts t ON t.id = f.text_id
         LEFT JOIN named_texts n ON n.id = f.named_id
@@ -92,8 +95,9 @@ module DataDungeon
       SQL
         rs.each do
           step, field, text = rs.read(Int32), rs.read(String), rs.read(String)
-          owner, name, version = rs.read(String?), rs.read(String?), rs.read(Int32?)
-          fields[step][field] = Recipe::Text.new(text, owner && "#{owner}:#{name}@#{version}")
+          owner, name, purpose, version = rs.read(String?), rs.read(String?), rs.read(String?), rs.read(Int32?)
+          handle = owner && Recipe::Text.handle(owner, name.not_nil!, purpose.not_nil!, version)
+          fields[step][field] = Recipe::Text.new(text, handle)
         end
       end
 
@@ -135,20 +139,27 @@ module DataDungeon
     end
 
     # The assets whose recipes use a named text in a prompt field, retired
-    # ones included, oldest first: `with_text("style", "overlore:silver")`
-    # for any of its wordings, `"overlore:silver@2"` for one.
+    # ones included, oldest first: `with_text("style", "overlore:silver-comic")`
+    # for any of its wordings, whatever their purpose,
+    # `"overlore:silver-comic/figure"` for one purpose's, and
+    # `"overlore:silver-comic/figure@2"` for one wording.
     def with_text(field : String, name : String) : Array(Int64)
       sql, args = using_text(field, name)
       @db.query_all("SELECT DISTINCT asset_id FROM (#{sql}) ORDER BY asset_id", args: args, as: Int64)
     end
 
     # SQL selecting the `asset_id` of every recipe using a named text in a
-    # field (any wording, or one with `@version`), and its arguments.
+    # field (any purpose or wording; `/purpose` for one purpose, `@version`
+    # for one wording), and its arguments.
     private def using_text(field : String, name : String) : {String, Array(::DB::Any)}
-      owner, base, version = Recipe::Text.new("", name).handle.not_nil!
+      owner, base, purpose, version = Recipe::Text.new("", name).handle.not_nil!
       sql = "SELECT f.asset_id FROM named_texts n JOIN recipe_fields f ON f.named_id = n.id " \
             "WHERE n.field = ? AND n.owner = ? AND n.name = ?"
       args = [field, owner, base] of ::DB::Any
+      unless purpose.empty?
+        sql += " AND n.purpose = ?"
+        args << purpose
+      end
       if version
         sql += " AND n.version = ?"
         args << version
@@ -157,12 +168,15 @@ module DataDungeon
     end
 
     # The named texts an owner has written for a field: {name, version,
-    # text}, by name and version.
+    # text}, the name with its `/purpose` if it has one, by name, purpose
+    # and version.
     def named_texts(field : String, owner : String) : Array({String, Int32, String})
-      @db.query_all(<<-SQL, field, owner, as: {String, Int32, String})
-        SELECT n.name, n.version, t.text FROM named_texts n JOIN texts t ON t.id = n.text_id
-        WHERE n.field = ? AND n.owner = ? ORDER BY n.name, n.version
+      @db.query_all(<<-SQL, field, owner, as: {String, String, Int32, String}).map do |(name, purpose, version, text)|
+        SELECT n.name, n.purpose, n.version, t.text FROM named_texts n JOIN texts t ON t.id = n.text_id
+        WHERE n.field = ? AND n.owner = ? ORDER BY n.name, n.purpose, n.version
       SQL
+        {purpose.empty? ? name : "#{name}/#{purpose}", version, text}
+      end
     end
 
     # Adds an asset's recipe rows; the asset has none.
@@ -182,7 +196,7 @@ module DataDungeon
           step.references.empty? ? nil : step.references.to_json)
         step.fields.each do |field, words|
           text_id = put_text(conn, words.text)
-          named_id = words.handle.try { |(owner, name, version)| put_named(conn, field, owner, name, version, text_id) }
+          named_id = words.handle.try { |(owner, name, purpose, version)| put_named(conn, field, owner, name, purpose, version, text_id) }
           conn.exec("INSERT INTO recipe_fields (asset_id, step, field, text_id, named_id) VALUES (?, ?, ?, ?, ?)",
             asset_id, i, field, text_id, named_id)
         end
@@ -204,26 +218,29 @@ module DataDungeon
       conn.scalar("SELECT id FROM recipe_settings WHERE hash = ?", hash).as(Int64)
     end
 
-    # The named_texts row for this wording of an owner's name. A wording
-    # seen before keeps its version; a new one is the next, and only the
-    # owner adds one.
+    # The named_texts row for this wording of an owner's name and purpose.
+    # A wording seen before keeps its version; a new one is the next for
+    # the name and purpose, and only the owner adds one.
     private def put_named(conn : ::DB::Connection, field : String, owner : String, name : String,
-                          given : Int32?, text_id : Int64) : Int64
-      row = conn.query_one?("SELECT id, version FROM named_texts WHERE field = ? AND owner = ? AND name = ? AND text_id = ?",
-        field, owner, name, text_id, as: {Int64, Int32})
+                          purpose : String, given : Int32?, text_id : Int64) : Int64
+      row = conn.query_one?(<<-SQL, field, owner, name, purpose, text_id, as: {Int64, Int32})
+        SELECT id, version FROM named_texts WHERE field = ? AND owner = ? AND name = ? AND purpose = ? AND text_id = ?
+      SQL
+      written = Recipe::Text.handle(owner, name, purpose)
       id, version = row || begin
         unless @consumer == owner
-          raise ArgumentError.new("#{owner}:#{name} is #{owner}'s: only it adds a wording to it " \
+          raise ArgumentError.new("#{written} is #{owner}'s: only it adds a wording to it " \
                                   "(this DB's consumer is #{@consumer.inspect})")
         end
-        next_version = conn.scalar("SELECT ifnull(max(version), 0) + 1 FROM named_texts WHERE field = ? AND owner = ? AND name = ?",
-          field, owner, name).as(Int64).to_i32
-        conn.exec("INSERT INTO named_texts (field, owner, name, version, text_id) VALUES (?, ?, ?, ?, ?)",
-          field, owner, name, next_version, text_id)
+        next_version = conn.scalar(<<-SQL, field, owner, name, purpose).as(Int64).to_i32
+          SELECT ifnull(max(version), 0) + 1 FROM named_texts WHERE field = ? AND owner = ? AND name = ? AND purpose = ?
+        SQL
+        conn.exec("INSERT INTO named_texts (field, owner, name, purpose, version, text_id) VALUES (?, ?, ?, ?, ?, ?)",
+          field, owner, name, purpose, next_version, text_id)
         {conn.scalar("SELECT last_insert_rowid()").as(Int64), next_version}
       end
       if given && given != version
-        raise ArgumentError.new("this #{field} wording of #{owner}:#{name} is version #{version}, not #{given}")
+        raise ArgumentError.new("this #{field} wording of #{written} is version #{version}, not #{given}")
       end
       id
     end
@@ -286,6 +303,32 @@ module DataDungeon
       # Stores opened by 0.13 before its release lack the cost's basis.
       conn.exec("ALTER TABLE recipes ADD COLUMN cost_basis TEXT") unless table_columns(conn, "recipes").has_key?("cost_basis")
       conn.exec("CREATE INDEX IF NOT EXISTS idx_assets_description ON assets(description_id) WHERE description_id IS NOT NULL")
+    end
+
+    # Named texts gained a purpose in 0.13.1. Their unique constraints
+    # change with it, which SQLite can only do by building the table again:
+    # every row is copied with its id, so recipes still point at it, and
+    # the copy is compared with the original before the original goes. Runs
+    # with foreign keys off, inside setup_schema's transaction; true when it
+    # rebuilt, so setup_schema checks the references afterwards.
+    private def migrate_named_texts(conn : ::DB::Connection) : Bool
+      return false if table_columns(conn, "named_texts").has_key?("purpose")
+      schema = RECIPE_SCHEMAS.split(";").find!(&.includes?("named_texts ("))
+      conn.exec(schema.sub("IF NOT EXISTS named_texts", "named_texts_migrated"))
+      conn.exec(<<-SQL)
+        INSERT INTO named_texts_migrated (id, field, owner, name, purpose, version, text_id)
+        SELECT id, field, owner, name, '', version, text_id FROM named_texts
+      SQL
+      lost = conn.scalar(<<-SQL).as(Int64)
+        SELECT (SELECT COUNT(*) FROM named_texts) - (SELECT COUNT(*) FROM named_texts_migrated)
+             + (SELECT COUNT(*) FROM named_texts n LEFT JOIN named_texts_migrated m ON m.id = n.id
+                WHERE m.field IS NOT n.field OR m.owner IS NOT n.owner OR m.name IS NOT n.name
+                   OR m.version IS NOT n.version OR m.text_id IS NOT n.text_id)
+      SQL
+      raise "copying named texts to add their purpose left #{lost} different; the store is unchanged" unless lost == 0
+      conn.exec("DROP TABLE named_texts")
+      conn.exec("ALTER TABLE named_texts_migrated RENAME TO named_texts")
+      true
     end
   end
 end

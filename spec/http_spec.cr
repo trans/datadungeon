@@ -217,7 +217,9 @@ describe DataDungeon::API do
       listed["total"].should eq 2
       json(call(api, "GET", "/dd/assets?file_hash=#{b.file_hash}", "r"))["assets"].as_a.map(&.["asset"]["id"]).should eq [b.id]
       json(call(api, "GET", "/dd/assets?text.style=overlore:silver", "r"))["assets"].as_a.should be_empty
+      json(call(api, "GET", "/dd/assets?text.style=overlore:silver-comic/figure@2", "r"))["assets"].as_a.should be_empty
       call(api, "GET", "/dd/assets?text.style=silver", "r").status_code.should eq 400
+      call(api, "GET", "/dd/assets?text.style=overlore:silver-comic/", "r").status_code.should eq 400
 
       call(api, "PATCH", "/dd/assets/#{a.id}", "w", {description: "A long pier.", everywhere: true})
       db.find_asset_by_id(b.id).not_nil!.description.should eq "A long pier."

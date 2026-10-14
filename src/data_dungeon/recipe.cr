@@ -18,7 +18,10 @@ module DataDungeon
 
     # The words of one prompt field: a text of its own, or a named one. A
     # name is `owner:name` going in and `owner:name@version` coming back;
-    # the owner is the app that wrote the wording (its consumer name).
+    # the owner is the app that wrote the wording (its consumer name). A
+    # name may add what the wording is for, `owner:name/purpose`, so two
+    # wordings of one style in use at once share its name
+    # (`overlore:silver-comic/figure`, `overlore:silver-comic/place`).
     struct Text
       include JSON::Serializable
 
@@ -28,16 +31,30 @@ module DataDungeon
       def initialize(@text : String, @name : String? = nil)
       end
 
-      # {owner, name, version}, the version nil when not given.
-      def handle : {String, String, Int32?}?
+      # {owner, name, purpose, version}: the purpose empty when there's
+      # none, the version nil when not given.
+      def handle : {String, String, String, Int32?}?
         return nil unless full = @name
         base, _, version = full.partition('@')
-        owner, colon, name = base.partition(':')
+        owner, colon, rest = base.partition(':')
+        name, slash, purpose = rest.partition('/')
         unless colon == ":" && DB::LABEL.matches?(owner) && DB::LABEL.matches?(name) &&
+               (slash.empty? || DB::LABEL.matches?(purpose)) &&
                (version.empty? || version.to_i?.try(&.positive?))
-          raise ArgumentError.new("a named text is owner:name, or owner:name@version (#{full.inspect})")
+          raise ArgumentError.new("a named text is owner:name or owner:name/purpose, " \
+                                  "with @version to name one wording (#{full.inspect})")
         end
-        {owner, name, version.empty? ? nil : version.to_i}
+        {owner, name, purpose, version.empty? ? nil : version.to_i}
+      end
+
+      # How a named text is written: `owner:name`, `/purpose` when it has
+      # one, and `@version` when there is one.
+      def self.handle(owner : String, name : String, purpose : String, version : Int32? = nil) : String
+        String.build do |io|
+          io << owner << ':' << name
+          io << '/' << purpose unless purpose.empty?
+          io << '@' << version if version
+        end
       end
     end
 
@@ -85,7 +102,8 @@ module DataDungeon
       Text.new(text)
     end
 
-    # A prompt field's words under a name, `owner:name`.
+    # A prompt field's words under a name, `owner:name` or
+    # `owner:name/purpose`.
     def self.named(name : String, text : String) : Text
       Text.new(text, name)
     end

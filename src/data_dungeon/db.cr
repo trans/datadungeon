@@ -663,6 +663,7 @@ module DataDungeon
             conn.exec(TEXTS_SCHEMA)
             RECIPE_SCHEMAS.split(";").each { |sql| conn.exec(sql.strip) unless sql.strip.empty? }
             migrate_recipes(conn)
+            rebuilt = migrate_named_texts(conn) || rebuilt
             conn.exec("DROP INDEX IF EXISTS idx_assets_single_key") # keys stopped being unique in 0.11
             ASSETS_INDEXES.split(";").each { |sql| conn.exec(sql.strip) unless sql.strip.empty? }
             conn.exec("DROP INDEX IF EXISTS idx_assets_lookup") # keys now name their type
@@ -741,6 +742,7 @@ module DataDungeon
                   assets.has_key?("made_at") && assets.has_key?("retired_at") &&
                   table_columns(conn, "image_meta").has_key?("measured") &&
                   !unique_file_path?(conn) && tags.has_key?("custom") && tags.has_key?("asset_type") &&
+                  table_columns(conn, "named_texts").has_key?("purpose") &&
                   types.has_key?("sets") && types.has_key?("facets") && types.has_key?("weights") &&
                   %w[image_meta image_animation image_keyframes audio_meta video_meta text_meta asset_links asset_search asset_search_terms asset_changes
                     asset_indexes asset_keys asset_tag_counts texts recipe_settings named_texts recipes recipe_fields

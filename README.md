@@ -229,15 +229,16 @@ recipe = DataDungeon::Recipe.new("picture",
   settings: {"camera" => "mj:camera:flare", "model" => "flux-dev", "steps" => 4},
   fields: {"preamble" => DataDungeon::Recipe.named("overlore:house", "Draw one panel."),
            "subject"  => DataDungeon::Recipe.text("A tall elf with red braids."),
-           "style"    => DataDungeon::Recipe.named("overlore:silver", "Silver Age comic art.")},
+           "style"    => DataDungeon::Recipe.named("overlore:silver-comic/figure", "Silver Age comic art.")},
   prompt_sent: sent, seed: 7, cost: 0.04, cost_basis: "reported: runware", generated_at: Time.utc,
   references: [portrait.file_hash.not_nil!])
 db.store("panel", tags, bytes: png, content_type: "image/png", recipe: recipe)
 
-db.recipe(id)                               # => Recipe?, named texts read back as "overlore:silver@2"
-db.with_text("style", "overlore:silver")    # the assets using any of its wordings; "@2" for one
-db.list_assets(texts: {"style" => "overlore:silver"})   # the same as a listing filter
-db.named_texts("style", "overlore")         # [{name, version, text}]
+db.recipe(id)                     # => Recipe?, named texts read back as "overlore:silver-comic/figure@2"
+db.with_text("style", "overlore:silver-comic")  # the assets using any of its wordings, any purpose;
+                                                # "…/figure" for one purpose, "…/figure@2" one wording
+db.list_assets(texts: {"style" => "overlore:silver-comic"})  # the same as a listing filter
+db.named_texts("style", "overlore")  # [{name, version, text}], the name as "silver-comic/figure"
 db.set_recipe(id, recipe)                   # give an asset made before 0.13 its recipe
 ```
 
@@ -251,6 +252,11 @@ db.set_recipe(id, recipe)                   # give an asset made before 0.13 its
   the app (`DB.new(…, consumer:)`). Only the owner adds a wording under its
   name; any app uses the wordings as they are. Each new wording is the
   next version, and one seen before keeps its old one.
+- **A purpose** says what a wording is for, when one name has several in
+  use at once: `overlore:silver-comic/figure` and
+  `overlore:silver-comic/place`, each numbering its own versions. A style
+  wording is named for its standard style (no style of its own), and the
+  purpose tells its wordings apart. It's optional.
 - **What a picture's provider was sent** is compared with its fields joined
   by one space (empty ones skipped) and kept only if it differs. An old
   record whose parts are lost can be its settings and `prompt_sent` alone.
@@ -441,7 +447,7 @@ HTTP::Server.new([api, app_handler])
 | `GET /assets?type=&q=&tag.<key>=&link.<rel>=&unlinked=&limit=&page=&before=&count=1` | a page of assets with their tags, and `next` (`&meta=1`: each picture's fields and view too) |
 | `…?retired=only` or `=include` | retired assets, or all, in listings and counts |
 | `…?field.<name>=<low>..<high>&view=back-left&view.side=&view.yaw=&view.pitch=&view.within=` | by picture fields (and `light.` alike) |
-| `…?file_hash=&description_hash=&text.<field>=<owner:name>[@<version>]` | by file, by shared description, by a recipe's named text |
+| `…?file_hash=&description_hash=&text.<field>=<owner:name>[/<purpose>][@<version>]` | by file, by shared description, by a recipe's named text |
 | `GET /assets/:id`, `/assets/:id/object`, `/assets/:id/links` | an asset with its tags, metadata and links; its bytes; its links |
 | `POST /maintenance/check` | the consistency report |
 | `GET /objects` | every object key the store's rows use, for clearing a shared bucket |
