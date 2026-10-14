@@ -1,6 +1,6 @@
 # Coordination
 
-*Updated 2026-10-11*
+*Updated 2026-10-14*
 
 - Our Arcana identity is **`@datadungeon`** (it was bare `datadungeon`
   before 2026-10-04). In this project, "check mail" means Arcana, not Gmail.
@@ -14,6 +14,12 @@
   mailbox and no Silicon Circus agent was registered, so mail for Cattacula
   is delivered into Cattacula's `.ai` inbox (`inbox/` there on 2026-10-11,
   the layout before the `ai` branch), where `@curio` leaves notes too.
+- **`@curio` is DataDungeon's frontman** (Thomas, 2026-10-14: "like your
+  sidekick, or frontman"). DD stays generic and UI-free; curio is its face
+  for people (browsing, curating, with override permission on uses) and
+  does the work across stores, such as the hub (DESIGN-types.md, "Shared
+  files"). So what people or several stores need goes to curio, and DD
+  gives each store the calls curio builds on.
 - `.ai/mail/` holds our mail as files: drafts, outbox, the committed
   `sent/` record, and the inbox, where mail that didn't come live lands
   (see README.md).
