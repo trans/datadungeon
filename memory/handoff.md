@@ -203,7 +203,13 @@ whole; a prompt that fills no field is all description. Overlore splits its
 **The order gets tested** (Thomas, 2026-10-14): `@mj`, with Thomas's help,
 will analyse whether another field order works better, after researching
 whether the image providers give guidance on prompt order. Until then the
-0.13 order stands. Owl told the same day.
+0.13 order stands. Owl told the same day. **If the order changes,**
+records stored as "sent as joined" must keep their old join: `recipe()`
+rebuilds `prompt_sent` from the fields in the *current* `Recipe::FIELDS`
+order (`recipes.cr`), so a new order would silently rewrite what old
+records say was sent. Before changing it, store those records'
+`prompt_sent` explicitly (or record the order with each recipe). Owl is on
+0.13 with every record converted (consumers.md).
 
 **The hub: what `@curio` needs from each store** (2026-10-14, `.ai`
 `8ba2938`; Thomas: the hub waits until current work is done): the bucket

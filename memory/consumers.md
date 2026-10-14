@@ -1,6 +1,6 @@
 # Consumers
 
-*Updated 2026-10-13*
+*Updated 2026-10-14*
 
 | App | Checkout | Uses DD for | Builds against |
 |---|---|---|---|
@@ -9,7 +9,7 @@
 | Pirateship | `~/Projects/siliconcircus.lol/pirateship` | parrot TTS voices (`data/voices.db`) | GitHub, `~> 0.12.0` since its `46e4713` (2026-10-13); agent `@pirateship` |
 | Silicon Circus venues | via the `siliconcircus` agent | venue images, about one per attraction | — |
 | Silicon Circus park store | `~/Projects/siliconcircus.lol/assets` | the park's shared assets: Cattacula's voices (copied), fronts, sprites, props | GitHub, `~> 0.11.0` (0.11.2 installed, 2026-10-13); `just serve` runs dd-serve on 127.0.0.1:12782 |
-| Owl | `~/my/world/ofwords/owl` | scenes, props, frames and depth maps (`owl_*` types), its scene graph in `owl_*` tables in the same file | GitHub, `~> 0.12.0` since its `03ffc98` (2026-10-12); agent `@owl` (joined 2026-10-12) |
+| Owl | `~/my/world/ofwords/owl` | scenes, props, frames and depth maps (`owl_*` types), its scene graph in `owl_*` tables in the same file | GitHub, 0.13.0 (2026-10-14; was `~> 0.12.0` since its `03ffc98`); agent `@owl` (joined 2026-10-12) |
 
 ## Where the files are
 
@@ -186,3 +186,14 @@ doesn't take it). Nothing evicts on its own (only `eviction_candidates`
 reads the flag, and owl doesn't call it), so nothing is at risk. Thomas
 (2026-10-13): `update_asset(permanent:)` comes in 0.13, not a 0.12.1;
 reply drafted saying so. Owl will send its view on recipes separately.
+
+**On 0.13 with recipes (2026-10-14, its own report):** new pictures stored
+with recipes, prompts built as fields and sent as `Recipe#joined`; a lift
+is two steps (removal, then a matte referencing both pictures by hash), a
+cut-out prop a picture step plus a cutout step, a depth map form `""`
+referencing its source; narration is speech with the named text
+`owl:narrator`. All 97 old records converted, none left in recipe_legacy:
+13 split into fields that join back exactly, one cut at 500 characters
+(its recipe says so), the rest settings only. Descriptions now say what
+each picture shows; old pictures marked permanent (depth maps not);
+anchors filled as ground points; `copied-from` names the file hash.
