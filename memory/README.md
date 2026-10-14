@@ -34,24 +34,26 @@ Never commit credentials or keys.
 
 ## Handling inbox notes
 
-Messages from other agents that didn't come live land in `.ai/mail/inbox/`.
-A note in the inbox has not been dealt with yet, so the inbox holds only
-unprocessed notes. To process one:
+Messages from other agents land in `.ai/mail/inbox/` (machine-local, never
+committed): mail still unread when a session ended, or delivered by hand.
+The inbox holds only unread mail. Oldest first, for each one:
 
-1. Commit the note as it arrived, before anything else, so the original is
-   kept in history.
-2. Put what matters into the memory notes here, in your own words.
-3. Delete the note in a following commit, and cite the commit that still
-   has it (`git -C .ai show <commit>:mail/inbox/<file>`).
+1. Put what matters into the memory notes here, in your own words. A
+   message that is reference material (a spec, a design) needn't be
+   summarized: cite it by its path in `mail/received/`.
+2. Move it, unchanged and under the same name, to `mail/received/`.
+3. Commit the notes and the message together. `received/` is never
+   edited: with `sent/`, it's the whole correspondence in order.
 
-If a note is reference material that will be consulted again, such as a
-spec or a design, move it here as its own file instead of summarizing it.
+Messages filed before dot-ai 0.3 (2026-10-14) aren't in `received/`: they
+were committed to the inbox, then deleted, and the notes cite those commits.
 
 ## Outbound mail
 
 The lead agent (the session holding `@datadungeon`) writes mail on
-Thomas's behalf, one file per message named by its address:
-`<handle>--<YYYY-MM-DD>-<topic>.md` (`@memo--2026-10-11-schema.md`).
+Thomas's behalf, one file per message named by the time it was written
+(UTC) and its address: `<time>-<address>--<topic>.md`
+(`20261011-180322Z-@memo--schema.md`). It keeps the name as it moves.
 
 - Every message waits for Thomas (`mail.review: all` in `../config.yml`;
   see coordination.md): it goes to `mail/drafts/` with a `Held: <why>`
@@ -74,8 +76,9 @@ one tagged entry per event (`<E1043 …>…</E1043>`), always redacted before
 they're committed. Read them, never edit them; find an entry with
 `grep -rn '^<E1043 ' .ai/transcript`.
 
-## Intake
+## Intake and outtake
 
-Thomas shares files for the work at hand in `.ai/intake/`. Look there when
-starting a session. The files are his: don't commit, move or delete them
-unless he asks. `.ai/.gitignore` keeps them out of commits.
+Thomas shares files for the work at hand in `intake/`, in the project's own
+directory next to `.ai/`; look there when starting a session. The files are
+his: don't move, edit or delete them unless he asks. Files made for him go
+in `outtake/` next to it. Neither is ever committed.

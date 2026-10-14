@@ -93,3 +93,10 @@ Memo 0.13 (main `8ecd4a5`, 2026-10-11; tagged `v0.13.0` at `5f51edd`, a changelo
 It migrates a database's memo tables once, on first open, one way. DD's
 spec reads `memo_contents` since `17d795f`. No DD consumer uses
 `SemanticIndex`, so no stored database was affected.
+
+Memo 0.13.1 (2026-10-14; main `6794fea`) reads token counts from `usage`,
+since arcana-ai 0.6.0 drops `total_tokens`, and needs `arcana-ai` ~> 0.5.1.
+DD's local lib had arcana-ai 0.4.0, so building with Memo's working tree
+failed until `shards update arcana-ai` (0.5.3, done 2026-10-14; `shard.lock`
+isn't committed). 162 specs pass with it. Nothing else in Memo changed for
+DD (`@memo`).

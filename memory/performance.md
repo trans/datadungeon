@@ -1,6 +1,6 @@
 # Performance
 
-*Updated 2026-10-09*
+*Updated 2026-10-14*
 
 What each structure costs as a store grows, measured on this project's dev
 machine (single-threaded), so a design can be judged at scale (see
@@ -107,6 +107,6 @@ requests waited instead.
 
 Nobody reads what touches write (checked 2026-10-13): no app reads
 `use_count` or `last_used_at` or calls `eviction_candidates` (the only
-reader of `last_used_at`). Owl and Pirateship pass `touch: false`
-everywhere; Overlore and Cattacula use the default. `dd-serve` doesn't
+reader of `last_used_at`). Owl passes `touch: false` everywhere, and
+Pirateship everywhere but a play (one `touch_asset` after the clip is read); Overlore and Cattacula use the default. `dd-serve` doesn't
 touch. **Open:** see handoff.md (batched touches).

@@ -211,6 +211,22 @@ records say was sent. Before changing it, store those records'
 `prompt_sent` explicitly (or record the order with each recipe). Owl is on
 0.13 with every record converted (consumers.md).
 
+**Style wordings (`@overlore`, 2026-10-14; waiting on Thomas, no reply
+drafted).** Thomas's rule, passed on by Overlore: no custom top-level
+styles; a variant of a style is the same style. `overlore:silver-figure`
+reads as a style of its own, which DESIGN-recipes.md invites ("two wordings
+in use at once get two names"). Overlore suggests: a wording filed under
+the standard style with its purpose as a qualifier (`figure`, `place`), so
+the picture's style tag stays standard; a small label table for curio
+(style, owner, purpose, version: "Silver Age comic, Overlore's figure
+wording, v2"); versions per style and purpose, no supersedes link.
+Meanwhile Overlore stores style fields as plain texts, found by hash, and
+asks whether naming them later converts nothing on its side. As built it
+would leave them unfound by name: `with_text` follows
+`recipe_fields.named_id`, which a plain text leaves empty, so naming a
+wording later must also name the records already holding that exact text
+in that field (a backfill on DD's side, or matching on `text_id`).
+
 **The hub: what `@curio` needs from each store** (2026-10-14, `.ai`
 `8ba2938`; Thomas: the hub waits until current work is done): the bucket
 itself marked shared, checked on open, rather than each app's `shared:`
