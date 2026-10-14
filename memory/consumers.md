@@ -5,7 +5,7 @@
 | App | Checkout | Uses DD for | Builds against |
 |---|---|---|---|
 | Overlore (formerly Infocomic) | `~/Projects/overlore` (moved from `~/Projects/infocomics/infocomic` 2026-10-14) | images, transcripts, banter, decrees | GitHub, `~> 0.12.0` since its `863ba42` (2026-10-11); was this checkout |
-| Cattacula | `~/Projects/siliconcircus.lol/cattacula/service` | TTS voice audio (`voices.db`) | GitHub, 0.13.0 since its `55587c5` (2026-10-14); `~> 0.12.0` since `9fe2421` (2026-10-12) |
+| Cattacula | `~/Projects/siliconcircus.lol/cattacula/service` | TTS voice audio (`voices.db`) | GitHub, 0.13.0 since its `55587c5` (2026-10-14); `~> 0.12.0` since `9fe2421` (2026-10-12); agent `@cattacula` |
 | Pirateship | `~/Projects/siliconcircus.lol/pirateship` | parrot TTS voices (`data/voices.db`) | GitHub, `~> 0.13.0` since its `a4dcabe` (2026-10-14); agent `@pirateship` |
 | Silicon Circus venues | via the `siliconcircus` agent | venue images, about one per attraction | — |
 | Silicon Circus park store | `~/Projects/siliconcircus.lol/assets` | the park's shared assets: Cattacula's voices (copied), fronts, sprites, props | GitHub, `~> 0.11.0` (0.11.2 installed, 2026-10-13); `just serve` runs dd-serve on 127.0.0.1:12782 |

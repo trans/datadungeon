@@ -193,7 +193,7 @@ were answered (`.ai` `029db8b`). All five apps type-check against it,
 copies of all five stores upgrade cleanly, S3 specs pass on Garage.
 Upgrade notices sent 2026-10-14 to `@overlore`, `@owl`, `@curio` (with the
 park store's move) and `@pirateship` (`.ai/mail/sent/*-v0.13.0.md`); none to
-Cattacula, which has no agent.
+Cattacula, then thought to have no agent (it has: `@cattacula`).
 **Thomas, through `@overlore` (2026-10-14): the description is the fallback
 field.** An app fills what fields it can from the front (preamble, subject)
 and the back (style, rules) and leaves the rest in the description, in
@@ -233,8 +233,18 @@ cost is one rebuild of `named_texts` in 0.13.0 stores (its unique
 constraints change; ids kept, checked before the old table goes), and a
 `/purpose` in the written form that curio must parse. DESIGN-recipes.md
 updated (not yet committed); reply sent 2026-10-14
-(`mail/sent/20261014-081331Z-@overlore--style-purpose.md`). **Open:**
-build 0.13.1; tell `@curio` about `/purpose`.
+(`mail/sent/20261014-081331Z-@overlore--style-purpose.md`). **0.13.1
+built 2026-10-14, not yet committed:** `named_texts.purpose`, names
+`owner:name/purpose`, `with_text`/`texts:` narrowed by purpose,
+`named_texts` returning `name/purpose`; `migrate_named_texts` rebuilds a
+0.13.0 table inside setup_schema (ids kept, compared before the drop,
+foreign keys checked after). 164 specs; the five apps type-check; copies
+of the four 0.13.0 stores (Owl, Cattacula, Pirateship, park) change in
+`named_texts` alone, and Overlore's 0.12 copy upgrades with 0 differences.
+**Released: `v0.13.1` at `4df221b` (2026-10-14);** a fresh `~> 0.13.0`
+install resolves it. **Open:** notices to all five (Thomas: "let them all
+know", Cattacula included), curio told about `/purpose`, Overlore answered
+on "first seen".
 `@overlore` accepted it the same day, having read the held draft through
 Thomas (`mail/received/20261014-083946Z-@overlore--style-purposes-yes-it-works-for-us-go-ahead-with-0-9aeed7b6.md`);
 the reply went anyway, as the record. **Its question, to answer in the

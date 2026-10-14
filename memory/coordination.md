@@ -14,6 +14,9 @@
   mailbox and no Silicon Circus agent was registered, so mail for Cattacula
   is delivered into Cattacula's `.ai` inbox (`inbox/` there on 2026-10-11,
   the layout before the `ai` branch), where `@curio` leaves notes too.
+  **Cattacula has its own agent, `@cattacula`,** since at least
+  2026-10-14 (its 0.13.0 report came from it), and `@pirateship` and
+  `@owl` are peers too (consumers.md).
 - **`@curio` is DataDungeon's frontman** (Thomas, 2026-10-14: "like your
   sidekick, or frontman"). DD stays generic and UI-free; curio is its face
   for people (browsing, curating, with override permission on uses) and
