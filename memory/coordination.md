@@ -25,8 +25,9 @@
   gives each store the calls curio builds on.
 - **Thomas, 2026-10-14: "let them all know" is the go-ahead.** When he
   asks for mail to go ("let X know", "let them all know"), write it and
-  send it; don't hold it for a second look ("just send them please").
-  Mail he hasn't asked for still waits for him.
+  send it; don't hold it for a second look ("just send them please"). A
+  heads-up such as a release notice has nothing in it to review. Mail he
+  hasn't asked for still waits for him.
 - `.ai/mail/` holds our mail as files: drafts, outbox, the committed
   `sent/` record, and the inbox, where mail that didn't come live lands
   (see README.md).
