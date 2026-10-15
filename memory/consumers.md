@@ -5,8 +5,8 @@
 | App | Checkout | Uses DD for | Builds against |
 |---|---|---|---|
 | Overlore (formerly Infocomic) | `~/Projects/overlore` (moved from `~/Projects/infocomics/infocomic` 2026-10-14) | images, transcripts, banter, decrees | GitHub, `~> 0.12.0` since its `863ba42` (2026-10-11); was this checkout |
-| Cattacula | `~/Projects/siliconcircus.lol/cattacula/service` | TTS voice audio (`voices.db`) | GitHub, 0.13.0 since its `55587c5` (2026-10-14); `~> 0.12.0` since `9fe2421` (2026-10-12); agent `@cattacula` |
-| Pirateship | `~/Projects/siliconcircus.lol/pirateship` | parrot TTS voices (`data/voices.db`) | GitHub, `~> 0.13.0` since its `a4dcabe` (2026-10-14); agent `@pirateship` |
+| Cattacula | `~/Projects/siliconcircus.lol/cattacula/service` | TTS voice audio (`voices.db`) | GitHub, 0.13.1 since its `4d39011` (2026-10-14); 0.13.0 since `55587c5`; `~> 0.12.0` since `9fe2421` (2026-10-12); agent `@cattacula` |
+| Pirateship | `~/Projects/siliconcircus.lol/pirateship` | parrot TTS voices (`data/voices.db`) | GitHub, 0.13.1 since its `84491af` (2026-10-14); `~> 0.13.0` since `a4dcabe`; agent `@pirateship` |
 | Silicon Circus venues | via the `siliconcircus` agent | venue images, about one per attraction | — |
 | Silicon Circus park store | `~/Projects/siliconcircus.lol/assets` | the park's shared assets: Cattacula's voices (copied), fronts, sprites, props | GitHub, `~> 0.11.0` (0.11.2 installed, 2026-10-13); `just serve` runs dd-serve on 127.0.0.1:12782 |
 | Owl | `~/my/world/ofwords/owl` | scenes, props, frames and depth maps (`owl_*` types), its scene graph in `owl_*` tables in the same file | GitHub, 0.13.0 (2026-10-14; was `~> 0.12.0` since its `03ffc98`); agent `@owl` (joined 2026-10-12) |
@@ -111,7 +111,9 @@ so `width`/`height` are what the bytes say, not what was asked. Overlore's
   the first open moved its 488 voices over; none had a description or a
   `generation`, so `texts` and `recipe_legacy` stay empty. Ids, file
   hashes, use counts and tags all match a snapshot from before
-  (`@cattacula`'s report).
+  (`@cattacula`'s report). **On 0.13.1 since its `4d39011` (2026-10-14):**
+  the first open rebuilt only the empty `named_texts`; all 488 voices found
+  by traits and read back, every row as before, integrity ok.
 - **Pirateship** registers `voice` (traits `pool i voice fmt`), reads
   through `db.read`, and stores `description`/`generated` (`412f9be`,
   pushed 2026-10-07). On `~> 0.12.0` since its `46e4713` (pushed
@@ -130,7 +132,11 @@ so `width`/`height` are what the bytes say, not what was asked. Overlore's
   `a4dcabe` (2026-10-14), no code changes:** a copy of the live store gained
   only the recipe and text tables, all 14 voices current with their keys,
   clips byte for byte; the live store upgrades at Thomas's next restart,
-  backed up as `data/voices.db.pre-0.13`. **Thomas, 2026-10-14 (through
+  backed up as `data/voices.db.pre-0.13`. **0.13.1 installed since its
+  `84491af` (2026-10-14; `shard.yml` stays `~> 0.13.0`):** on a copy of the
+  live store every row of assets, tags, keys, audio_meta, asset_types and
+  asset_indexes identical, every clip byte for byte; the live store upgrades
+  at Thomas's next restart, backed up as `data/voices.db.pre-0.13.1`. **Thomas, 2026-10-14 (through
   `@pirateship`): Pirateship keeps its own store for good** and won't merge
   into one Silicon Circus store; each venue can keep its own. It holds the
   parrot's voices today and will hold all of Pirateship's assets (this

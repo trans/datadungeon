@@ -209,7 +209,8 @@ rebuilds `prompt_sent` from the fields in the *current* `Recipe::FIELDS`
 order (`recipes.cr`), so a new order would silently rewrite what old
 records say was sent. Before changing it, store those records'
 `prompt_sent` explicitly (or record the order with each recipe). Owl is on
-0.13 with every record converted (consumers.md).
+0.13 with every record converted (consumers.md). **Done 2026-10-14:**
+`@mj`'s design replaces the order (below, "Picture prompts redesigned").
 
 **Style wordings (`@overlore`, 2026-10-14).** Thomas's rule, passed on by Overlore: no custom top-level
 styles; a variant of a style is the same style. `overlore:silver-figure`
@@ -251,6 +252,59 @@ the reply went anyway, as the record. **Its question, to answer in the
 0.13.1 notice:** in a conversion, is "first seen" the order of
 `set_recipe` calls or the recipe's `generated_at`? As built, the order of
 calls (`put_named` takes the next number when it inserts).
+
+**Style bases for 0.14 (Thomas, 2026-10-14; `@overlore` asked, reply in
+`mail/sent/20261014-162208Z-@overlore--style-base.md`).** Each art style in
+the vocabulary gets a base, short prompt text, and a picture's style is the
+base followed by the app's wording, which holds only the flavouring: it
+narrows the style or serves the purpose, never asks for another style. DD
+gives an app the base before it generates and records the base each picture
+got, so a base improved later doesn't rewrite older records. Thomas turned
+down a word-for-word prefix check on wordings (brittle, and it repeats the
+base). Bases stay short ("Silver Age comic" may do alone), adding key
+differentiators only where a model may not know a style; refinements, not
+new descriptions. Overlore's pixel art is `pixel-16` (Thomas). Records
+before 0.14 keep their wordings. **Open:** where the base sits in a recipe
+(a field of its own before the wording, or part of the style field).
+
+**Picture prompts redesigned (`@mj` with Thomas, 2026-10-14; mj's
+`notes/picture-prompt-design-v1.md` at its `f712770`; originals in
+`mail/received/20261014-2*-@mj--*`).** The 0.13 order was mj's habit, not
+measured (its slot-order test came back null on `klein`). Agreed, with
+Thomas's changes (our reply, `mail/sent/20261015-001446Z-*--picture-prompts.md`,
+to `@mj`, copied to `@overlore` and `@owl`):
+**rules · framing · style · theme · subject · description · staging · light · directives.**
+- `rules` are the fixed ones, the same for every picture (the rating's
+  limits, no signature). A fixed rule mustn't contradict a description
+  (Thomas: a number on an apartment building needs text, so "no text unless
+  the description asks for it").
+- `framing` replaces `preamble`: how much is in frame, the overall shape.
+- `staging` is the DM's words for where each figure is and the view, no
+  longer the camera's words. Mood is part of `theme`.
+- `light` is new: the standing light, inherited from the place's measured
+  light.
+- `directives` (Thomas's name, replacing mj's `changes`): the kind's own
+  rules for this picture ("each named thing drawn once" for a room) and what
+  an edit or a reference shot changes and keeps. mj's note found Overlore's
+  "each thing once" held better last than in the middle.
+- **No `kind` setting** (Thomas agreed): the type (`drop`, `plug`) and the
+  app's tag (`overlore:room`) already say it; turning a kind into framing,
+  rules and directives is the app's code.
+- **Thomas decided DD owns turning `view`/`light` vectors into words.** mj
+  handed over `src/arcana/view.cr` (mj `f5c0f45`, 176 lines, `json` only,
+  no specs; its message has a table of outputs to spec from). The phrases
+  are lowercase fragments; the caller punctuates.
+- **To build, in one release:** each recipe records which field order its
+  prompt was joined in (records already stored keep the 0.13 order; no whole
+  prompts stored); `preamble` renamed `framing` on old rows
+  (`recipe_fields.field`, `named_texts.field`; an update, nothing deleted);
+  `light` and `directives`; `view.cr` with specs. Owl's store copy
+  (2026-10-14) had 13 picture records rebuilt from 3-4 joined fields, which
+  a plain order switch would silently rewrite. Overlore can convert its 916
+  records now, under the 0.13 order.
+- Answered for Thomas: `template` (DESIGN-types.md) came from Overlore's
+  2026-10-13 proposal, its decrees being prose with blanks filled from the
+  player's input; it marks a text as fill-in-the-blanks, with Mustache slots.
 
 **The hub: what `@curio` needs from each store** (2026-10-14, `.ai`
 `8ba2938`; Thomas: the hub waits until current work is done): the bucket

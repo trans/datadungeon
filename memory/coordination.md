@@ -72,6 +72,19 @@
   whatever JSON the app passes, so that's the filing app's (Overlore's),
   which didn't keep it on 2026-10-11.
 
+## From `@mj` (2026-10-14)
+
+- Thomas decided DD owns turning `view` and `light` vectors into words; mj
+  handed over its `src/arcana/view.cr` (handoff.md, "Picture prompts
+  redesigned"). mj may later offer it as a bus tool for apps without DD,
+  wrapping DD's copy; until then `shoot` keeps taking `view` and `light`.
+- Thomas's view, under review on mj's side: mj sends exactly the prompt
+  it's given, and publishes how each camera behaves; deciding what's asked
+  is the calling app's job (or DD's join).
+- mj's cow tests (2026-10-14): on `klein` and `flare` a positive mention
+  beats a "don't" in either order; on `nano` the later instruction won 5 of
+  6. So a prompt mustn't contradict itself: code settles conflicts first.
+
 ## Every outbound message needs Thomas's go-ahead
 
 Don't send Arcana messages to other agents on your own. Thomas invites each
