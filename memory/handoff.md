@@ -41,8 +41,8 @@ not pushed, not tagged; `shard.yml` 0.14.0). 171 specs pass (1 pending, S3).
 - **Open:** Thomas is asking `@owl` about `painted-animation` (where it
   came from: Owl's mail `b0e68bb8`, approved 2026-10-14). A value seeded
   into stores can't be taken back by a later release.
-- **Held for Thomas:** `mail/drafts/@overlore--2026-10-15-0.14-changes.md`,
-  to `@overlore` and `@owl`, copied to `@mj`: the `flavor` field (missing
+- **Sent 2026-10-15** (`mail/sent/*-@overlore--0.14-changes.md`), to
+  `@overlore` and `@owl`, copied to `@mj`: the `flavor` field (missing
   from the order sent to mj), framing, directives, `style_text`; Overlore's
   oil-painting wording; Owl's "change ONLY this:" edits.
 - Then: merge, tag v0.14.0 (ask before pushing the tag), GitHub release
