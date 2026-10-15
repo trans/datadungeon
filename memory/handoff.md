@@ -1,5 +1,60 @@
 # DataDungeon handoff
 
+## 0.14: picture prompts and the vocabulary (built 2026-10-15, not released)
+
+**Scope (Thomas, 2026-10-15; plan approved):** 0.14 is the picture prompt
+redesign plus the vocabulary. Standard types, several values per tag,
+owner tags, keys as app indexes and uses are 0.15; embeddings 0.16.
+
+**Built on branch `0.14` at `c76640e`** (from `main` `4df221b`; not merged,
+not pushed, not tagged; `shard.yml` 0.14.0). 171 specs pass (1 pending, S3).
+- Picture order 2: **rules · framing · style · flavor · theme · subject ·
+  description · staging · light · directives.** `style` is DataDungeon's
+  words for the art style, `flavor` the app's own wording (Thomas, settling
+  the style-base Open below). Thomas offered `substyle` for `flavor`; kept
+  `flavor`, since `pixel-16` is already a substyle of `pixel`.
+- `recipes.field_order` (old rows 1, new 2); `preamble` renamed `framing`
+  in `recipe_fields` and `named_texts`, counted before and after; `joined`
+  raises on a field the order lacks (Overlore's and Owl's `preamble` are
+  refused before generating).
+- `vocabulary.cr`: tables `vocabulary_tags`, `vocabulary_values`, seeded
+  on read-write open; `art-style` (14) and `rating` (g, pg, r, x). Each tag
+  and value has a **title** (Thomas, 2026-10-15: "Fantasy Cover", "16-Bit
+  Pixel") and a description (what counts as it; never sent). Each art style
+  has DD's words, named text `datadungeon:<style>` in field `style`
+  (`db.style_text`, `db.vocabulary`, `GET /vocabulary`). Order-2 pictures
+  are checked: style must be DD's, a named flavor named for the same style.
+- **Style words approved by Thomas (2026-10-15):** pixel-32 "Detailed late
+  16-bit / early 32-bit pixel art.", pixel-16 "Chunky early to mid 16-bit
+  pixel art.", modern-comic "Modern comic book art, detailed inks, digital
+  coloring.", fantasy "Classic fantasy cover art, slightly painterly." (no
+  oil painting: it goes impressionistic); the rest as the DESIGN-types
+  names. The table is in DESIGN-types.md on the branch.
+- `view_words.cr`: mj's `ViewWords`, on DD's `Direction`.
+- **Checked on fresh copies of all five live stores (2026-10-15):** every
+  recipe reads back as on 0.13.1 (Overlore 916, Owl 97; 0 differ); no other
+  table changes; +14 datadungeon named texts and texts; integrity and
+  foreign keys ok. All five apps type-checked against the branch before
+  the titles were added.
+
+**Before release:**
+- **Open:** Thomas is asking `@owl` about `painted-animation` (where it
+  came from: Owl's mail `b0e68bb8`, approved 2026-10-14). A value seeded
+  into stores can't be taken back by a later release.
+- **Held for Thomas:** `mail/drafts/@overlore--2026-10-15-0.14-changes.md`,
+  to `@overlore` and `@owl`, copied to `@mj`: the `flavor` field (missing
+  from the order sent to mj), framing, directives, `style_text`; Overlore's
+  oil-painting wording; Owl's "change ONLY this:" edits.
+- Then: merge, tag v0.14.0 (ask before pushing the tag), GitHub release
+  notes, notices.
+
+**To settle before 0.15:** whether a use is a tag or a table
+(DESIGN-types.md vs our 2026-10-15 mail to mj); how several values sit in
+an index key; the JSON shape for tags (Owl's `as_s?` rating filter fails
+open if values become arrays); the `lighting`/`condition` names. Overlore
+wrote its own `named_texts` row directly to rename `pixel` to `pixel-16`
+(its `c8332d9`): fine here, but apps editing DD's tables is worth a word.
+
 ## 0.11 part 1: keys as an index (released v0.11.0, 2026-10-09)
 
 Built on branch `keys-and-retiring`, in a scratchpad worktree, from
@@ -264,8 +319,9 @@ down a word-for-word prefix check on wordings (brittle, and it repeats the
 base). Bases stay short ("Silver Age comic" may do alone), adding key
 differentiators only where a model may not know a style; refinements, not
 new descriptions. Overlore's pixel art is `pixel-16` (Thomas). Records
-before 0.14 keep their wordings. **Open:** where the base sits in a recipe
-(a field of its own before the wording, or part of the style field).
+before 0.14 keep their wordings. **Settled (Thomas, 2026-10-15):** the
+base is the `style` field, and the app's wording is a field of its own,
+`flavor`, after it (see 0.14 above).
 
 **Picture prompts redesigned (`@mj` with Thomas, 2026-10-14; mj's
 `notes/picture-prompt-design-v1.md` at its `f712770`; originals in

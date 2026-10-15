@@ -1,14 +1,14 @@
 # Consumers
 
-*Updated 2026-10-14*
+*Updated 2026-10-15*
 
 | App | Checkout | Uses DD for | Builds against |
 |---|---|---|---|
-| Overlore (formerly Infocomic) | `~/Projects/overlore` (moved from `~/Projects/infocomics/infocomic` 2026-10-14) | images, transcripts, banter, decrees | GitHub, `~> 0.12.0` since its `863ba42` (2026-10-11); was this checkout |
+| Overlore (formerly Infocomic) | `~/Projects/overlore` (moved from `~/Projects/infocomics/infocomic` 2026-10-14) | images, transcripts, banter, decrees | GitHub, `~> 0.13.1`; live store on 0.13.1 since 2026-10-15 00:33 UTC (916 records as recipes, ten style wordings named); `~> 0.12.0` since its `863ba42` (2026-10-11); was this checkout |
 | Cattacula | `~/Projects/siliconcircus.lol/cattacula/service` | TTS voice audio (`voices.db`) | GitHub, 0.13.1 since its `4d39011` (2026-10-14); 0.13.0 since `55587c5`; `~> 0.12.0` since `9fe2421` (2026-10-12); agent `@cattacula` |
 | Pirateship | `~/Projects/siliconcircus.lol/pirateship` | parrot TTS voices (`data/voices.db`) | GitHub, 0.13.1 since its `84491af` (2026-10-14); `~> 0.13.0` since `a4dcabe`; agent `@pirateship` |
 | Silicon Circus venues | via the `siliconcircus` agent | venue images, about one per attraction | — |
-| Silicon Circus park store | `~/Projects/siliconcircus.lol/assets` | the park's shared assets: Cattacula's voices (copied), fronts, sprites, props | GitHub, `~> 0.11.0` (0.11.2 installed, 2026-10-13); `just serve` runs dd-serve on 127.0.0.1:12782 |
+| Silicon Circus park store | `~/Projects/siliconcircus.lol/assets` | the park's shared assets: Cattacula's voices (copied), fronts, sprites, props | GitHub, `~> 0.13.1`, on 0.13.1 since 2026-10-14 (assets `2f1d1ca`; `@curio` checked 564 assets and 27 queries against 0.13.0); `just serve` runs dd-serve on 127.0.0.1:12782 |
 | Owl | `~/my/world/ofwords/owl` | scenes, props, frames and depth maps (`owl_*` types), its scene graph in `owl_*` tables in the same file | GitHub, 0.13.0 (2026-10-14; was `~> 0.12.0` since its `03ffc98`); agent `@owl` (joined 2026-10-12) |
 
 ## Where the files are
@@ -65,6 +65,13 @@ shots, centerfolds, door views) and `figure` (portraits, panels); each
 style has exactly those two wordings. Style fields that aren't a style's
 wording ("in the same style as the reference image", a room's neighbours)
 stay plain texts.
+
+**2026-10-15:** live store converted (above). Its pixel wording was renamed
+in place to `overlore:pixel-16/place` @1 (it edited the one `named_texts`
+row; Overlore `c8332d9`), and new pixel pictures are filed `pixel-16`
+(`/place`, `/figure`). Its `art_style` tag still says `pixel` until 0.15's
+standard tags. It plans to compose in the new order when 0.14 lands; it
+doesn't yet know about `flavor` (the held 0.14 draft tells it).
 
 - Waits for 0.11.1, then passes `supersedes:` in `level_voices`,
   `voices_to_mp3` and `TTSBase#clip`, adds `retired_at IS NULL` to their
