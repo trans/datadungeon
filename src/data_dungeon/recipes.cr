@@ -19,8 +19,9 @@ module DataDungeon
     # with what it's for (its purpose, empty for none), numbered per name
     # and purpose in the order its wordings were first seen. A recipe is a row
     # per step (0 for a single recipe), and a row per prompt field it uses.
-    # `sent_as_joined` says the provider was sent exactly the fields joined;
-    # otherwise `prompt_sent_id` holds what it was sent, if that was given.
+    # `sent_as_joined` says the provider was sent exactly the fields joined,
+    # in the recipe's `field_order` (Recipe::ORDERS); otherwise
+    # `prompt_sent_id` holds what it was sent, if that was given.
     # Before 0.13 an asset's `generation` was free-form JSON on its row; it
     # stays readable in recipe_legacy until its app gives it a recipe.
     RECIPE_SCHEMAS = <<-SQL
@@ -52,6 +53,7 @@ module DataDungeon
         sent_as_joined INTEGER NOT NULL DEFAULT 0,
         prompt_sent_id INTEGER REFERENCES texts(id),
         refs           TEXT,
+        field_order    INTEGER NOT NULL DEFAULT 1,
         PRIMARY KEY (asset_id, step)
       ) WITHOUT ROWID;
       CREATE INDEX IF NOT EXISTS idx_recipes_settings ON recipes(settings_id);
@@ -76,8 +78,9 @@ module DataDungeon
     # `owner:name@version` (`owner:name/purpose@version` with a purpose);
     # nil when it has none.
     def recipe(id : Int64) : Recipe?
-      rows = @db.query_all(<<-SQL, id, as: {Int32, String, String?, Int64?, Float64?, String?, String?, Int32, String?, String?})
-        SELECT r.step, r.form, s.settings, r.seed, r.cost, r.cost_basis, r.generated_at, r.sent_as_joined, t.text, r.refs
+      rows = @db.query_all(<<-SQL, id, as: {Int32, String, String?, Int64?, Float64?, String?, String?, Int32, String?, String?, Int32})
+        SELECT r.step, r.form, s.settings, r.seed, r.cost, r.cost_basis, r.generated_at, r.sent_as_joined, t.text, r.refs,
+               r.field_order
         FROM recipes r
         LEFT JOIN recipe_settings s ON s.id = r.settings_id
         LEFT JOIN texts t ON t.id = r.prompt_sent_id
@@ -101,15 +104,15 @@ module DataDungeon
         end
       end
 
-      steps = rows.map do |(step, form, settings, seed, cost, basis, made, as_joined, sent, refs)|
-        order = Recipe::FIELDS[form]? || [] of String
+      steps = rows.map do |(step, form, settings, seed, cost, basis, made, as_joined, sent, refs, field_order)|
+        order = Recipe::ORDERS[field_order]?.try(&.[form]?) || [] of String
         own = fields[step]?.try(&.to_a.sort_by { |(field, _)| order.index(field) || order.size }.to_h) ||
               {} of String => Recipe::Text
         recipe = Recipe.new(form,
           settings: settings.try { |json| JSON.parse(json).as_h } || {} of String => JSON::Any,
           fields: own, seed: seed, cost: cost, cost_basis: basis,
           generated_at: made.try { |time| Time.parse_utc(time, TIME_FORMAT) },
-          references: refs.try { |json| Array(String).from_json(json) } || [] of String)
+          references: refs.try { |json| Array(String).from_json(json) } || [] of String, order: field_order)
         sent ||= recipe.joined if as_joined == 1
         sent ? recipe.with_prompt_sent(sent) : recipe
       end
@@ -124,6 +127,7 @@ module DataDungeon
     def set_recipe(id : Int64, recipe : Recipe, replace : Bool = false, drop_generation : Bool = false) : Nil
       writable!
       recipe.check
+      check_styles(recipe)
       write_transaction do |conn|
         unless conn.query_one?("SELECT 1 FROM assets WHERE id = ?", id, as: Int32)
           raise ArgumentError.new("No asset #{id}")
@@ -139,10 +143,13 @@ module DataDungeon
     end
 
     # The assets whose recipes use a named text in a prompt field, retired
-    # ones included, oldest first: `with_text("style", "overlore:silver-comic")`
+    # ones included, oldest first: `with_text("flavor", "overlore:silver-comic")`
     # for any of its wordings, whatever their purpose,
     # `"overlore:silver-comic/figure"` for one purpose's, and
-    # `"overlore:silver-comic/figure@2"` for one wording.
+    # `"overlore:silver-comic/figure@2"` for one wording;
+    # `with_text("style", "datadungeon:silver-comic")` for every picture
+    # given DataDungeon's words for the style. (Before 0.14 an app's
+    # wording was the style field's.)
     def with_text(field : String, name : String) : Array(Int64)
       sql, args = using_text(field, name)
       @db.query_all("SELECT DISTINCT asset_id FROM (#{sql}) ORDER BY asset_id", args: args, as: Int64)
@@ -187,13 +194,13 @@ module DataDungeon
         as_joined = !sent.nil? && step.form == "picture" && sent == step.joined
         conn.exec(<<-SQL,
           INSERT INTO recipes (asset_id, step, form, settings_id, seed, cost, cost_basis, generated_at,
-                               sent_as_joined, prompt_sent_id, refs)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                               sent_as_joined, prompt_sent_id, refs, field_order)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         SQL
           asset_id, i, step.form, put_settings(conn, step.settings), step.seed, step.cost, step.cost_basis,
           step.generated_at.try(&.to_utc.to_s(TIME_FORMAT)), as_joined ? 1 : 0,
           sent && !as_joined ? put_text(conn, sent) : nil,
-          step.references.empty? ? nil : step.references.to_json)
+          step.references.empty? ? nil : step.references.to_json, step.order)
         step.fields.each do |field, words|
           text_id = put_text(conn, words.text)
           named_id = words.handle.try { |(owner, name, purpose, version)| put_named(conn, field, owner, name, purpose, version, text_id) }
@@ -220,15 +227,16 @@ module DataDungeon
 
     # The named_texts row for this wording of an owner's name and purpose.
     # A wording seen before keeps its version; a new one is the next for
-    # the name and purpose, and only the owner adds one.
+    # the name and purpose, and only the owner adds one (DataDungeon adds
+    # its own, the art styles' words, with `owned: true`).
     private def put_named(conn : ::DB::Connection, field : String, owner : String, name : String,
-                          purpose : String, given : Int32?, text_id : Int64) : Int64
+                          purpose : String, given : Int32?, text_id : Int64, owned : Bool = false) : Int64
       row = conn.query_one?(<<-SQL, field, owner, name, purpose, text_id, as: {Int64, Int32})
         SELECT id, version FROM named_texts WHERE field = ? AND owner = ? AND name = ? AND purpose = ? AND text_id = ?
       SQL
       written = Recipe::Text.handle(owner, name, purpose)
       id, version = row || begin
-        unless @consumer == owner
+        unless owned || @consumer == owner
           raise ArgumentError.new("#{written} is #{owner}'s: only it adds a wording to it " \
                                   "(this DB's consumer is #{@consumer.inspect})")
         end
@@ -329,6 +337,30 @@ module DataDungeon
       conn.exec("DROP TABLE named_texts")
       conn.exec("ALTER TABLE named_texts_migrated RENAME TO named_texts")
       true
+    end
+
+    # 0.14 changed a picture's field order and renamed its preamble framing.
+    # Every recipe stored before keeps 0.13's order (field order 1), so what
+    # it says was sent reads back the same, and its preamble fields and
+    # named preambles are renamed framing: counted before and after, and
+    # raising if any differ, which leaves the store as it was. Nothing is
+    # deleted. One way.
+    private def migrate_field_order(conn : ::DB::Connection) : Nil
+      return if table_columns(conn, "recipes").has_key?("field_order")
+      count = ->(field : String) do
+        conn.scalar("SELECT (SELECT COUNT(*) FROM recipe_fields WHERE field = ?) " \
+                    "+ (SELECT COUNT(*) FROM named_texts WHERE field = ?)", field, field).as(Int64)
+      end
+      preambles = count.call("preamble")
+      framings = count.call("framing")
+      raise "a store from before 0.14 has #{framings} framing fields already; the store is unchanged" unless framings == 0
+      conn.exec("ALTER TABLE recipes ADD COLUMN field_order INTEGER NOT NULL DEFAULT 1")
+      conn.exec("UPDATE recipe_fields SET field = 'framing' WHERE field = 'preamble'")
+      conn.exec("UPDATE named_texts SET field = 'framing' WHERE field = 'preamble'")
+      left, renamed = count.call("preamble"), count.call("framing")
+      unless left == 0 && renamed == preambles
+        raise "renaming #{preambles} preambles framing left #{left} preambles and #{renamed} framings; the store is unchanged"
+      end
     end
   end
 end

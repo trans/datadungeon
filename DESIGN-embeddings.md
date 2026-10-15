@@ -146,4 +146,4 @@ existing `asset` and `<type>.<facet>` sources are dropped and queued again.
   at 1M assets × several recipes before settling on one index.
 - **Registering over HTTP:** indexes are registered only from code; curio
   may want to register entries.
-- **Which release:** with 0.12 or after it.
+- **Which release:** 0.16, after the standard types (Thomas, 2026-10-15).

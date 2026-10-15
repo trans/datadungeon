@@ -48,6 +48,9 @@ module DataDungeon
   #     POST   /maintenance/check          check_consistency's report
   #     GET    /objects                    every object key the store's rows use (object_keys),
   #                                          for clearing a shared bucket
+  #     GET    /vocabulary                 the shared tags and their values, with their titles
+  #                                          (DB#vocabulary), an art style's with DataDungeon's words
+  #                                          for it
   #     GET    /types/:type/matches        best matches, given a matcher (MatchIndex):
   #                                          ?trait.<k>=<v> &field.<f>=<v> (view=back-left,
   #                                          dominant-color=#aa3311) &require=a,b &weight.<k>=<n> &limit=
@@ -124,6 +127,8 @@ module DataDungeon
         list(context)
       elsif method == "GET" && parts == ["objects"]
         respond(context, {objects: @db.object_keys})
+      elsif method == "GET" && parts == ["vocabulary"]
+        respond(context, {tags: @db.vocabulary})
       elsif parts.size == 2 && parts[0] == "assets" && id
         case method
         when "GET"    then show(context, id)

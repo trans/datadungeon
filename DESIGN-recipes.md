@@ -14,8 +14,8 @@ dated run of records is the only evidence that a model moved.
 Complete records kept whole would be large (1-3 KiB each, 1-3 GiB at a million
 pictures), and nearly all of each one repeats in others. Programs find
 settings that work and reuse them; a character speaks in one style; a picture
-prompt is a preamble, a subject, a description, a theme, a style and rules, of
-which mostly the description is new. On Overlore's store (2026-10-12), 916
+prompt is rules, a framing, a style, a theme, a subject, a description and
+directives, of which mostly the description is new. On Overlore's store (2026-10-12), 916
 records came to 29 parameter sets and 32 long texts once per-clip
 measurements were taken out.
 
@@ -35,17 +35,40 @@ that several apps share.
 
 - **A picture:** camera and its version, model, size, format, the camera's
   own settings (`klein`'s steps and CFG, `dhero`'s input fidelity), seed;
-  the prompt in fields: **preamble · subject · description · staging ·
-  theme · style · rules** (`staging`: the camera's words for `view` and
-  `light`, `@mj`); and `prompt_sent`, what the provider received. The rules
-  come last, where a model takes them as the final word: "nothing else in
-  frame" means little if words follow it (`@mj`, 2026-10-13, from its
-  practice; whether models mind the order is unmeasured). Staging was last
-  only because `@mj`'s `shoot` took one string and added its words at the
-  end; once it takes the fields, it puts staging in its place, and its
-  `prompt_sent` equals the fields joined, so it isn't stored again. A
-  placement instruction ("make the change where the red ring is drawn",
-  `@owl`) is a rule (proposed): staging is only the camera's words.
+  the prompt in fields: **rules · framing · style · flavor · theme ·
+  subject · description · staging · light · directives** (0.14, `@mj` with
+  Thomas, 2026-10-14, from how Overlore makes pictures during play; mj's
+  `notes/picture-prompt-design-v1.md`); and `prompt_sent`, what the
+  provider received. Four groups, each from one source:
+  - **the spec**, set by code from the kind of picture: the **rules**, the
+    fixed ones every picture obeys (the rating's limits, no signature),
+    first; and the **framing**, how much is in frame and its shape ("a wide
+    landscape", "full body, head to toe"). A fixed rule mustn't contradict
+    a description (Thomas): some pictures need words in them, so "no text
+    unless the description asks for it".
+  - **the look**, from the game's state: the **style**, DataDungeon's words
+    for the art style, from the vocabulary; the **flavor**, the app's own
+    words for it; and the **theme**, mood included.
+  - **the object**, from the DM: **subject**, **description** and
+    **staging** (where each figure is, which way it faces, and the view, in
+    words; a view vector is only measured afterwards).
+  - **the relation**, from pictures that exist: the **light**, the standing
+    light inherited from the place, and the **directives** (Thomas's name),
+    this picture's own: its kind's rules ("each named thing drawn once" for
+    a room) and what an edit or a shot from a reference changes and keeps.
+    They come last, where the end holds what the picture is for; Overlore
+    found "each thing once" held better last than in the middle. A
+    placement instruction ("make the change where the red ring is drawn",
+    `@owl`) is a directive.
+
+  The kind of picture (a portrait, a room, a panel) is no setting of its
+  own: the asset's type and the app's tag say it, and the recipe keeps the
+  words it produced. 0.13's order, preamble · subject · description ·
+  staging · theme · style · rules, was `@mj`'s habit of ending with "nothing
+  else in frame", not measured; its slot-order test came back null on
+  `klein`. Conflicts are settled in code before the prompt, not by order:
+  on `klein` and `flare` a positive mention beats a "don't" either way
+  round (mj's cow tests, 2026-10-14).
 - **Speech:** model, voice, speed, format and the processing settings
   (`playback-rate`, `leveled-to`, …); the **style** (the speaking
   instructions); the **text** spoken.
@@ -116,8 +139,8 @@ text), stored once; the rows aren't typed. Around it:
 - **Settings:** a parameter set (camera, version, model, size, the camera's
   settings), stored once by hash; a few hundred at most, since programs reuse
   what works.
-- **Named texts:** the short prompt fields that repeat (preamble, theme, style,
-  rules; speech's style), each named by its owner: a row with **field,
+- **Named texts:** the short prompt fields that repeat (rules, framing,
+  flavor, theme; speech's style), each named by its owner: a row with **field,
   owner, name, purpose, version** pointing at its text (Thomas,
   2026-10-12: fields, not one string; the purpose 2026-10-14). The owner is the app that made it,
   its consumer name (`DB.new(…, consumer: "overlore")`); only it adds
@@ -131,8 +154,8 @@ text), stored once; the rows aren't typed. Around it:
   aliases, until a need shows). Searchable like tags: every picture of one
   style, any version, or one version. Versions are for a wording that
   changes over time. **No custom top-level styles** (Thomas, 2026-10-14,
-  through `@overlore`): a variant of a style is the same style, so a style
-  wording is named for its standard style (DESIGN-types.md), and two
+  through `@overlore`): a variant of a style is the same style, so an app's
+  style wording is named for its standard style (DESIGN-types.md), and two
   wordings in use at once differ by **purpose**, what each is for:
   `overlore:silver-comic/figure` and `overlore:silver-comic/place`. Each
   purpose numbers its own versions, so nothing flips back and forth, and
@@ -140,16 +163,31 @@ text), stored once; the rows aren't typed. Around it:
   (`owl:narrator` has none). The row is also the label a person sees
   ("Silver Age comic, Overlore's figure wording, v2", the style's label
   from the vocabulary): no second table, and no supersedes link, since
-  versions already say which wording came after which. Once the vocabulary
-  is in, DD can check that a picture style's name is a standard style.
-- **Staging:** no caller names it, but `@mj`'s renderer has a small closed
-  set of phrasings (a few bearings by a few heights), so a million
-  pictures have a few dozen, each stored once. It's kept, not rebuilt from
-  `view` and `light`: the wording changes with a camera's version, and
-  rebuilding old records in today's phrasing would make `prompt_sent`'s
-  check pass or fail for reasons that aren't the record's. Nobody should
-  search its words: the vectors are the truth (within 20° of a view is one
-  dot product), and words get a picture's left and right backwards.
+  versions already say which wording came after which.
+- **The style and its flavor** (0.14; Thomas, 2026-10-14): the standard
+  is always in the prompt, not left to each app's wording to repeat.
+  Each art style in the vocabulary has DataDungeon's words for it, a named
+  text of DataDungeon's own (`datadungeon:silver-comic@1`, "Silver Age
+  comic."), and a picture's `style` field holds them
+  (`db.style_text("silver-comic")`); the app's wording goes in `flavor`,
+  which only narrows the style or serves its purpose, never asks for
+  another. The words stay short, adding a style's key differentiators only
+  where a model may not know it. An improved wording is the style's next
+  version, so earlier pictures keep the words they were given, and an
+  app's flavor versions don't change with it. DataDungeon checks a
+  picture made in 0.14's order before anything is written: its style is
+  one of its words for a standard art style, a flavor needs a style, and
+  a named flavor is named for the same style. (Thomas turned down
+  checking that each app's wording starts with the standard, word for
+  word: brittle, and it repeats the base.)
+- **Staging:** the DM's words since 0.14. Before, it was `@mj`'s camera's
+  words for `view` and `light`, kept as they were: rebuilding old records
+  in today's phrasing would make `prompt_sent`'s check pass or fail for
+  reasons that aren't the record's. Nobody should search its words: the
+  vectors are the truth (within 20° of a view is one dot product), and
+  words get a picture's left and right backwards. DataDungeon owns turning
+  its vectors into words (`ViewWords`, from mj's camera; Thomas,
+  2026-10-14), for an app that has a measured light or view to say.
 - **Descriptions:** the long texts that are mostly new (a room's LOOK text,
   a character's description, a spoken line), unnamed texts in the same
   table. "Subject" and "description" are prompt fields, as "style" is: where an
@@ -173,9 +211,9 @@ own shows up (`@mj` returns it in every result so this can be checked rather
 than trusted).
 
 **The description is the fallback field** (Thomas, through `@overlore`,
-2026-10-14). An app fills what fields it can, from the front (preamble,
-subject) and from the back (style, rules), and leaves the rest in the
-description, in its order. An empty field (say, theme) means the
+2026-10-14). An app fills what fields it can, from the front (rules to
+subject) and from the back (staging, light, directives), and leaves the
+rest in the description, in its order. An empty field (say, theme) means the
 description covered it, as far as it mattered. Since the description sits
 in the middle, the fields joined are exactly the prompt that was sent, so
 no prompt is kept whole: one that fills no field is all description. Old
@@ -199,15 +237,16 @@ below).
   passes the fields and sends the joined string. Its `description` on an
   asset becomes only the part that changes.
 
-## 0.13: the calls
+## The calls
 
 ```crystal
 recipe = DataDungeon::Recipe.new("picture",
   settings: {"camera" => "mj:camera:flare", "camera-version" => 1, "model" => "flux-dev",
              "size" => "1024x1024", "steps" => 4},             # stored once by hash
-  fields: {"preamble" => DataDungeon::Recipe.named("overlore:house", "Draw …"),
-           "subject"  => DataDungeon::Recipe.text("A tall elf with red braids."),
-           "style"    => DataDungeon::Recipe.named("overlore:silver-comic/figure", "Silver Age comic …")},
+  fields: {"rules"   => DataDungeon::Recipe.named("overlore:house", "No text unless …"),
+           "style"   => db.style_text("silver-comic"),   # DataDungeon's words for the style
+           "flavor"  => DataDungeon::Recipe.named("overlore:silver-comic/figure", "Bold inks …"),
+           "subject" => DataDungeon::Recipe.text("A tall elf with red braids.")},
   prompt_sent: sent,                  # kept only if it differs from the fields joined
   seed: 1234, cost: 0.04, cost_basis: "reported: runware", generated_at: time,
   references: [portrait.file_hash.not_nil!])
@@ -217,16 +256,20 @@ db.recipe(id)                         # => Recipe?, named texts as handles: "ove
 db.set_recipe(id, recipe)             # give an asset its recipe later (moving old records);
                                       # replace: true to replace one, drop_generation: true
                                       # to let the old record go
-db.with_text("style", "overlore:silver-comic")         # asset ids, any purpose or version;
+db.with_text("flavor", "overlore:silver-comic")        # asset ids, any purpose or version;
                                                        # "…/figure" for one purpose, "…/figure@2" one version
-db.list_assets(texts: {"style" => "overlore:silver-comic"})  # the same, with the other filters
+db.with_text("style", "datadungeon:silver-comic")      # every picture given the style's words
+db.list_assets(texts: {"flavor" => "overlore:silver-comic"})  # the same, with the other filters
+db.vocabulary                         # the shared tags and values (GET /vocabulary)
 db.list_assets(file_hash: hash)       # the assets holding a recipe's reference
 db.update_asset(id, description: "…", everywhere: true)  # for every asset sharing it
 ```
 
 - **Forms and their fields,** in joining order. A field another form
-  doesn't have is refused.
-  - `picture`: preamble, subject, description, staging, theme, style, rules.
+  doesn't have is refused, by `joined` too, so a prompt never silently
+  loses words before it's sent.
+  - `picture`: rules, framing, style, flavor, theme, subject, description,
+    staging, light, directives.
   - `speech`: style (the speaking instructions), text (what's spoken).
   - `text` (from a chat model): instructions, description (the part that
     changes).
@@ -245,6 +288,15 @@ db.update_asset(id, description: "…", everywhere: true)  # for every asset sha
   rows are copied with their ids, so recipes still point at them, and the
   copy is checked (row counts, foreign keys) before the old table goes.
   Only Owl's store held a named text then (`owl:narrator`, 11 records).
+- **The field order (0.14):** each recipe says which order its fields
+  were joined in (`Recipe#order`, `Recipe::ORDERS`), so what it says was
+  sent is rebuilt in that order. The first open by 0.14 gives every recipe
+  stored before 0.13's order (1) and renames its preamble fields and named
+  preambles `framing`, counted before and after; it adds nothing else to
+  a recipe and deletes nothing. `order: 1` converts a prompt made in
+  0.13's order. On copies of the five live stores (2026-10-14), every
+  recipe read back the same: Overlore's 916 and Owl's 97, 45 of them
+  rebuilt from their fields.
 - **`prompt_sent`:** for a picture, compared with its fields joined by one
   space, empty ones skipped, and kept only if it differs. For speech and
   text it's kept as given, if given. An old record whose parts are lost
@@ -316,5 +368,7 @@ each chunk) the database's pages are compressed when stored anyway.
   in the player's browser (a crop, the view bent by its depth map), never
   stored, so it has no hash. A reference to an earlier step would record
   it. Nothing breaks without it.
-- **Release:** 0.13, on its own; the embeddings registry
-  (`DESIGN-embeddings.md`) in 0.15.
+- **Release:** 0.13, on its own; the field order, the style and its
+  flavor, light and directives in 0.14 with the vocabulary (Thomas chose
+  the scope, 2026-10-15); the embeddings registry (`DESIGN-embeddings.md`)
+  in 0.16, after the standard types in 0.15.

@@ -664,6 +664,8 @@ module DataDungeon
             RECIPE_SCHEMAS.split(";").each { |sql| conn.exec(sql.strip) unless sql.strip.empty? }
             migrate_recipes(conn)
             rebuilt = migrate_named_texts(conn) || rebuilt
+            migrate_field_order(conn)
+            seed_vocabulary(conn)
             conn.exec("DROP INDEX IF EXISTS idx_assets_single_key") # keys stopped being unique in 0.11
             ASSETS_INDEXES.split(";").each { |sql| conn.exec(sql.strip) unless sql.strip.empty? }
             conn.exec("DROP INDEX IF EXISTS idx_assets_lookup") # keys now name their type
@@ -743,10 +745,11 @@ module DataDungeon
                   table_columns(conn, "image_meta").has_key?("measured") &&
                   !unique_file_path?(conn) && tags.has_key?("custom") && tags.has_key?("asset_type") &&
                   table_columns(conn, "named_texts").has_key?("purpose") &&
+                  table_columns(conn, "recipes").has_key?("field_order") &&
                   types.has_key?("sets") && types.has_key?("facets") && types.has_key?("weights") &&
                   %w[image_meta image_animation image_keyframes audio_meta video_meta text_meta asset_links asset_search asset_search_terms asset_changes
                     asset_indexes asset_keys asset_tag_counts texts recipe_settings named_texts recipes recipe_fields
-                    recipe_legacy].none? { |table| table_columns(conn, table).empty? }
+                    recipe_legacy vocabulary_tags vocabulary_values].none? { |table| table_columns(conn, table).empty? }
         raise ReadOnlyError.new("The database needs upgrading: open it read-write once first") unless current
       end
     end
@@ -984,7 +987,10 @@ module DataDungeon
     ) : Int64
       writable!
       validate_store(asset_type, media, tags, custom, image, audio, video, text)
-      recipe.try(&.check)
+      if recipe
+        recipe.check
+        check_styles(recipe)
+      end
       tags = normalize_traits(registered(asset_type), tags)
 
       now = Time.utc.to_s(TIME_FORMAT)
@@ -1140,7 +1146,10 @@ module DataDungeon
       m = media || DB.media_of(ct)
       # Reject bad arguments before writing, so a refused store leaves no object.
       validate_store(asset_type, m, tags, custom, image, audio, video, text)
-      recipe.try(&.check)
+      if recipe
+        recipe.check
+        check_styles(recipe)
+      end
 
       data = bytes || File.open(source_path.not_nil!, "rb", &.getb_to_end)
 

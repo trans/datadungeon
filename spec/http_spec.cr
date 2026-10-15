@@ -187,7 +187,7 @@ describe DataDungeon::API do
   it "shows an asset's recipe, and marks an asset permanent" do
     with_api("dd-api-recipe") do |api, db|
       recipe = DataDungeon::Recipe.new("picture", settings: {"model" => "flux-dev"},
-        fields: {"subject" => DataDungeon::Recipe.text("A pier at dusk.")}, seed: 3)
+        fields: {"subject" => DataDungeon::Recipe.text("A pier at dusk."), "style" => db.style_text("pixel-16")}, seed: 3)
       made = db.store("backdrop", {"art-style" => "pixel", "rating" => "g"}, bytes: "m".to_slice,
         content_type: "image/webp", recipe: recipe)
       plain = store_backdrop(db, "golden", "p")
@@ -198,6 +198,9 @@ describe DataDungeon::API do
       shown["fields"]["subject"]["text"].should eq "A pier at dusk."
       shown["settings"].should eq({"model" => "flux-dev"})
       shown["seed"].should eq 3
+      shown["order"].should eq 2
+      shown["fields"]["style"].should eq({"text" => "Chunky early to mid 16-bit pixel art.", "name" => "datadungeon:pixel-16@1"})
+      json(call(api, "GET", "/dd/assets?text.style=datadungeon:pixel-16", "r"))["assets"].as_a.map(&.["asset"]["id"]).should eq [made.id]
       call(api, "GET", "/dd/assets/#{plain.id}/recipe", "r").status_code.should eq 404
       call(api, "GET", "/dd/assets/999/recipe", "r").status_code.should eq 404
 
@@ -224,6 +227,20 @@ describe DataDungeon::API do
       call(api, "PATCH", "/dd/assets/#{a.id}", "w", {description: "A long pier.", everywhere: true})
       db.find_asset_by_id(b.id).not_nil!.description.should eq "A long pier."
       json(call(api, "GET", "/dd/objects", "r"))["objects"].as_a.map(&.as_s).should eq [a.file_path, b.file_path].sort
+    end
+  end
+
+  it "shows the shared vocabulary" do
+    with_api("dd-api-vocabulary") do |api|
+      tags = json(call(api, "GET", "/dd/vocabulary", "r"))["tags"].as_a
+      tags.map(&.["name"]).should eq ["art-style", "rating"]
+      silver = tags[0]["values"].as_a.find!(&.["value"].==("silver-comic"))
+      silver["title"].should eq "Silver Age Comic"
+      silver["description"].should eq "Silver Age comics"
+      silver["style"].should eq({"text" => "Silver Age comic.", "name" => "datadungeon:silver-comic@1"})
+      tags[0]["values"].as_a.find!(&.["value"].==("pixel-8"))["family"].should eq "pixel"
+      tags[1]["values"].as_a.map(&.["value"]).should eq ["g", "pg", "r", "x"]
+      call(api, "GET", "/dd/vocabulary").status_code.should eq 401
     end
   end
 

@@ -8,13 +8,33 @@ module DataDungeon
   struct Recipe
     include JSON::Serializable
 
-    # Each form's prompt fields, in the order they're joined. A picture's
-    # rules come last, where a model takes them as the final word (`@mj`).
-    FIELDS = {
-      "picture" => %w[preamble subject description staging theme style rules],
-      "speech"  => %w[style text],
-      "text"    => %w[instructions description],
+    # Each form's prompt fields in the order they're joined, by field order.
+    # A recipe keeps the order it was made in, so what it says was sent
+    # reads back the same. Order 1 is 0.13's, which every recipe stored
+    # before 0.14 keeps (its preamble renamed framing). Order 2, since 0.14
+    # (`@mj` with Thomas, DESIGN-recipes.md): the fixed rules first, then
+    # how much is in frame, the look (DataDungeon's words for the art style,
+    # the app's flavor of it, the theme), the object (subject, description,
+    # staging), and what relates it to pictures that exist: their light, and
+    # the directives for this picture last, where the end holds what it's for.
+    ORDERS = {
+      1 => {
+        "picture" => %w[framing subject description staging theme style rules],
+        "speech"  => %w[style text],
+        "text"    => %w[instructions description],
+      },
+      2 => {
+        "picture" => %w[rules framing style flavor theme subject description staging light directives],
+        "speech"  => %w[style text],
+        "text"    => %w[instructions description],
+      },
     }
+
+    # The order a new recipe is made in.
+    ORDER = 2
+
+    # Each form's prompt fields, in the order new recipes are joined.
+    FIELDS = ORDERS[ORDER]
 
     # The words of one prompt field: a text of its own, or a named one. A
     # name is `owner:name` going in and `owner:name@version` coming back;
@@ -76,12 +96,15 @@ module DataDungeon
     # The files it was made from, by hash.
     getter references : Array(String)
     getter steps : Array(Recipe)
+    # The field order its prompt was joined in (ORDERS): 2 for a new
+    # recipe; 1 converts a prompt made in 0.13's order.
+    getter order : Int32 = ORDER
 
     def initialize(@form : String, settings : Hash = {} of String => JSON::Any,
                    @fields : Hash(String, Text) = {} of String => Text, @prompt_sent : String? = nil,
                    seed : Int? = nil, cost : Number? = nil, @cost_basis : String? = nil,
                    @generated_at : Time? = nil, @references : Array(String) = [] of String,
-                   @steps : Array(Recipe) = [] of Recipe)
+                   @steps : Array(Recipe) = [] of Recipe, @order : Int32 = ORDER)
       @settings = JSON.parse(settings.to_json).as_h
       @seed = seed.try(&.to_i64)
       @cost = cost.try(&.to_f64)
@@ -89,7 +112,7 @@ module DataDungeon
 
     # This recipe with what the provider was sent.
     def with_prompt_sent(sent : String?) : Recipe
-      Recipe.new(@form, @settings, @fields, sent, @seed, @cost, @cost_basis, @generated_at, @references, @steps)
+      Recipe.new(@form, @settings, @fields, sent, @seed, @cost, @cost_basis, @generated_at, @references, @steps, @order)
     end
 
     # A recipe made of steps, each a recipe of its own, in order.
@@ -110,9 +133,29 @@ module DataDungeon
 
     # The prompt fields that have words, joined by one space in the form's
     # order: what a picture's provider is sent, unless `prompt_sent` says
-    # otherwise.
+    # otherwise. A field the order doesn't have raises, so a prompt never
+    # leaves out words it was given, before anything is paid for.
     def joined : String
-      (FIELDS[@form]? || [] of String).compact_map { |field| @fields[field]?.try(&.text).presence }.join(" ")
+      field_names.compact_map { |field| @fields[field]?.try(&.text).presence }.join(" ")
+    end
+
+    # The form's fields in this recipe's order; raises for a field it
+    # doesn't have.
+    private def field_names : Array(String)
+      unless forms = ORDERS[@order]?
+        raise ArgumentError.new("a recipe's field order is #{ORDERS.keys.join(" or ")}, not #{@order}")
+      end
+      return [] of String if @fields.empty? && (@form.empty? || !@steps.empty?)
+      allowed = forms[@form]?
+      if allowed.nil?
+        raise ArgumentError.new("a step without a form has no prompt fields") if @form.empty?
+        raise ArgumentError.new("a recipe's form is #{forms.keys.join(", ")}, or empty for a step without a prompt")
+      end
+      unless (unknown = @fields.keys - allowed).empty?
+        renamed = unknown.includes?("preamble") ? " (0.14 renamed preamble framing)" : ""
+        raise ArgumentError.new("a #{@form} recipe's fields are #{allowed.join(", ")}, not #{unknown.join(", ")}#{renamed}")
+      end
+      allowed
     end
 
     # Raises ArgumentError for a recipe that isn't in the standard shape.
@@ -126,15 +169,7 @@ module DataDungeon
         @steps.each(&.check)
         return
       end
-      if @form.empty?
-        raise ArgumentError.new("a step without a form has no prompt fields") unless @fields.empty?
-      elsif allowed = FIELDS[@form]?
-        unless (unknown = @fields.keys - allowed).empty?
-          raise ArgumentError.new("a #{@form} recipe's fields are #{allowed.join(", ")}, not #{unknown.join(", ")}")
-        end
-      else
-        raise ArgumentError.new("a recipe's form is #{FIELDS.keys.join(", ")}, or empty for a step without a prompt")
-      end
+      field_names
       @fields.each do |field, text|
         raise ArgumentError.new("the #{field} field has no words") if text.text.empty?
         text.handle

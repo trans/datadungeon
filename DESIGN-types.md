@@ -211,13 +211,21 @@ Three things follow.
    named in an app's index or in the query, each by its kind from the
    vocabulary (a set, a scale, a colour, a cycle).
 
-**Where it's kept** (Thomas, 2026-10-13, to discuss further): a table in
-the store, each tag with its label, kind and a one-line description of what
-it means, and its values each with one too, seeded with the agreed tags.
-**Open:** how a tag is added.
+**Where it's kept** (Thomas, 2026-10-13; built in 0.14): a table in the
+store, each tag with its label, kind and a one-line description of what it
+means, and its values each with one too, seeded with the agreed tags
+(`vocabulary_tags`, `vocabulary_values`; `DB#vocabulary`, `GET
+/vocabulary`). Tags and values have titles for people, so apps show the
+same names ("Art Style", "Fantasy Cover", "16-Bit Pixel"; Thomas,
+2026-10-15). A value can name its family (`pixel` for `pixel-16`), and an
+art style has DataDungeon's words for it, the text a picture's style field
+holds (DESIGN-recipes.md, "The style and its flavor"). For now a tag or a
+value is added in a DataDungeon release, by agreement: every store opened
+read-write takes the vocabulary its release has, and keeps a value a later
+release drops.
 
-- **Over HTTP** (`@curio`): `GET /vocabulary`, each tag's name, label,
-  description, kind and the values in use, for tooltips and the filter
+- **Over HTTP** (`@curio`): `GET /vocabulary`, each tag's name, title,
+  label, description, kind and the values in use, for tooltips and the filter
   column; and for each type its usual tags, most telling first, so curio
   can caption a picture `night · red-hair · photorealism`. That order is
   for display; it isn't a key.
@@ -247,7 +255,7 @@ it means, and its values each with one too, seeded with the agreed tags.
   meaning the same in every app, since Owl's library skips `r` and `x`
   from other stores.
 
-### First vocabulary: `art-style` (in progress, Thomas, 2026-10-13)
+### First vocabulary: `art-style` (Thomas, 2026-10-13; in the store since 0.14)
 
 One tag, `art-style`, for how a picture is drawn or rendered (Overlore's
 `art_style`; the park store's and Owl's `style`). It has no label: its
@@ -255,22 +263,22 @@ values say what they are (`golden-comic`, not `golden`), so a key reads
 `watercolor`, not `watercolor-style`. A label is for a tag whose values
 alone could be another's, as `red` could be hair, skin or a coat.
 
-| Value | What it looks like | Today |
-|---|---|---|
-| `golden-comic` | Golden Age comics | Overlore's `golden` |
-| `silver-comic` | Silver Age comics | Overlore's `silver` |
-| `modern-comic` | modern comics | Overlore's `modern` |
-| `dark-manga` | dark manga | Overlore's `manga` |
-| `fantasy` | fantasy art as on book covers, slightly painterly | Overlore's `fantasy` |
-| `photorealism` | looks real, however it was made, near-real 3D included | Overlore's `realism`, the park's `real` |
-| `pixel` | pixel art; a filter on `pixel` finds every tier below | Overlore's `pixel` |
-| `pixel-32` | detailed late 16-bit pixel art, Silicon Circus's usual | the park's `32-bit` |
-| `pixel-16` | chunky early 16-bit | the park's `16-bit` |
-| `pixel-8` | the coarsest | |
-| `3d-cartoon` | 3D that looks sculpted and lit, rounded and exaggerated: the Toy Story middle ground | Overlore's `3d` |
-| `watercolor` | storybook watercolour: soft washes, fine ink outlines | Owl's worlds (`@owl`; Thomas, 2026-10-14) |
-| `painted-animation` | hand-painted animation backgrounds: lush colour, soft cel shading | Owl's worlds (`@owl`; Thomas, 2026-10-14) |
-| `ascii` | text-mode art, ASCII made dynamic and modern; a picture of characters, or the characters themselves (ANSI art, asciinema's asciicast when it moves) | none yet |
+| Value | Title | What it looks like | Today |
+|---|---|---|---|
+| `golden-comic` | Golden Age Comic | Golden Age comics | Overlore's `golden` |
+| `silver-comic` | Silver Age Comic | Silver Age comics | Overlore's `silver` |
+| `modern-comic` | Modern Comic | modern comics: detailed inks, digital coloring | Overlore's `modern` |
+| `dark-manga` | Dark Manga | dark manga | Overlore's `manga` |
+| `fantasy` | Fantasy Cover | classic fantasy cover art, slightly painterly | Overlore's `fantasy` |
+| `photorealism` | Photorealism | looks real, however it was made, near-real 3D included | Overlore's `realism`, the park's `real` |
+| `pixel` | Pixel | pixel art; a filter on `pixel` finds every tier below | |
+| `pixel-32` | 32-Bit Pixel | detailed late 16-bit / early 32-bit pixel art, Silicon Circus's usual | the park's `32-bit` |
+| `pixel-16` | 16-Bit Pixel | chunky early to mid 16-bit | the park's `16-bit`; Overlore's `pixel` (Thomas, 2026-10-14) |
+| `pixel-8` | 8-Bit Pixel | the coarsest | |
+| `3d-cartoon` | 3D Cartoon | 3D that looks sculpted and lit, rounded and exaggerated: the Toy Story middle ground | Overlore's `3d` |
+| `watercolor` | Storybook Watercolor | storybook watercolour: soft washes, fine ink outlines | Owl's worlds (`@owl`; Thomas, 2026-10-14) |
+| `painted-animation` | Painted Animation | hand-painted animation backgrounds: lush colour, soft cel shading | Owl's worlds (`@owl`; Thomas, 2026-10-14) |
+| `ascii` | ASCII | text-mode art, ASCII made dynamic and modern; a picture of characters, or the characters themselves (ANSI art, asciinema's asciicast when it moves) | none yet |
 
 - **Pixel tiers** (`@mj`; Thomas, 2026-10-13): Silicon Circus keeps
   `pixel-32`, `pixel-16` and `pixel-8` at once, since coarseness there is a
@@ -398,7 +406,7 @@ bucket. Owl's library code is a small version and would be its first
 user. **`@curio` builds it** (Thomas, 2026-10-14): curio already reads
 every store, so the hub is a service on top of it. DataDungeon's part is
 what each store offers: its search and use counts over HTTP, its uses
-(0.14), `GET /objects` and shared storage (0.13). Clearing the bucket must
+(0.15), `GET /objects` and shared storage (0.13). Clearing the bucket must
 follow the order above (every store's list first, then the bucket, keeping
 anything written since the run began), since stores rely on it. A copy
 could later skip sending the bytes again: a call that records a row for a
@@ -439,9 +447,12 @@ vocabulary. Apps keep `register_index` for their own fast lookups (Thomas,
 ## Open, collected
 
 - The first shared vocabulary beyond `art-style` and `rating`: the names
-  `lighting` and `condition`, the descriptions, and how a tag is added.
+  `lighting` and `condition`, and the descriptions. A tag is added in a
+  release for now (0.14).
 - The hub (`@curio`'s): what more it needs from each store.
 - `q` over descriptions and a recipe's subject (`@owl` finds other stores'
   pictures by words, and Overlore's drops have none in their tags),
-  before 0.15's semantic search.
-- Release: 0.14, after the recipes in 0.13.
+  before 0.16's semantic search.
+- Release (Thomas, 2026-10-15): the vocabulary, `art-style` and `rating`,
+  in 0.14 with the new picture prompts; the types, several values per
+  tag, an app's own tags, keys as the apps' indexes and uses in 0.15.
