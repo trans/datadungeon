@@ -1,6 +1,6 @@
 # Performance
 
-*Updated 2026-10-14*
+*Updated 2026-10-16*
 
 What each structure costs as a store grows, measured on this project's dev
 machine (single-threaded), so a design can be judged at scale (see
@@ -110,3 +110,28 @@ Nobody reads what touches write (checked 2026-10-13): no app reads
 reader of `last_used_at`). Owl passes `touch: false` everywhere, and
 Pirateship everywhere but a play (one `touch_asset` after the clip is read); Overlore and Cattacula use the default. `dd-serve` doesn't
 touch. **Open:** see handoff.md (batched touches).
+
+## Bytes per asset: hashes as blobs (Thomas, 2026-10-16)
+
+Thomas expects Overlore's store to grow far past what anyone assumes, so
+every byte per asset counts. **Open idea, not scheduled:** store each
+SHA-256 as a 32-byte BLOB instead of 64 hex characters, half the size in
+the row and again in its index, and show it as hex at the edges (API,
+HTTP, exports), where hex stays the only encoding (Thomas: hex, not base
+32; a pinned version is the first 10 hex characters of `texts.hash`).
+
+Measured on a copy of Overlore's live store (2026-10-16; 3.5 MB, 1165
+assets): 4936 hex hashes, 9872 counting index copies, so blobs would save
+316 KB, about 9%.
+- DD's own columns: `assets.file_hash` 1165, `texts.hash` 918,
+  `recipe_settings.hash` 19 (134 KB, ~4%).
+- Overlore's `content_hash` tag, kept three times: `asset_tags.tag_value`
+  1009, `asset_search_terms.term` 856, `asset_tag_counts.tag_value` 969
+  (181 KB, ~5%). A hash as a tag value is searched and counted like a word,
+  which is useless for hashes; the tag goes once an index keys on the
+  description's hash (DESIGN-types.md, 0.15).
+
+Other byte savers on the list: zlib on stored prompts (40% on Overlore's
+template prompts: 659 to 399 bytes on average); SQLite extensions
+(sqlite-zstd, sqlite_zstd_vfs, ZIPVFS) if every program opening a store
+can load them.
