@@ -56,6 +56,25 @@ reference table; every form, not only pictures; no plain Mustache renderer;
 2026-10-16** (`mail/sent/*-@overlore--0.14-hold.md`): Overlore and Owl
 asked to hold off on the 2026-10-15 changes.
 
+**Wording versions and style tags (Thomas with `@mj`, 2026-10-16; mj's
+`mail/received/20261016-191705Z-*-af9ffbc5.md`, reply
+`mail/sent/*-@mj--wording-versions.md`):**
+- A version is a hash of the words exactly as sent: the first 10 hex
+  characters of `texts.hash` (SHA-256), not mj's base 32. Numbered
+  versions convert in 0.14. Triggers refuse UPDATE and DELETE on a
+  wording; a rename is a new name.
+- DD's owner is `dd`, not `datadungeon`. The standard styles are `dd`'s,
+  not the proposing app's: `dd:` marks standard and shareable, an app's
+  custom style later is its own (`owl:kiddy-cartoon`).
+- **Style and flavor are one tag:** the app writes
+  `{{style dd:silver-comic overlore:place}}`, stored pinned as
+  `{{style dd:silver-comic@<hash> overlore:place@<hash>}}`; no `flavor`
+  tag, so no flavor without its style and no match check. A flavor's name
+  is its purpose (`overlore:place`), filed per style; `/purpose` goes
+  (`overlore:silver-comic/place` converts to `overlore:place` under
+  silver-comic). DD's words take no purpose. DD's words changing under a
+  flavor is fine (Thomas).
+
 **Before release:**
 - **Open:** Thomas is asking `@owl` about `painted-animation` (where it
   came from: Owl's mail `b0e68bb8`, approved 2026-10-14). A value seeded
