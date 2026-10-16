@@ -1,6 +1,6 @@
 # Consumers
 
-*Updated 2026-10-15*
+*Updated 2026-10-16*
 
 | App | Checkout | Uses DD for | Builds against |
 |---|---|---|---|
@@ -72,6 +72,16 @@ row; Overlore `c8332d9`), and new pixel pictures are filed `pixel-16`
 (`/place`, `/figure`). Its `art_style` tag still says `pixel` until 0.15's
 standard tags. It plans to compose in the new order when 0.14 lands; it
 doesn't yet know about `flavor` (the held 0.14 draft tells it).
+
+**Heads on other bodies (Thomas, 2026-10-16):** `@mj` is testing swapping
+generated heads onto other bodies, to reuse heads and bodies freely. If it
+works, Overlore uses it first for its "coming soon" landing page, then in
+the game: the player picks a DM, and that DM's head travels with the party
+on the quest. DD already has what matching needs (art style, view and light
+vectors, best match), a composite's recipe as steps referencing both by
+hash, and links. **Gap to raise when mj's results are in:** an image has
+one anchor; a body needs at least a ground point and a neck point, a head
+its neck, so named points (`neck`, `ground`) would cover it. Not 0.14.
 
 - Waits for 0.11.1, then passes `supersedes:` in `level_voices`,
   `voices_to_mp3` and `TTSBase#clip`, adds `retired_at IS NULL` to their
