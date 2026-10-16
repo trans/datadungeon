@@ -37,6 +37,25 @@ not pushed, not tagged; `shard.yml` 0.14.0). 171 specs pass (1 pending, S3).
   foreign keys ok. All five apps type-checked against the branch before
   the titles were added.
 
+**Prompt as one template (`@mj` with Thomas, 2026-10-16; proposal in
+`mail/received/20261016-172503Z-@mj--prompt-as-template-867b37d4.md`,
+reply in `mail/sent/*-@mj--prompt-as-template.md`).** Replaces the fields
+before the tag: a recipe stores one prompt, the app's words with Mustache
+tags for registered wordings, pinned by DD at expansion
+(`{{style datadungeon:golden-comic@1}}`); the field order, `prompt_sent`
+and order 1/2 go; stored recipes convert once. **References are full names
+(Thomas, 2026-10-16),** not codes or row ids: ~108 bytes a prompt is ~3.5%
+of a million-asset store; zlib took Overlore's 32 template prompts from 659
+to 399 bytes on average, and compression can come later without a format
+change (SQLite options: sqlite-zstd, sqlite_zstd_vfs, ZIPVFS, compress.c).
+**Open (DD's answers sent, not settled):** bare `{{style}}`/`{{rules}}`
+need 0.15's standard tags on the asset; a bare `{{rules}}` naming rule
+(`overlore:g`?); light as plain words, not a tag; a (recipe, named text)
+reference table; every form, not only pictures; no plain Mustache renderer;
+`character` as a named text field; a literal `{{` refused. **Held for
+Thomas:** `mail/drafts/@overlore--2026-10-16-0.14-hold.md`, asking Overlore
+and Owl to hold off on the 2026-10-15 changes.
+
 **Before release:**
 - **Open:** Thomas is asking `@owl` about `painted-animation` (where it
   came from: Owl's mail `b0e68bb8`, approved 2026-10-14). A value seeded
