@@ -74,6 +74,16 @@ asked to hold off on the 2026-10-15 changes.
   (`overlore:silver-comic/place` converts to `overlore:place` under
   silver-comic). DD's words take no purpose. DD's words changing under a
   flavor is fine (Thomas).
+- **Thomas, 2026-10-16 (through `@mj`, `a190f035`):** a style with no
+  wording of the named flavor falls back to DD's words alone, not refused;
+  names don't nest (`place-cave` doesn't fall back to `place`); one flavor
+  per tag; a change to a standard wording only refines it and isn't
+  announced.
+- **Ratings (Thomas's view, not final; our reply
+  `mail/sent/*-@mj--rating-words.md`):** one DD wording per rating
+  (`dd:g` …) for every form, saying what's suitable rather than listing
+  what's forbidden; speech needs none; a per-form wording only if one
+  fails. The words themselves are still to write and approve.
 
 **Before release:**
 - **Open:** Thomas is asking `@owl` about `painted-animation` (where it
