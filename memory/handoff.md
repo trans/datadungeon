@@ -52,9 +52,9 @@ change (SQLite options: sqlite-zstd, sqlite_zstd_vfs, ZIPVFS, compress.c).
 need 0.15's standard tags on the asset; a bare `{{rules}}` naming rule
 (`overlore:g`?); light as plain words, not a tag; a (recipe, named text)
 reference table; every form, not only pictures; no plain Mustache renderer;
-`character` as a named text field; a literal `{{` refused. **Held for
-Thomas:** `mail/drafts/@overlore--2026-10-16-0.14-hold.md`, asking Overlore
-and Owl to hold off on the 2026-10-15 changes.
+`character` as a named text field; a literal `{{` refused. **Sent
+2026-10-16** (`mail/sent/*-@overlore--0.14-hold.md`): Overlore and Owl
+asked to hold off on the 2026-10-15 changes.
 
 **Before release:**
 - **Open:** Thomas is asking `@owl` about `painted-animation` (where it
