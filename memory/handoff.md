@@ -85,6 +85,13 @@ asked to hold off on the 2026-10-15 changes.
   what's forbidden; speech needs none; a per-form wording only if one
   fails. The words themselves are still to write and approve.
 
+**`@overlore`, 2026-10-16 (`492fa87f`; Thomas wants it clear):** the
+template keeps the fields' ideas. framing, staging, light and directives
+stay parts a prompt considers, and the worked-out order stays the
+recommended one, in DD's docs (how a template is built), not dropped with
+the stored fields. Overlore still renames `preamble` to `framing` and
+follows the order. Reply held: `mail/drafts/@overlore--2026-10-16-template-parts.md`.
+
 **Before release:**
 - **Open:** Thomas is asking `@owl` about `painted-animation` (where it
   came from: Owl's mail `b0e68bb8`, approved 2026-10-14). A value seeded
