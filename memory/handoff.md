@@ -219,6 +219,16 @@ tags aren't in it; they wait for a later decision. It's 0.15.0 and not
   `pixel`→`pixel-16`, `modern`→`modern-comic`; `fantasy`, `retro` stay)
   via `update_asset(id, tags:)` with all tags, and its code to match
   (`mail/sent/*-@overlore--retag.md`).
+- **Both done on Overlore's live store (2026-10-17, rehearsed first,
+  backed up):** the relink (`…-215006Z-…-2d9af02d.md`; each became its
+  whole style part, "The image MUST be made in this style: " plus the
+  wording, as its new prompts read; only those 26 prompts differ) and the
+  retag (`…-215830Z-…-3a3218e7.md`; 136 pictures, done at its startup by
+  `StoreMigration.style_tags`, `5cb6ce5`, so its deployed store gets the
+  same). Checked on a fresh copy with 0.15 (`p015/run2`): 27 → 17 named
+  texts, the 10 gone, 916 recipes the same as on 0.14, Overlore's styles
+  one version each (`silver-comic@2dbf21cd78`, …), integrity and fk ok.
+  **0.15 is ready to tag on Thomas's go-ahead.**
 
 **Next (as of the 0.14 tag; every app has since moved):** the apps move (Overlore switches to GitHub `~> 0.14.0`; Owl moves
 its prompt and narrator code; Cattacula, Pirateship and the park bump, the
