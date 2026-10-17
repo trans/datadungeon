@@ -156,7 +156,45 @@ dd-serve, Cattacula and Pirateship type-check.
 either). The `0.14` branch and its scratchpad worktree can go once
 Overlore installs from GitHub (its `dd-0.14` pins the local `0.14` branch).
 
-**Next:** the apps move (Overlore switches to GitHub `~> 0.14.0`; Owl moves
+**0.15.0, a small cleanup (Thomas, 2026-10-17; plan
+`~/.claude/plans/delegated-doodling-hippo.md`, approved): committed
+`7cf4743`** on branch `0.15` (scratchpad worktree `dd015`, not pushed). Standard types and
+tags aren't in it; they wait for a later decision. It's 0.15.0 and not
+0.14.1, since apps on `~> 0.14.0` would take a patch unasked.
+- The purpose removed: names are `owner:name[@version]`, `/` refused;
+  `migrate_wordings` rebuilds a 0.13 or 0.14 `named_texts` without it,
+  each purposed wording a version of its plain name (refused if two would
+  become one).
+- `recipe_fields` dropped after `migrate_prompts`.
+- The pre-0.12 conversions removed (about 200 lines of `db.cr`); a store
+  with `assets.pool_key` or no `asset_keys` raises "open it read-write once
+  with DataDungeon 0.14". `load_types`' re-keying stays (generic).
+- 166 specs pass. Store check (`scratchpad/p015/run1`): the five live stores,
+  plus backups at 0.13.1, 0.13.0 and 0.12. Every recipe is as on 0.14 apart
+  from the folded names (Overlore's 26 uses of its 10); other tables are
+  unchanged; 0.13→0.15 direct is the same as via 0.14. All seven pre-0.12
+  backups are refused unchanged, and two tried open after a pass through
+  0.14. Overlore, Owl, Cattacula, Pirateship and dd-serve type-check.
+  (`~/Projects/arcana-ai` moved to `~/Projects/Arcana/arcana-ai`, which
+  breaks Overlore's `lib` link; type-checked with an override.)
+- Live stores: Overlore's and Owl's converted to 0.14 on 2026-10-17
+  (`…-185857Z-…-838f2310.md`), the park's too (assets `2c5fedd`, its
+  dd-serve rebuilt; curio checked 564 assets and 27 queries against
+  0.13.1, `…-200303Z-…-619b5810.md`); Cattacula and Pirateship are still
+  0.13.1 until 2026-10-17 evening, when both moved after Thomas told them
+  0.14 was tagged: Cattacula `cb0e66b` (488 voices checked), Pirateship
+  `b16bc2a` (live store converts on its next restart, backed up as
+  `voices.db.pre-0.14`). Owl's `2df2c41`/`eaecfea` (its own styles
+  `owl:watercolour`, `owl:oil-painting`, `owl:90s-anime-film`; rules
+  `owl:no-text`, `no-marks`, `no-people`, `no-seam`). curio 0.7.0
+  (`ac96b8b`) reads 0.14 recipes, marking each wording in the prompt.
+  Pre-0.12 stores are backups only; **open:** Thomas's OK that they stay
+  backups (0.14 brings one forward).
+- **Sent 2026-10-17:** the confirmation request to Overlore and Owl
+  (`mail/sent/*-@overlore--0.15-confirm.md`). The tag waits on their
+  answers and Thomas's go-ahead.
+
+**Next (as of the 0.14 tag; every app has since moved):** the apps move (Overlore switches to GitHub `~> 0.14.0`; Owl moves
 its prompt and narrator code; Cattacula, Pirateship and the park bump, the
 park's `dd-serve` rebuilt). Later: remove the purpose (rewrite stored ones
 as versions of their names; Overlore agrees) and drop `recipe_fields`
