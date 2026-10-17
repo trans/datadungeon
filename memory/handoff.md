@@ -2,7 +2,7 @@
 
 *Updated 2026-10-17*
 
-## 0.14: the prompt as sent, the wordings in it, the vocabulary (committed `4426581`, 2026-10-16; `98ed629` and `791b22a`, 2026-10-17)
+## 0.14: the prompt as sent, the wordings in it, the ratings' words (released v0.14.0 at `401dd4a`, 2026-10-17)
 
 **Simplified (Thomas, 2026-10-16; plan `~/.claude/plans/delegated-doodling-hippo.md`,
 approved), after an independent review** found DD over-engineered in places:
@@ -148,8 +148,20 @@ integrity and foreign keys ok, 18 vocabulary values each with DD's words,
 UPDATE and DELETE on `named_texts` refused, a second open changes nothing.
 dd-serve, Cattacula and Pirateship type-check.
 
-**Next:** no separate notice of `rating_text` (Thomas, 2026-10-17); painted-animation waits on Thomas asking Owl; then merge,
-tag (ask first), release notes.
+**Released v0.14.0 (Thomas: "tag", 2026-10-17):** `main` fast-forwarded to
+`401dd4a` and pushed, tag `v0.14.0` pushed; a fresh `shards install` with
+`~> 0.14.0` resolves 0.14.0. Notice sent to all six
+(`mail/sent/20261017-185423Z-@all--v0.14.0.md`). painted-animation is moot
+(no standard styles). No GitHub release page (none for earlier tags
+either). The `0.14` branch and its scratchpad worktree can go once
+Overlore installs from GitHub (its `dd-0.14` pins the local `0.14` branch).
+
+**Next:** the apps move (Overlore switches to GitHub `~> 0.14.0`; Owl moves
+its prompt and narrator code; Cattacula, Pirateship and the park bump, the
+park's `dd-serve` rebuilt). Later: remove the purpose (rewrite stored ones
+as versions of their names; Overlore agrees) and drop `recipe_fields`
+once Overlore and Owl are off them; the standard types and tags (0.15),
+starting with an inventory of each store's types and tags.
 
 **Prompt as one template (`@mj` with Thomas, 2026-10-16; proposal in
 `mail/received/20261016-172503Z-@mj--prompt-as-template-867b37d4.md`,
