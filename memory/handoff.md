@@ -199,6 +199,21 @@ tags aren't in it; they wait for a later decision. It's 0.15.0 and not
   `recipe_legacy` kept, which its startup reads). Owl (`…-203656Z-…-14636230.md`):
   no purposes, nothing reads `recipe_fields`, its two old backups stay
   backups; it bumps to `~> 0.15.0` once tagged.
+- **The 26 pictures (Thomas, 2026-10-17): a clean start, no special
+  versions.** Overlore's 10 purposed wordings were built on the mistake;
+  its 26 pictures (24 door views 1161-1184, portrait 1138, room 1141; 6
+  retired) are relinked to its current style wordings with
+  `set_recipe(replace: true)`, the prompt taking the new words (Thomas:
+  exact words don't matter, "not a hill of beans"). 0.15 (`58f1fa6`) drops
+  a purposed wording nothing names (0.13 fields count only while a 0.13
+  store converts), and folds one still named. Tested on a copy with the 26
+  unlinked: 19 → 9 named texts, 916 recipes, integrity and fk ok. **Sent**
+  the relink to Overlore (`mail/sent/*-@overlore--relink-26.md`); the tag
+  waits on it being done on Overlore's live store. A picture's style is
+  its tag (`art_style`); the wording is only the record of words sent.
+  **Open:** Overlore tags `art_style` = `silver`, `realism`, `3d`, …
+  while its wordings say `silver-comic`, `photorealism`, `3d-cartoon`:
+  two names per style; asked Thomas whether Overlore should retag.
 
 **Next (as of the 0.14 tag; every app has since moved):** the apps move (Overlore switches to GitHub `~> 0.14.0`; Owl moves
 its prompt and narrator code; Cattacula, Pirateship and the park bump, the
