@@ -87,8 +87,9 @@ alone held every style, both together looked best, but per-app flavors
 make the "same" style differ anyway, and flavors were mostly mood, light
 and framing. So a picture's `style` may be the app's own
 (`overlore:silver-comic`); the `dd:` style check and the flavor rules are
-gone, and flavor leaves the recommended order. Art-style tags stay
-standard; `style_text` stays for apps that want DD's words. Overlore's
+gone, and flavor leaves the recommended order. (That art-style tags stay
+standard and `style_text` stays was Overlore's ask, not Thomas's: wrong,
+see "No standard styles" below.) Overlore's
 eight style wordings, settled by Thomas:
 `mail/received/20261017-095151Z-@overlore--overlore-s-own-styles-as-thomas-settled-them-3479273a.md`.
 Also from Overlore (`…-074415Z-…-99e4db05.md`): `add_wordings` named 72
@@ -122,6 +123,23 @@ wording for places and figures, no `dd:` words, no flavor; 230 specs pass
 on `791b22a`. Nothing of its reads by purpose; its 10 stored purposes are
 only in old recipes, and it's fine with them becoming versions of
 `overlore:<style>` whenever.
+
+**No standard styles (Thomas, 2026-10-17): committed `401dd4a`.** Each
+app names, words and tags its own styles; 0.14's vocabulary is `rating`
+only. The 14 art styles, DD's words for them and `style_text` are gone; a
+store opened by a pre-tag 0.14 build drops its `art-style` vocabulary rows
+on its next open (assets' tags untouched, the words stay in
+`named_texts`). **Shared styles fall to the hub, later** (Thomas): a
+lookup table of the styles each store uses, so a store can adopt
+another's and share from then on; not needed now. Lesson: I took
+Overlore's "the vocabulary's art styles stay what pictures are tagged
+with" (f261bbae) as Thomas's decision, and had recommended keeping them
+myself that morning; Owl's notes were right. Overlore's `dd-0.14` type-checks
+against it. Rechecked at `401dd4a` on the store copies (`p014/final4`): 0
+differ, other tables unchanged, vocabulary `rating` only (+4 dd words);
+a copy opened by `791b22a` loses its 14 art-style rows, its 3,432 asset
+tags kept. Correction sent to all six 2026-10-17
+(`mail/sent/20261017-175737Z-@all--no-standard-styles.md`).
 
 **Checked at `791b22a` (2026-10-17), for the tag:** fresh copies of all
 five live stores (`scratchpad/p014/final3`) convert with 0 differences

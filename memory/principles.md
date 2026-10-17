@@ -56,7 +56,12 @@ photorealism, Overlore's 83 and the park's 61. So nothing more is built
 for sharing pictures across apps until a real case shows up: photorealism
 between Overlore and the park, or assets with no style (sound effects).
 Reuse pays within an app (Overlore's heads on bodies, Owl serving one
-player's picture to another), which semantic search is for.
+player's picture to another), which semantic search is for. **There are no
+standard styles** either (Thomas, 2026-10-17): each app names, words and
+tags its own. Sharing styles between apps is the hub's to coordinate,
+later: a lookup of what each store uses, so a store can adopt another's.
+Before acting on a decision relayed by another agent, check which parts
+were Thomas's and which were the agent's own asks.
 
 ## Freeze what no app uses
 
