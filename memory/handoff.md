@@ -213,7 +213,12 @@ tags aren't in it; they wait for a later decision. It's 0.15.0 and not
   its tag (`art_style`); the wording is only the record of words sent.
   **Open:** Overlore tags `art_style` = `silver`, `realism`, `3d`, …
   while its wordings say `silver-comic`, `photorealism`, `3d-cartoon`:
-  two names per style; asked Thomas whether Overlore should retag.
+  two names per style. **Thomas: retag (2026-10-17).** Sent Overlore the
+  mapping (`realism`→`photorealism`, `silver`→`silver-comic`,
+  `3d`→`3d-cartoon`, `golden`→`golden-comic`, `manga`→`dark-manga`,
+  `pixel`→`pixel-16`, `modern`→`modern-comic`; `fantasy`, `retro` stay)
+  via `update_asset(id, tags:)` with all tags, and its code to match
+  (`mail/sent/*-@overlore--retag.md`).
 
 **Next (as of the 0.14 tag; every app has since moved):** the apps move (Overlore switches to GitHub `~> 0.14.0`; Owl moves
 its prompt and narrator code; Cattacula, Pirateship and the park bump, the
