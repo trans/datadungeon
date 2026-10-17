@@ -27,8 +27,7 @@ module DataDungeon
   #                                          &unlinked=<rel> &file_hash=<sha-256>
   #                                          &description_hash=<sha-256> (every asset sharing
   #                                          a description) &text.<kind>=<owner:name> (a
-  #                                          wording a recipe used; /<purpose> for one purpose,
-  #                                          deprecated; @<version> for one wording)
+  #                                          wording a recipe used; @<version> for one wording)
   #                                          &limit= &page=<n> or &before=<id>
   #                                          &count=1 (a total), &meta=1 (each picture's fields,
   #                                          and its view readably)
@@ -42,7 +41,7 @@ module DataDungeon
   #                                          picture's view and light readably) and links
   #     GET    /assets/:id/object          its bytes, streamed from the storage
   #     GET    /assets/:id/recipe          how it was made (DB#recipe): what was sent, the
-  #                                          wordings it used (owner:name[/purpose]@version),
+  #                                          wordings it used (owner:name@version),
   #                                          steps included; 404 when it has none
   #     GET    /assets/:id/links           its links, and the links to it
   #     POST   /maintenance/check          check_consistency's report

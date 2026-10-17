@@ -16,14 +16,12 @@ module DataDungeon
 
     # Settings are stored once by hash, as canonical JSON (keys sorted).
     # A named text is one wording of an owner's name, of some kind (`style`,
-    # `rating`, ...), with what it's for (its purpose, deprecated; empty for none); its
-    # version is the start of its words' SHA-256 (Recipe::VERSION_SIZE), so
-    # it names the same words in every store. A recipe is a row per step (0
-    # for a single recipe), with what its provider was sent, and a row per
-    # named wording it used. Before 0.13 an asset's `generation` was
-    # free-form JSON on its row; it stays readable in recipe_legacy until
-    # its app gives it a recipe. A store from 0.13 also keeps its prompt
-    # fields as they were, in recipe_fields, no longer written.
+    # `rating`, ...); its version is the start of its words' SHA-256
+    # (Recipe::VERSION_SIZE), so it names the same words in every store. A
+    # recipe is a row per step (0 for a single recipe), with what its
+    # provider was sent, and a row per named wording it used. Before 0.13 an
+    # asset's `generation` was free-form JSON on its row; it stays readable
+    # in recipe_legacy until its app gives it a recipe.
     RECIPE_SCHEMAS = <<-SQL
       CREATE TABLE IF NOT EXISTS recipe_settings (
         id       INTEGER PRIMARY KEY,
@@ -35,10 +33,9 @@ module DataDungeon
         kind    TEXT NOT NULL,
         owner   TEXT NOT NULL,
         name    TEXT NOT NULL,
-        purpose TEXT NOT NULL DEFAULT '',
         version TEXT NOT NULL,
         text_id INTEGER NOT NULL REFERENCES texts(id),
-        UNIQUE (kind, owner, name, purpose, version)
+        UNIQUE (kind, owner, name, version)
       );
       CREATE TABLE IF NOT EXISTS recipes (
         asset_id        INTEGER NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
@@ -89,8 +86,7 @@ module DataDungeon
     PICTURE_FIELDS_013 = %w[preamble subject description staging theme style rules]
 
     # The asset's recipe, steps and all, with each wording as
-    # `owner:name@version` (`owner:name/purpose@version` with a purpose);
-    # nil when it has none.
+    # `owner:name@version`; nil when it has none.
     def recipe(id : Int64) : Recipe?
       rows = @db.query_all(<<-SQL, id, as: {Int32, String, String?, Int64?, Float64?, String?, String?, String?, String?, String?})
         SELECT r.step, r.form, s.settings, r.seed, r.cost, r.cost_basis, r.generated_at, p.text, i.text, r.refs
@@ -103,14 +99,14 @@ module DataDungeon
       return nil if rows.empty?
 
       wordings = Hash(Int32, Array(Recipe::Wording)).new { |hash, step| hash[step] = [] of Recipe::Wording }
-      @db.query_all(<<-SQL, id, as: {Int32, String, String, String, String, String, String}).each do |(step, kind, owner, name, purpose, version, text)|
-        SELECT w.step, n.kind, n.owner, n.name, n.purpose, n.version, t.text
+      @db.query_all(<<-SQL, id, as: {Int32, String, String, String, String, String}).each do |(step, kind, owner, name, version, text)|
+        SELECT w.step, n.kind, n.owner, n.name, n.version, t.text
         FROM recipe_wordings w
         JOIN named_texts n ON n.id = w.named_id
         JOIN texts t ON t.id = n.text_id
         WHERE w.asset_id = ? ORDER BY w.step, w.position
       SQL
-        wordings[step] << Recipe::Wording.new(kind, Recipe::Wording.handle(owner, name, purpose, version), text)
+        wordings[step] << Recipe::Wording.new(kind, Recipe::Wording.handle(owner, name, version), text)
       end
 
       steps = rows.map do |(step, form, settings, seed, cost, basis, made, prompt, instructions, refs)|
@@ -167,8 +163,8 @@ module DataDungeon
         position = conn.scalar("SELECT ifnull(max(position) + 1, 0) FROM recipe_wordings WHERE asset_id = ? AND step = ?",
           id, step).as(Int64)
         added.each_with_index do |wording, i|
-          owner, name, purpose, _ = wording.handle
-          named_id = put_named(conn, wording.kind, owner, name, purpose, put_text(conn, wording.text))
+          owner, name, _ = wording.handle
+          named_id = put_named(conn, wording.kind, owner, name, put_text(conn, wording.text))
           conn.exec("INSERT INTO recipe_wordings (asset_id, step, position, named_id) VALUES (?, ?, ?, ?)",
             id, step, position + i, named_id)
         end
@@ -177,18 +173,16 @@ module DataDungeon
       added.size
     end
 
-    # A wording as the store tells it apart: its kind, owner, name, purpose
-    # and version.
-    private def wording_key(wording : Recipe::Wording) : {String, String, String, String, String}
-      owner, name, purpose, _ = wording.handle
-      {wording.kind, owner, name, purpose, Recipe.version(wording.text)}
+    # A wording as the store tells it apart: its kind, owner, name and
+    # version.
+    private def wording_key(wording : Recipe::Wording) : {String, String, String, String}
+      owner, name, _ = wording.handle
+      {wording.kind, owner, name, Recipe.version(wording.text)}
     end
 
     # The assets whose recipes used a named wording of a kind, retired ones
     # included, oldest first: `with_text("style", "overlore:silver-comic")`
-    # for any of its wordings, whatever their purpose,
-    # `"overlore:silver-comic/figure"` for one purpose's (deprecated), and
-    # `"overlore:silver-comic/figure@3f9a2c71b0"` for one wording;
+    # for any of its wordings, `"overlore:silver-comic@3f9a2c71b0"` for one;
     # `with_text("rating", "dd:pg")` for everything given DataDungeon's
     # words for a rating.
     def with_text(kind : String, name : String) : Array(Int64)
@@ -197,17 +191,12 @@ module DataDungeon
     end
 
     # SQL selecting the `asset_id` of every recipe using a named wording of
-    # a kind (any purpose or version; `/purpose` for one purpose,
-    # `@version` for one wording), and its arguments.
+    # a kind (any version; `@version` for one wording), and its arguments.
     private def using_text(kind : String, name : String) : {String, Array(::DB::Any)}
-      owner, base, purpose, version = Recipe::Wording.new(kind, name, "").handle
+      owner, base, version = Recipe::Wording.new(kind, name, "").handle
       sql = "SELECT w.asset_id FROM named_texts n JOIN recipe_wordings w ON w.named_id = n.id " \
             "WHERE n.kind = ? AND n.owner = ? AND n.name = ?"
       args = [kind, owner, base] of ::DB::Any
-      unless purpose.empty?
-        sql += " AND n.purpose = ?"
-        args << purpose
-      end
       if version
         sql += " AND n.version = ?"
         args << version
@@ -215,15 +204,13 @@ module DataDungeon
       {sql, args}
     end
 
-    # The wordings an owner has of a kind: {name, version, text}, the name
-    # with its `/purpose` if it has one, by name and purpose, oldest first.
+    # The wordings an owner has of a kind: {name, version, text}, by name,
+    # oldest first.
     def named_texts(kind : String, owner : String) : Array({String, String, String})
-      @db.query_all(<<-SQL, kind, owner, as: {String, String, String, String}).map do |(name, purpose, version, text)|
-        SELECT n.name, n.purpose, n.version, t.text FROM named_texts n JOIN texts t ON t.id = n.text_id
-        WHERE n.kind = ? AND n.owner = ? ORDER BY n.name, n.purpose, n.id
+      @db.query_all(<<-SQL, kind, owner, as: {String, String, String})
+        SELECT n.name, n.version, t.text FROM named_texts n JOIN texts t ON t.id = n.text_id
+        WHERE n.kind = ? AND n.owner = ? ORDER BY n.name, n.id
       SQL
-        {purpose.empty? ? name : "#{name}/#{purpose}", version, text}
-      end
     end
 
     # Adds an asset's recipe rows; the asset has none.
@@ -240,8 +227,8 @@ module DataDungeon
           step.instructions.try { |text| put_text(conn, text) },
           step.references.empty? ? nil : step.references.to_json)
         step.wordings.each_with_index do |wording, position|
-          owner, name, purpose, _ = wording.handle
-          named_id = put_named(conn, wording.kind, owner, name, purpose, put_text(conn, wording.text))
+          owner, name, _ = wording.handle
+          named_id = put_named(conn, wording.kind, owner, name, put_text(conn, wording.text))
           conn.exec("INSERT INTO recipe_wordings (asset_id, step, position, named_id) VALUES (?, ?, ?, ?)",
             asset_id, i, position, named_id)
         end
@@ -263,17 +250,17 @@ module DataDungeon
       conn.scalar("SELECT id FROM recipe_settings WHERE hash = ?", hash).as(Int64)
     end
 
-    # The named_texts row for this wording of an owner's name and purpose,
-    # its version the start of its words' SHA-256. Only the owner adds a
+    # The named_texts row for this wording of an owner's name, its version
+    # the start of its words' SHA-256. Only the owner adds a
     # wording (DataDungeon adds its own, the vocabulary's words, with
     # `owned: true`); two wordings of one name whose versions are the same
     # (a 1 in a trillion chance) are refused rather than confused.
     private def put_named(conn : ::DB::Connection, kind : String, owner : String, name : String,
-                          purpose : String, text_id : Int64, owned : Bool = false) : Int64
+                          text_id : Int64, owned : Bool = false) : Int64
       version = conn.scalar("SELECT hash FROM texts WHERE id = ?", text_id).as(String)[0, Recipe::VERSION_SIZE]
-      written = Recipe::Wording.handle(owner, name, purpose, version)
-      row = conn.query_one?(<<-SQL, kind, owner, name, purpose, version, as: {Int64, Int64})
-        SELECT id, text_id FROM named_texts WHERE kind = ? AND owner = ? AND name = ? AND purpose = ? AND version = ?
+      written = Recipe::Wording.handle(owner, name, version)
+      row = conn.query_one?(<<-SQL, kind, owner, name, version, as: {Int64, Int64})
+        SELECT id, text_id FROM named_texts WHERE kind = ? AND owner = ? AND name = ? AND version = ?
       SQL
       if row
         id, stored = row
@@ -284,33 +271,31 @@ module DataDungeon
         raise ArgumentError.new("#{written} is #{owner}'s: only it adds a wording to it " \
                                 "(this DB's consumer is #{@consumer.inspect})")
       end
-      conn.exec("INSERT INTO named_texts (kind, owner, name, purpose, version, text_id) VALUES (?, ?, ?, ?, ?, ?)",
-        kind, owner, name, purpose, version, text_id)
+      conn.exec("INSERT INTO named_texts (kind, owner, name, version, text_id) VALUES (?, ?, ?, ?, ?)",
+        kind, owner, name, version, text_id)
       conn.scalar("SELECT last_insert_rowid()").as(Int64)
     end
 
-    # Whether a store has these words as this wording: the same kind, name
-    # and purpose, any version.
-    private def wording?(kind : String, owner : String, name : String, purpose : String, text : String) : Bool
-      !@db.query_one?(<<-SQL, kind, owner, name, purpose, text, as: Int32).nil?
+    # Whether a store has these words as this wording: the same kind and
+    # name, any version.
+    private def wording?(kind : String, owner : String, name : String, text : String) : Bool
+      !@db.query_one?(<<-SQL, kind, owner, name, text, as: Int32).nil?
         SELECT 1 FROM named_texts n JOIN texts t ON t.id = n.text_id
-        WHERE n.kind = ? AND n.owner = ? AND n.name = ? AND n.purpose = ? AND t.text = ?
+        WHERE n.kind = ? AND n.owner = ? AND n.name = ? AND t.text = ?
       SQL
     end
 
     # The store's checks on a recipe's wordings, before anything is
     # written. A store is its owner's: a wording it hasn't seen is its
-    # consumer's to add, and a `dd` one is DataDungeon's words already. Each
-    # app words its own styles (Thomas, 2026-10-17), so a picture's style is
-    # whichever the app gives it, DataDungeon's or its own.
+    # consumer's to add, and a `dd` one is DataDungeon's words already.
     private def check_wordings(recipe : Recipe) : Nil
       check_wordings((recipe.steps.empty? ? [recipe] : recipe.steps).flat_map(&.wordings))
     end
 
     private def check_wordings(wordings : Array(Recipe::Wording)) : Nil
       wordings.each do |wording|
-        owner, name, purpose, _ = wording.handle
-        next if wording?(wording.kind, owner, name, purpose, wording.text)
+        owner, name, _ = wording.handle
+        next if wording?(wording.kind, owner, name, wording.text)
         if owner == VOCABULARY_OWNER
           raise ArgumentError.new("#{wording.name} isn't DataDungeon's words: a dd wording comes from the " \
                                   "store (db.rating_text)")
@@ -392,8 +377,8 @@ module DataDungeon
     # its style the instructions; a text step's description, with its
     # instructions. Every named field becomes one of its wordings. Each step
     # is compared with its fields before a column goes; otherwise this
-    # raises and the open's transaction leaves the store as it was. The
-    # fields stay, in recipe_fields. One way. Runs with foreign keys off,
+    # raises and the open's transaction leaves the store as it was; the
+    # fields go after (setup_schema). One way. Runs with foreign keys off,
     # inside setup_schema's transaction; true when it rebuilt, so
     # setup_schema checks the references afterwards.
     private def migrate_prompts(conn : ::DB::Connection) : Bool
@@ -451,40 +436,50 @@ module DataDungeon
       true
     end
 
-    # Rebuilds named_texts with versions from their words and fields as
-    # kinds (from 0.13.1's, or 0.13.0's without purposes).
-    private def migrate_wordings(conn : ::DB::Connection) : Nil
+    # Rebuilds named_texts in 0.15's shape, from 0.13's (each wording's
+    # field and a number for its version, with a purpose since 0.13.1) or
+    # 0.14's (with a purpose): its kind, owner, name, and a version from its
+    # words. A wording with a purpose becomes a version of its plain name,
+    # its words and version unchanged: what the purpose told apart was
+    # framing (Thomas, 2026-10-17). Every row is copied with its id, so
+    # recipes still point at it, and the copy is compared with the original
+    # before the original goes. Two wordings that would be one name's same
+    # version (the same words under two purposes, or two versions whose
+    # words' hashes start alike) raise, and the open's transaction leaves
+    # the store as it was. True when it rebuilt.
+    private def migrate_wordings(conn : ::DB::Connection) : Bool
       columns = table_columns(conn, "named_texts")
-      return if columns.has_key?("kind")
-      purpose = columns.has_key?("purpose") ? "n.purpose" : "''"
-      rows = conn.query_all(<<-SQL, as: {Int64, String, String, String, String, Int32, Int64, String})
-        SELECT n.id, n.field, n.owner, n.name, #{purpose}, n.version, n.text_id, t.hash
-        FROM named_texts n JOIN texts t ON t.id = n.text_id
+      return false if columns.has_key?("kind") && !columns.has_key?("purpose")
+      kind = columns.has_key?("kind") ? "n.kind" : "n.field"
+      rows = conn.query_all(<<-SQL, as: {Int64, String, String, String, Int64, String})
+        SELECT n.id, #{kind}, n.owner, n.name, n.text_id, t.hash FROM named_texts n JOIN texts t ON t.id = n.text_id
       SQL
-      rows.group_by { |row| {row[1], row[2], row[3], row[4]} }.each do |(field, owner, name, purpose_of), group|
-        versions = group.map(&.[7][0, Recipe::VERSION_SIZE])
+      rows.group_by { |row| {row[1], row[2], row[3]} }.each do |(of_kind, owner, name), group|
+        versions = group.map(&.[5][0, Recipe::VERSION_SIZE])
         unless versions.uniq.size == versions.size
-          raise "two wordings of #{Recipe::Wording.handle(owner, name, purpose_of)} (#{field}) have the same version; " \
+          raise "two wordings of #{Recipe::Wording.handle(owner, name)} (#{of_kind}) would have the same version; " \
                 "the store is unchanged"
         end
       end
       schema = RECIPE_SCHEMAS.split(";").find!(&.includes?("named_texts ("))
       conn.exec(schema.sub("IF NOT EXISTS named_texts", "named_texts_migrated"))
-      rows.each do |(id, field, owner, name, purpose_of, _, text_id, hash)|
-        conn.exec("INSERT INTO named_texts_migrated (id, kind, owner, name, purpose, version, text_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
-          id, field, owner, name, purpose_of, hash[0, Recipe::VERSION_SIZE], text_id)
+      rows.each do |(id, of_kind, owner, name, text_id, hash)|
+        conn.exec("INSERT INTO named_texts_migrated (id, kind, owner, name, version, text_id) VALUES (?, ?, ?, ?, ?, ?)",
+          id, of_kind, owner, name, hash[0, Recipe::VERSION_SIZE], text_id)
       end
+      # 0.14's versions are already their words'.
+      kept = columns.has_key?("kind") ? "OR m.version IS NOT n.version" : ""
       lost = conn.scalar(<<-SQL).as(Int64)
         SELECT (SELECT COUNT(*) FROM named_texts) - (SELECT COUNT(*) FROM named_texts_migrated)
              + (SELECT COUNT(*) FROM named_texts n LEFT JOIN named_texts_migrated m ON m.id = n.id
                 LEFT JOIN texts t ON t.id = n.text_id
-                WHERE m.kind IS NOT n.field OR m.owner IS NOT n.owner OR m.name IS NOT n.name
-                   OR m.purpose IS NOT #{purpose} OR m.text_id IS NOT n.text_id
-                   OR m.version IS NOT substr(t.hash, 1, #{Recipe::VERSION_SIZE}))
+                WHERE m.kind IS NOT #{kind} OR m.owner IS NOT n.owner OR m.name IS NOT n.name
+                   OR m.text_id IS NOT n.text_id OR m.version IS NOT substr(t.hash, 1, #{Recipe::VERSION_SIZE}) #{kept})
       SQL
       raise "copying named texts to version them by their words left #{lost} different; the store is unchanged" unless lost == 0
       conn.exec("DROP TABLE named_texts")
       conn.exec("ALTER TABLE named_texts_migrated RENAME TO named_texts")
+      true
     end
   end
 end

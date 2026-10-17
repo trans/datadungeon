@@ -253,25 +253,6 @@ describe "DataDungeon::DB type registry" do
     end
   end
 
-  it "upgrades a registry table that predates sets" do
-    dir = File.tempname("dd-reg-sets-upgrade")
-    Dir.mkdir_p(dir)
-    raw = ::DB.open("sqlite3://#{File.join(dir, "assets.db")}")
-    raw.exec(DataDungeon::DB::ASSET_TYPES_SCHEMA.lines.reject(&.includes?("sets")).join)
-    raw.exec(%(INSERT INTO asset_types (asset_type, pool_traits, group_traits, labels, key_scheme)
-               VALUES ('voice', '["bit","voice"]', '[]', '{}', #{DataDungeon::TraitKey::SCHEME})))
-    raw.close
-
-    db = open_db(dir)
-    db.registration("voice").not_nil!.sets.should be_empty
-    db.store("voice", {"bit" => "b1", "voice" => "fable"}, bytes: "v".to_slice, content_type: "audio/mpeg")
-      .key.should eq "voice.b1.fable"
-  ensure
-    raw.try(&.close)
-    db.try(&.close)
-    FileUtils.rm_rf(dir) if dir
-  end
-
   it "keeps every take of a key and gets the newest" do
     with_db("dd-reg-takes") do |db|
       db.register_type("voice", pool_traits: %w[bit beat voice])

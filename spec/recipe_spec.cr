@@ -133,6 +133,30 @@ private def raw_named(raw : ::DB::Database, field : String, owner : String, name
   raw.scalar("SELECT last_insert_rowid()").as(Int64)
 end
 
+# Turns a closed store's named_texts back into 0.14's, with a purpose
+# for the wordings of these words ({words => purpose}).
+private def as_014(raw : ::DB::Database, purposes : Hash(String, String)) : Nil
+  %w[named_texts_kept_update named_texts_kept_delete].each { |name| raw.exec("DROP TRIGGER #{name}") }
+  raw.exec(<<-SQL)
+    CREATE TABLE named_texts_014 (
+      id      INTEGER PRIMARY KEY,
+      kind    TEXT NOT NULL,
+      owner   TEXT NOT NULL,
+      name    TEXT NOT NULL,
+      purpose TEXT NOT NULL DEFAULT '',
+      version TEXT NOT NULL,
+      text_id INTEGER NOT NULL REFERENCES texts(id),
+      UNIQUE (kind, owner, name, purpose, version)
+    )
+  SQL
+  raw.exec("INSERT INTO named_texts_014 (id, kind, owner, name, version, text_id) SELECT id, kind, owner, name, version, text_id FROM named_texts")
+  purposes.each do |words, purpose|
+    raw.exec("UPDATE named_texts_014 SET purpose = ? WHERE text_id = (SELECT id FROM texts WHERE text = ?)", purpose, words)
+  end
+  raw.exec("DROP TABLE named_texts")
+  raw.exec("ALTER TABLE named_texts_014 RENAME TO named_texts")
+end
+
 describe DataDungeon::Recipe do
   it "stores a picture's recipe and reads it back: what was sent, and the wordings in it" do
     with_db("dd-recipe") do |db|
@@ -186,22 +210,64 @@ describe DataDungeon::Recipe do
     end
   end
 
-  it "still files wordings by purpose, deprecated" do
-    with_db("dd-recipe-purpose") do |db|
-      figure = store_panel(db, "a", styled("An elf.", "overlore:silver-comic/figure", "Silver Age comic art, one figure."))
-      place = store_panel(db, "b", styled("A hall.", "overlore:silver-comic/place", "Silver Age comic art, a wide room."))
-      inked = store_panel(db, "c", styled("A dwarf.", "overlore:silver-comic/figure", "Silver Age comic art, heavy inks."))
-      bare = store_panel(db, "d", styled("A cat.", "overlore:silver-comic", "Silver Age comic art."))
+  it "makes a 0.14 wording with a purpose a version of its plain name" do
+    dir = File.tempname("dd-recipe-from-014")
+    Dir.mkdir_p(dir)
+    path = File.join(dir, "assets.db")
+    db = DataDungeon::DB.new(path, cache_root: File.join(dir, "store"), consumer: "overlore")
+    db.register_type("panel", pool_traits: %w[art-style])
+    figure = store_panel(db, "a", styled("An elf.", "overlore:silver-comic", "Silver Age comic art, one figure."))
+    place = store_panel(db, "b", styled("A hall.", "overlore:silver-comic", "Silver Age comic art, a wide room."))
+    db.close
+    raw = ::DB.open("sqlite3://#{path}")
+    as_014(raw, {"Silver Age comic art, one figure." => "figure", "Silver Age comic art, a wide room." => "place"})
+    ids = raw.query_all("SELECT id FROM named_texts ORDER BY id", as: Int64)
+    raw.close
 
-      db.recipe(figure.id).not_nil!.wordings[0].name.should eq "overlore:silver-comic/figure@#{version("Silver Age comic art, one figure.")}"
-      db.recipe(bare.id).not_nil!.wordings[0].name.should eq "overlore:silver-comic@#{version("Silver Age comic art.")}" # a purpose is optional
-      db.with_text("style", "overlore:silver-comic").should eq [figure.id, place.id, inked.id, bare.id]
-      db.with_text("style", "overlore:silver-comic/figure").should eq [figure.id, inked.id]
-      db.with_text("style", "overlore:silver-comic/figure@#{version("Silver Age comic art, heavy inks.")}").should eq [inked.id]
-      db.list_assets(texts: {"style" => "overlore:silver-comic/place"}).map(&.id).should eq [place.id]
-      db.named_texts("style", "overlore").map(&.[0]).should eq ["silver-comic", "silver-comic/figure", "silver-comic/figure",
-                                                                 "silver-comic/place"] # oldest first within each
+    db = DataDungeon::DB.new(path, cache_root: File.join(dir, "store"), consumer: "overlore")
+    db.recipe(figure.id).not_nil!.wordings[0].name.should eq "overlore:silver-comic@#{version("Silver Age comic art, one figure.")}"
+    db.with_text("style", "overlore:silver-comic").should eq [figure.id, place.id]
+    db.named_texts("style", "overlore").map(&.[0]).should eq ["silver-comic", "silver-comic"]
+    db.connection.query_all("SELECT id FROM named_texts ORDER BY id", as: Int64).should eq ids
+    db.connection.query_all("SELECT name FROM pragma_table_info('named_texts')", as: String).should_not contain "purpose"
+    db.connection.query_all("PRAGMA foreign_key_check", &.read(::DB::Any)).should be_empty
+    raw = ::DB.open("sqlite3://#{path}")
+    expect_raises(SQLite3::Exception, /a wording never changes/) do # the rebuilt table keeps its triggers
+      raw.exec("UPDATE named_texts SET name = 'x' WHERE owner = 'overlore'")
     end
+    raw.close rescue nil
+    expect_raises(ArgumentError, /purposes were removed in 0.15/) { db.with_text("style", "overlore:silver-comic/figure") }
+    expect_raises(ArgumentError, /purposes were removed in 0.15/) do
+      store_panel(db, "c", styled("A cat.", "overlore:silver-comic/figure", "Silver Age comic art."))
+    end
+  ensure
+    db.try(&.close)
+    FileUtils.rm_rf(dir) if dir
+  end
+
+  it "leaves a 0.14 store as it was when two purposes held the same words" do
+    dir = File.tempname("dd-recipe-from-014-refused")
+    Dir.mkdir_p(dir)
+    path = File.join(dir, "assets.db")
+    db = DataDungeon::DB.new(path, cache_root: File.join(dir, "store"), consumer: "overlore")
+    db.register_type("panel", pool_traits: %w[art-style])
+    store_panel(db, "a", styled("An elf.", "overlore:silver-comic", "Silver Age comic art."))
+    db.close
+    raw = ::DB.open("sqlite3://#{path}")
+    as_014(raw, {"Silver Age comic art." => "figure"})
+    raw.exec("INSERT INTO named_texts (kind, owner, name, purpose, version, text_id) " \
+             "SELECT kind, owner, name, 'place', version, text_id FROM named_texts WHERE purpose = 'figure'")
+    before = raw.query_all("SELECT id, purpose FROM named_texts ORDER BY id", as: {Int64, String})
+    raw.close
+
+    expect_raises(Exception, /would have the same version; the store is unchanged/) do
+      DataDungeon::DB.new(path, cache_root: File.join(dir, "store"), consumer: "overlore")
+    end
+    raw = ::DB.open("sqlite3://#{path}")
+    raw.query_all("SELECT id, purpose FROM named_texts ORDER BY id", as: {Int64, String}).should eq before
+    raw.close
+  ensure
+    FileUtils.rm_rf(dir) if dir
   end
 
   it "lets any app use a store's wordings, and only its owner add one" do
@@ -511,7 +577,7 @@ describe DataDungeon::Recipe do
     db = DataDungeon::DB.new(path, cache_root: File.join(dir, "store"), consumer: "overlore")
     got = db.recipe(joined).not_nil!
     got.prompt.should eq "Draw one panel. A dwarf. A long hall. Silver Age comic art. No text." # 0.13's order
-    got.wordings.map(&.name).should eq ["overlore:silver-comic/place@#{version("Silver Age comic art.")}"]
+    got.wordings.map(&.name).should eq ["overlore:silver-comic@#{version("Silver Age comic art.")}"] # its purpose folded
     got.wordings[0].kind.should eq "style"
     db.recipe(sent).not_nil!.prompt.should eq "A misty hall, in heavy inks." # as sent, not its fields
     db.recipe(filled).not_nil!.prompt.should eq "An elf."                    # its fields joined, as 0.13 read it
@@ -526,12 +592,12 @@ describe DataDungeon::Recipe do
     {text.prompt, text.instructions}.should eq({"The king's.", "Write a decree."})
 
     db.connection.query_all("SELECT id FROM named_texts WHERE owner = 'overlore' ORDER BY id", as: Int64).should eq ids
-    db.with_text("style", "overlore:silver-comic/place@#{version("Silver Age comic art, heavy inks.")}").should eq [sent]
+    db.with_text("style", "overlore:silver-comic@#{version("Silver Age comic art, heavy inks.")}").should eq [sent]
     columns = db.connection.query_all("SELECT name FROM pragma_table_info('recipes')", as: String)
     columns.should contain "prompt_id"
     columns.should_not contain "sent_as_joined"
     columns.should_not contain "prompt_sent_id"
-    count(db, "recipe_fields").should eq 13 # kept as they were
+    db.connection.query_all("SELECT name FROM sqlite_master WHERE name = 'recipe_fields'", as: String).should be_empty # read, then dropped
     db.connection.query_all("PRAGMA foreign_key_check", &.read(::DB::Any)).should be_empty
     db.rating_text("pg").name.should start_with "dd:pg@" # the vocabulary, seeded after
     db.recipe(store_panel(db, "f", picture("An orc.")).id).not_nil!.wordings.size.should eq 2

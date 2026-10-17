@@ -58,22 +58,6 @@ describe "Retiring" do
     end
   end
 
-  it "counts an older store's tags when it first opens" do
-    with_db("dd-tag-counts-new") do |db|
-      take(db, "1")
-      db.retire(take(db, "2", bit: "b2").id)
-      db.connection.exec("DROP TABLE asset_tag_counts")
-      reopened = DataDungeon::DB.new(db.path)
-      begin
-        kept, fresh = counts(reopened)
-        kept.should eq fresh
-        reopened.tag_values("voice", "bit", retired: nil).should eq({"b1" => 1, "b2" => 1})
-      ensure
-        reopened.close
-      end
-    end
-  end
-
   it "retires an asset with nothing replacing it, and reinstates it" do
     with_db("dd-retire") do |db|
       first = take(db, "1")

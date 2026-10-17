@@ -101,7 +101,7 @@ module DataDungeon
             description = excluded.description
         SQL
         tag[:values].each_with_index do |value, position|
-          wording_id = put_named(conn, tag[:wording], VOCABULARY_OWNER, value[:value], "", put_text(conn, value[:words]), owned: true)
+          wording_id = put_named(conn, tag[:wording], VOCABULARY_OWNER, value[:value], put_text(conn, value[:words]), owned: true)
           conn.exec(<<-SQL, tag[:name], value[:value], value[:title], value[:description], value[:family], wording_id, position)
             INSERT INTO vocabulary_values (tag, value, title, description, family, wording_id, position)
             VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -122,7 +122,7 @@ module DataDungeon
         LEFT JOIN texts t ON t.id = n.text_id
         ORDER BY v.tag, v.position, v.value
       SQL
-        wording = Recipe::Wording.new(kind, Recipe::Wording.handle(VOCABULARY_OWNER, value, "", version), text) if kind && text
+        wording = Recipe::Wording.new(kind, Recipe::Wording.handle(VOCABULARY_OWNER, value, version), text) if kind && text
         values[tag] << VocabularyValue.new(value, title, description, family, wording)
       end
       @db.query_all("SELECT name, title, label, kind, description FROM vocabulary_tags ORDER BY name",
@@ -145,7 +145,7 @@ module DataDungeon
         JOIN named_texts n ON n.id = v.wording_id JOIN texts t ON t.id = n.text_id
         WHERE v.tag = ? AND v.value = ?
       SQL
-      row.try { |(kind, version, words)| Recipe::Wording.new(kind, Recipe::Wording.handle(VOCABULARY_OWNER, value, "", version), words) }
+      row.try { |(kind, version, words)| Recipe::Wording.new(kind, Recipe::Wording.handle(VOCABULARY_OWNER, value, version), words) }
     end
   end
 end

@@ -27,8 +27,7 @@ begin
   puts
   puts "Every table a store has, with its columns and the foreign keys it declares."
   puts "#{search.map { |name| "`#{name}`" }.join(", ")} is SQLite's full-text index (FTS5), whose own tables are left out." unless search.empty?
-  puts "A store converted from 0.13 also keeps `recipe_fields`, no longer written."
-  puts
+    puts
   puts "```mermaid"
   puts "erDiagram"
   links = [] of String

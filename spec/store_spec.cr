@@ -600,108 +600,25 @@ describe DataDungeon::DB do
     FileUtils.rm_rf(dir) if dir
   end
 
-  it "opens an existing asset database with its tags intact" do
-    dir = File.tempname("dd-schema-upgrade")
-    Dir.mkdir_p(dir)
-    path = File.join(dir, "assets.db")
-    raw = ::DB.open("sqlite3://#{path}")
-    # The 0.3 layout: a required canonical_key, no description,
-    # generated flag or custom tag flag.
-    old_schema = DataDungeon::DB::ASSETS_SCHEMA
-      .sub("file_path     TEXT NOT NULL,", "file_path     TEXT NOT NULL,\n        canonical_key TEXT NOT NULL,")
-      .lines.reject { |line| line.includes?("description") || line.includes?("generated") }.join
-    raw.exec(old_schema)
-    raw.exec(DataDungeon::DB::ASSET_TAGS_SCHEMA.lines.reject { |line| line.includes?("custom") || line.includes?("asset_type") }.join)
-    raw.exec(DataDungeon::DB::IMAGE_META_SCHEMA)
-    raw.exec(<<-SQL)
-      INSERT INTO assets
-      (id, asset_type, media, content_type, file_path, canonical_key,
-       created_at, generator)
-      VALUES (7, 'portrait', 'image', 'image/webp', 'portrait/old.webp',
-              'old-key', '2026-01-01 00:00:00', 'arcana')
-    SQL
-    raw.exec("INSERT INTO asset_tags VALUES (7, 'race', 'human')")
-    raw.exec("INSERT INTO image_meta (asset_id, width) VALUES (7, 512)")
-    raw.close
-
-    db = open_db(dir)
-    rec = db.find_asset_by_id(7_i64).not_nil!
-    rec.key.should eq "portrait.human." # derived when open_db registers it; the caller's key is gone
-    rec.generated.should be_true
-    rec.description.should be_nil
-    db.load_tags(rec.id).should eq({"race" => "human"})
-    db.custom_traits(rec.id).should be_empty
-    db.connection.scalar("SELECT asset_type FROM asset_tags WHERE asset_id = 7").should eq "portrait" # backfilled
-    db.load_image_meta(rec.id).not_nil!.width.should eq 512                                           # the rebuild cascaded nothing
-    db.delete_asset(rec.id)
-    db.load_tags(rec.id).should be_empty
-  ensure
-    raw.try(&.close)
-    db.try(&.close)
-    FileUtils.rm_rf(dir) if dir
-  end
-
-  it "moves a 0.11 store's keys into each registered type's own index" do
-    dir = File.tempname("dd-keys-upgrade")
+  it "refuses a store older than 0.12, leaving it as it was" do
+    dir = File.tempname("dd-keys-older")
     Dir.mkdir_p(dir)
     path = File.join(dir, "assets.db")
     db = open_db(dir)
-    arcade = db.store("venue", {"venue" => "arcade", "style" => "silver"}, bytes: "a".to_slice, content_type: "image/webp")
+    db.store("venue", {"venue" => "arcade", "style" => "silver"}, bytes: "a".to_slice, content_type: "image/webp")
     db.close
-    # As 0.11 left it: the key a column, `pool` flags, no index of the type's own.
+    # As 0.11 left it: the key a column of assets.
     raw = ::DB.open("sqlite3://#{path}")
     raw.exec("ALTER TABLE assets ADD COLUMN pool_key TEXT")
-    raw.exec("ALTER TABLE assets ADD COLUMN pool INTEGER DEFAULT 0")
-    raw.exec("ALTER TABLE asset_types ADD COLUMN pool INTEGER NOT NULL DEFAULT 0")
-    raw.exec("CREATE INDEX idx_assets_pool_key ON assets(pool_key)")
     raw.exec("UPDATE assets SET pool_key = 'venue.arcade.silver'")
-    raw.exec("DELETE FROM asset_keys WHERE index_id IN (SELECT id FROM asset_indexes WHERE consumer = '')")
-    raw.exec("DELETE FROM asset_indexes WHERE consumer = ''")
-    raw.exec(<<-SQL)
-      INSERT INTO assets (asset_type, media, content_type, file_path, pool_key, created_at, made_at)
-      VALUES ('legacy', 'image', 'image/webp', 'legacy.webp', 'a-callers-key', '2026-01-01', '2026-01-01')
-    SQL
-    legacy = raw.scalar("SELECT last_insert_rowid()").as(Int64)
     raw.close
 
-    expect_raises(DataDungeon::ReadOnlyError, /needs upgrading/) do
+    expect_raises(Exception, /older than 0.12.*DataDungeon 0.14/) { open_db(dir) }
+    expect_raises(Exception, /older than 0.12/) do
       DataDungeon::DB.new(path, cache_root: File.join(dir, "store"), read_only: true)
     end
-    db = open_db(dir)
-    columns = ->(table : String) { db.not_nil!.connection.query_all("SELECT name FROM pragma_table_info('#{table}')", as: String) }
-    columns.call("assets").should_not contain "pool_key"
-    columns.call("assets").should_not contain "pool"
-    columns.call("asset_types").should_not contain "pool"
-    db.find_asset_by_id(arcade.id).not_nil!.key.should eq "venue.arcade.silver"
-    db.get("venue", {"venue" => "arcade", "style" => "silver"}, touch: false).not_nil!.id.should eq arcade.id
-    db.find_asset_by_id(legacy).not_nil!.key.should be_nil # an unregistered type's caller key goes
-    db.indexes("venue").should be_empty                      # the type's own isn't a consumer's
-  ensure
-    raw.try(&.close)
-    db.try(&.close)
-    FileUtils.rm_rf(dir) if dir
-  end
-
-  it "drops a unique file_path constraint so old rows can share objects" do
-    dir = File.tempname("dd-unique-path-upgrade")
-    Dir.mkdir_p(dir)
-    path = File.join(dir, "assets.db")
     raw = ::DB.open("sqlite3://#{path}")
-    raw.exec(DataDungeon::DB::ASSETS_SCHEMA.sub("file_path     TEXT NOT NULL,", "file_path     TEXT NOT NULL UNIQUE,"))
-    raw.exec(DataDungeon::DB::ASSET_TAGS_SCHEMA)
-    raw.exec(<<-SQL)
-      INSERT INTO assets (id, asset_type, media, content_type, file_path, created_at)
-      VALUES (3, 'venue', 'image', 'image/webp', 'venue/0123abcd.webp', '2026-10-01 00:00:00')
-    SQL
-    raw.exec("INSERT INTO asset_tags (asset_id, asset_type, tag_key, tag_value) VALUES (3, 'venue', 'venue', 'arcade')")
-    raw.close
-
-    db = open_db(dir)
-    old = db.find_asset_by_id(3_i64).not_nil!
-    old.file_path.should eq "venue/0123abcd.webp" # existing objects stay put
-    db.load_tags(3_i64).should eq({"venue" => "arcade"})
-    db.store_asset("venue", "image", "image/webp", old.file_path, {"venue" => "diner"})
-    db.connection.scalar("SELECT COUNT(*) FROM assets WHERE file_path = ?", old.file_path).should eq 2
+    raw.scalar("SELECT pool_key FROM assets").should eq "venue.arcade.silver" # untouched
   ensure
     raw.try(&.close)
     db.try(&.close)

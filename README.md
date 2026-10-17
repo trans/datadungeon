@@ -183,11 +183,9 @@ changes nothing, other traits raise unless `rekey: true`, and
 Every key is in one table, the type's own among them, so an application
 never builds one: it registers the types it stores, looks assets up by
 traits, and refers to one asset by its id. Before 0.12 a key was a column
-of the assets table, and an unregistered type's caller could pass one
-(`pool_key:`). The first read-write open by 0.12 moves each registered
-type's keys into its own index and drops the column, and an older
-DataDungeon can't open the store after that; assets of a type nobody
-registered keep their tags and id, with no key. `description` is the text used to describe an asset; for a
+of the assets table (`pool_key:`). 0.15 no longer converts a store from
+before 0.12: open it read-write once with 0.14 first, which does.
+`description` is the text used to describe an asset; for a
 generated image, it holds the prompt. `generated` records whether the asset
 was generated, `generator` what made it, and its recipe (below) how.
 
@@ -269,11 +267,14 @@ db.vocabulary                         # the shared tags (rating) and their value
   SHA-256, so `overlore:silver-comic@3f9a2c71b0` is the same words in every
   store. A wording is never changed or deleted (the store refuses it, in
   the sqlite3 shell too): new words are a new version, a rename a new name.
-- **A purpose** (`owner:name/purpose`) is deprecated (Thomas, 2026-10-17),
-  to go in a later release. It came in so one style could be worded once
-  for figures and once for places, but that difference is framing, which
-  has its own part, so one style wording serves both. Wordings stored with
-  a purpose keep working until then.
+- **No purposes** (Thomas, 2026-10-17): 0.13 and 0.14 let a name add one,
+  `owner:name/purpose`, so one style could be worded once for figures and
+  once for places. That difference is framing, which has its own part, so
+  0.15 removed it: a name with a `/` is refused, and the first read-write
+  open by 0.15 makes each stored wording with a purpose a version of its
+  plain name (`overlore:silver-comic/place@3f9a2c71b0` becomes
+  `overlore:silver-comic@3f9a2c71b0`, the same words), refusing to open if
+  two would become one.
 - **There are no standard styles** (Thomas, 2026-10-17): each app names,
   words and tags its own (`overlore:silver-comic`, kind `style`). Styles
   shared between apps will be the hub's to coordinate, later: a lookup of
@@ -315,9 +316,10 @@ what was sent: a step's `prompt_sent`, or else a picture's fields joined in
 instructions; a chat text's description, with its instructions. Each named
 field becomes one of its wordings, versioned by its words. Every step is
 compared with its fields before a column goes; if any differs the open
-fails and leaves the store as it was. The fields themselves stay, in
-`recipe_fields`, no longer written. It adds the vocabulary, the ratings
-with DataDungeon's words for each (`dd:pg`). It's one way:
+fails and leaves the store as it was. 0.14 kept the fields, in
+`recipe_fields`, no longer written; 0.15 drops them. It adds the
+vocabulary, the ratings with DataDungeon's words for each (`dd:pg`). It's
+one way:
 upgrade every program that opens a store (an app and its `dd-serve`)
 together.
 
@@ -505,7 +507,7 @@ HTTP::Server.new([api, app_handler])
 | `GET /assets?type=&q=&tag.<key>=&link.<rel>=&unlinked=&limit=&page=&before=&count=1` | a page of assets with their tags, and `next` (`&meta=1`: each picture's fields and view too) |
 | `…?retired=only` or `=include` | retired assets, or all, in listings and counts |
 | `…?field.<name>=<low>..<high>&view=back-left&view.side=&view.yaw=&view.pitch=&view.within=` | by picture fields (and `light.` alike) |
-| `…?file_hash=&description_hash=&text.<kind>=<owner:name>[/<purpose>][@<version>]` | by file, by shared description, by a wording a recipe used |
+| `…?file_hash=&description_hash=&text.<kind>=<owner:name>[@<version>]` | by file, by shared description, by a wording a recipe used |
 | `GET /assets/:id`, `/assets/:id/object`, `/assets/:id/links` | an asset with its tags, metadata and links; its bytes; its links |
 | `POST /maintenance/check` | the consistency report |
 | `GET /objects` | every object key the store's rows use, for clearing a shared bucket |

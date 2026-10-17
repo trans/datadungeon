@@ -248,7 +248,7 @@ module DataDungeon
       ) WITHOUT ROWID
     SQL
 
-    # Counted from the tables once, when the counts are new.
+    # The counts as the tables have them, for checking the triggers kept them.
     COUNT_TAGS = [<<-SQL, <<-SQL, <<-SQL]
       INSERT INTO asset_tag_counts (asset_type, tag_key, tag_value, current, retired)
       SELECT t.asset_type, t.tag_key, t.tag_value, SUM(a.retired_at IS NULL), SUM(a.retired_at IS NOT NULL)
@@ -647,72 +647,40 @@ module DataDungeon
       # rebuilding the assets table would otherwise cascade-delete every tag
       # and sidecar row; the pragma only changes outside a transaction.
       rebuilt = false
-      search_missing = false
-      views_unnamed = false
       @db.using_connection do |conn|
         conn.exec("PRAGMA foreign_keys=OFF")
         begin
           immediate(conn) do
+            raise BEFORE_012 if before_012?(conn)
             conn.exec(ASSETS_SCHEMA)
-            rebuilt = migrate_assets_schema(conn)
-            assets_columns = table_columns(conn, "assets")
-            {"made_at", "retired_at"}.each do |column|
-              conn.exec("ALTER TABLE assets ADD COLUMN #{column} TEXT") unless assets_columns.has_key?(column)
-            end
-            conn.exec("UPDATE assets SET made_at = created_at WHERE made_at IS NULL")
             conn.exec(TEXTS_SCHEMA)
             RECIPE_SCHEMAS.split(";").each { |sql| conn.exec(sql.strip) unless sql.strip.empty? }
             migrate_recipes(conn)
             rebuilt = migrate_prompts(conn) || rebuilt
+            rebuilt = migrate_wordings(conn) || rebuilt # 0.14's purposes
+            conn.exec("DROP TABLE IF EXISTS recipe_fields") # 0.13's prompt fields, kept read-only by 0.14
             WORDING_TRIGGERS.each { |sql| conn.exec(sql) }
             seed_vocabulary(conn)
-            conn.exec("DROP INDEX IF EXISTS idx_assets_single_key") # keys stopped being unique in 0.11
             ASSETS_INDEXES.split(";").each { |sql| conn.exec(sql.strip) unless sql.strip.empty? }
-            conn.exec("DROP INDEX IF EXISTS idx_assets_lookup") # keys now name their type
             conn.exec(ASSET_TAGS_SCHEMA)
-            unless table_columns(conn, "asset_tags").has_key?("custom")
-              conn.exec("ALTER TABLE asset_tags ADD COLUMN custom INTEGER NOT NULL DEFAULT 0")
-            end
-            migrate_tag_types(conn)
             conn.exec(ASSET_TAGS_INDEX)
-            conn.exec("DROP INDEX IF EXISTS idx_tags_kv") # superseded by idx_tags_type_kv
             conn.exec(ASSET_TYPES_SCHEMA)
-            asset_type_columns = table_columns(conn, "asset_types")
-            unless asset_type_columns.has_key?("sets")
-              conn.exec("ALTER TABLE asset_types ADD COLUMN sets TEXT NOT NULL DEFAULT '[]'")
-            end
-            unless asset_type_columns.has_key?("facets")
-              conn.exec("ALTER TABLE asset_types ADD COLUMN facets TEXT NOT NULL DEFAULT '{}'")
-            end
-            {"scales" => "'{}'", "colors" => "'[]'", "weights" => "'{}'", "cycles" => "'{}'", "match_fields" => "'[]'"}.each do |column, empty|
-              unless asset_type_columns.has_key?(column)
-                conn.exec("ALTER TABLE asset_types ADD COLUMN #{column} TEXT NOT NULL DEFAULT #{empty}")
-              end
-            end
             conn.exec(ASSET_CHANGES_SCHEMA)
             conn.exec(IMAGE_META_SCHEMA)
             conn.exec(IMAGE_ANIMATION_SCHEMA)
             conn.exec(IMAGE_KEYFRAMES_SCHEMA)
-            views_unnamed = migrate_image_meta(conn)
+            image_indexes(conn)
             conn.exec(AUDIO_META_SCHEMA)
             conn.exec(VIDEO_META_SCHEMA)
             conn.exec(TEXT_META_SCHEMA)
             conn.exec(ASSET_TAGS_KV_INDEX)
             conn.exec(ASSET_LINKS_SCHEMA)
-            unless table_columns(conn, "asset_links").has_key?("data")
-              conn.exec("ALTER TABLE asset_links ADD COLUMN data TEXT")
-            end
             ASSET_LINKS_INDEXES.split(";").each { |sql| conn.exec(sql.strip) unless sql.strip.empty? }
-            counts_missing = table_columns(conn, "asset_tag_counts").empty?
             conn.exec(ASSET_TAG_COUNTS_SCHEMA)
-            COUNT_TAGS.each { |sql| conn.exec(sql) } if counts_missing
             TAG_COUNT_TRIGGER_NAMES.each { |name| conn.exec("DROP TRIGGER IF EXISTS #{name}") }
             TAG_COUNT_TRIGGERS.each { |sql| conn.exec(sql) }
-            name_views(conn) if views_unnamed # counted by the triggers as they're named
             conn.exec(ASSET_INDEXES_SCHEMA)
             ASSET_KEYS_SCHEMA.split(";").each { |sql| conn.exec(sql.strip) unless sql.strip.empty? }
-            migrate_keys(conn)
-            search_missing = table_columns(conn, "asset_search").empty?
             conn.exec(ASSET_SEARCH_SCHEMA)
             conn.exec(ASSET_SEARCH_TERMS_SCHEMA)
           end
@@ -725,28 +693,30 @@ module DataDungeon
         end
       end
       load_types
-      # A database from before search gets its words once; labels come from
-      # the registrations, so after load_types.
-      if search_missing
-        write_transaction { |conn| reindex(conn, conn.query_all("SELECT id FROM assets", as: Int64)) }
-      end
+    end
+
+    # 0.15 dropped the conversions from before 0.12 (Thomas, 2026-10-17):
+    # a store last opened by an older DataDungeon, whose keys were still a
+    # column of its assets, is opened once by 0.14 first.
+    BEFORE_012 = "This store was last opened by a DataDungeon older than 0.12, which this one no longer converts: " \
+                 "open it read-write once with DataDungeon 0.14, then with this one"
+
+    private def before_012?(conn : ::DB::Connection) : Bool
+      assets = table_columns(conn, "assets")
+      !assets.empty? && (assets.has_key?("pool_key") || table_columns(conn, "asset_keys").empty?)
     end
 
     # A read-only open uses the schema as it is, so it must be the one
     # setup_schema leaves.
     private def check_schema : Nil
       @db.using_connection do |conn|
+        raise BEFORE_012 if before_012?(conn)
         assets = table_columns(conn, "assets")
-        tags = table_columns(conn, "asset_tags")
-        types = table_columns(conn, "asset_types")
-        current = !assets.has_key?("pool_key") && !assets.has_key?("pool") && !types.has_key?("pool") &&
-                  assets.has_key?("description_id") && !assets.has_key?("generation") && assets.has_key?("generated") &&
-                  assets.has_key?("made_at") && assets.has_key?("retired_at") &&
-                  table_columns(conn, "image_meta").has_key?("measured") &&
-                  !unique_file_path?(conn) && tags.has_key?("custom") && tags.has_key?("asset_type") &&
-                  table_columns(conn, "named_texts").has_key?("kind") &&
+        named = table_columns(conn, "named_texts")
+        current = assets.has_key?("description_id") && !assets.has_key?("generation") &&
+                  named.has_key?("kind") && !named.has_key?("purpose") &&
                   table_columns(conn, "recipes").has_key?("prompt_id") &&
-                  types.has_key?("sets") && types.has_key?("facets") && types.has_key?("weights") &&
+                  table_columns(conn, "recipe_fields").empty? &&
                   %w[image_meta image_animation image_keyframes audio_meta video_meta text_meta asset_links asset_search asset_search_terms asset_changes
                     asset_indexes asset_keys asset_tag_counts texts recipe_settings named_texts recipes recipe_wordings
                     recipe_legacy vocabulary_tags vocabulary_values].none? { |table| table_columns(conn, table).empty? }
@@ -799,34 +769,8 @@ module DataDungeon
       columns
     end
 
-    # Older tag tables lacked asset_type. Copy it from each tag's asset, after
-    # dropping tags whose asset is gone (unreachable; a delete made on a
-    # connection without foreign keys could leave them).
-    private def migrate_tag_types(conn : ::DB::Connection) : Nil
-      return if table_columns(conn, "asset_tags").has_key?("asset_type")
-      conn.exec("DELETE FROM asset_tags WHERE asset_id NOT IN (SELECT id FROM assets)")
-      conn.exec("ALTER TABLE asset_tags ADD COLUMN asset_type TEXT NOT NULL DEFAULT ''")
-      conn.exec("UPDATE asset_tags SET asset_type = (SELECT a.asset_type FROM assets a WHERE a.id = asset_tags.asset_id)")
-    end
-
-    # Before 0.11.1 image_meta lacked the measured and application fields,
-    # and kept an animation's frames itself: those move to image_animation.
-    # Returns whether the views have just gained their names (0.11.2).
-    private def migrate_image_meta(conn : ::DB::Connection) : Bool
-      columns = table_columns(conn, "image_meta")
-      relabel_media(conn) unless columns.has_key?("measured") # once, upgrading to 0.11.1
-      IMAGE_COLUMNS.each do |column, type|
-        conn.exec("ALTER TABLE image_meta ADD COLUMN #{column} #{type}") unless columns.has_key?(column)
-      end
-      unnamed = !columns.has_key?("view_name")
-      conn.exec("ALTER TABLE image_meta ADD COLUMN view_name TEXT") if unnamed
-      if columns.has_key?("animated")
-        conn.exec(<<-SQL)
-          INSERT OR IGNORE INTO image_animation (asset_id, frame_count, duration_ms)
-          SELECT asset_id, frame_count, duration_ms FROM image_meta WHERE animated = 1
-        SQL
-        %w[animated frame_count duration_ms].each { |column| conn.exec("ALTER TABLE image_meta DROP COLUMN #{column}") }
-      end
+    # The partial indexes over image fields, and the image_views view.
+    private def image_indexes(conn : ::DB::Connection) : Nil
       IMAGE_INDEXED.each do |column|
         conn.exec("CREATE INDEX IF NOT EXISTS idx_image_#{column} ON image_meta(#{column}) WHERE #{column} IS NOT NULL")
         next unless KEYFRAME_FIELDS.includes?(column) # and alike on the checkpoints
@@ -841,27 +785,6 @@ module DataDungeon
         false
       end
       conn.exec(IMAGE_VIEWS) if math
-      unnamed
-    end
-
-    # Name every view stored before views had names.
-    private def name_views(conn : ::DB::Connection) : Nil
-      views = conn.query_all("SELECT asset_id, view_x, view_y, view_z FROM image_meta WHERE view_x IS NOT NULL",
-        as: {Int64, Float64, Float64, Float64})
-      views.each do |(id, x, y, z)|
-        conn.exec("UPDATE image_meta SET view_name = ? WHERE asset_id = ?", Direction.name(x, y, z), id)
-      end
-    end
-
-    # Before 0.11.1 a content type DataDungeon didn't know (JSON, a PDF) was
-    # given the medium "image". Those rows take the one media_of gives.
-    private def relabel_media(conn : ::DB::Connection) : Nil
-      wrong = conn.query_all("SELECT id, content_type FROM assets WHERE media = 'image' AND content_type NOT LIKE 'image/%'",
-        as: {Int64, String})
-      wrong.each do |(id, content_type)|
-        conn.exec("UPDATE assets SET media = ? WHERE id = ?", DB.media_of(content_type), id)
-        conn.exec("DELETE FROM image_meta WHERE asset_id = ?", id)
-      end
     end
 
     # Each image's view in readable form (Direction), for people.
@@ -874,88 +797,6 @@ module DataDungeon
              view_roll AS roll
       FROM image_meta WHERE view_x IS NOT NULL
     SQL
-
-    # Older databases called the key canonical_key (and once required it),
-    # lacked the description fields, or required a unique file_path (objects
-    # are now shared by content). Rebuild only that table; its child tables
-    # retain their asset_id references. Their keys are derived again on open,
-    # since their registrations carry an older key scheme.
-    private def migrate_assets_schema(conn : ::DB::Connection) : Bool
-      columns = table_columns(conn, "assets")
-      return false unless columns.has_key?("canonical_key") || columns["pool_key"]? == 1 ||
-                          !(columns.has_key?("description") || columns.has_key?("description_id")) ||
-                          !columns.has_key?("generated") ||
-                          unique_file_path?(conn)
-
-      kept = ->(column : String) { columns.has_key?(column) ? column : "NULL" }
-      generated = columns.has_key?("generated") ? "generated" : "CASE WHEN generator IS NULL THEN 0 ELSE 1 END"
-
-      # Also with the columns before 0.13, which migrate_recipes moves on.
-      conn.exec(ASSETS_SCHEMA.sub("IF NOT EXISTS assets", "assets_migrated")
-        .sub("description_id INTEGER REFERENCES texts(id),",
-             "description_id INTEGER REFERENCES texts(id), generation TEXT, description TEXT,"))
-      conn.exec(<<-SQL)
-        INSERT INTO assets_migrated
-        (id, asset_type, media, content_type, file_path, file_hash,
-         created_at, last_used_at, use_count, permanent, generator,
-         description_id, generation, description, generated, rating, flagged)
-        SELECT id, asset_type, media, content_type, file_path, file_hash,
-               created_at, last_used_at, use_count, permanent, generator,
-               #{kept.call("description_id")}, #{kept.call("generation")}, #{kept.call("description")},
-               #{generated}, rating, flagged
-        FROM assets
-      SQL
-      conn.exec("DROP TABLE assets")
-      conn.exec("ALTER TABLE assets_migrated RENAME TO assets")
-      true
-    end
-
-    # Before 0.12 an asset's key in its type's own order was a column
-    # (`pool_key`), and `pool` a flag on assets and types. Each registered
-    # type's keys move to its own index in asset_keys, and the columns go;
-    # keys an unregistered type's caller gave go with them.
-    private def migrate_keys(conn : ::DB::Connection) : Nil
-      assets = table_columns(conn, "assets")
-      if assets.has_key?("pool_key")
-        conn.query_all("SELECT asset_type, pool_traits FROM asset_types", as: {String, String}).each do |(type, traits)|
-          conn.exec("INSERT OR IGNORE INTO asset_indexes (asset_type, consumer, name, traits) VALUES (?, '', '', ?)",
-            type, traits)
-        end
-        conn.exec(<<-SQL)
-          INSERT INTO asset_keys (asset_id, index_id, key)
-          SELECT a.id, i.id, a.pool_key FROM assets a
-          JOIN asset_indexes i ON i.asset_type = a.asset_type AND i.consumer = '' AND i.name = ''
-          WHERE a.pool_key IS NOT NULL
-          ON CONFLICT (asset_id, index_id) DO UPDATE SET key = excluded.key
-        SQL
-        conn.exec("DROP INDEX IF EXISTS idx_assets_pool_key")
-        conn.exec("ALTER TABLE assets DROP COLUMN pool_key")
-      end
-      conn.exec("ALTER TABLE assets DROP COLUMN pool") if assets.has_key?("pool")
-      conn.exec("ALTER TABLE asset_types DROP COLUMN pool") if table_columns(conn, "asset_types").has_key?("pool")
-    end
-
-    # Whether the assets table still carries a UNIQUE constraint on file_path.
-    private def unique_file_path?(conn : ::DB::Connection) : Bool
-      constraint_indexes = [] of String
-      conn.query("PRAGMA index_list(assets)") do |rs|
-        rs.each do
-          rs.read(Int32) # seq
-          name = rs.read(String)
-          unique = rs.read(Int32)
-          origin = rs.read(String)
-          rs.read(Int32) # partial
-          constraint_indexes << name if unique == 1 && origin == "u"
-        end
-      end
-      constraint_indexes.any? do |name|
-        conn.query_all(%(PRAGMA index_info("#{name}"))) { |rs|
-          rs.read(Int32)
-          rs.read(Int32)
-          rs.read(String?)
-        }.includes?("file_path")
-      end
-    end
 
     # ── Store ──
 

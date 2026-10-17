@@ -181,28 +181,6 @@ describe "Media" do
     }.each { |content_type, media| DataDungeon::DB.media_of(content_type).should eq media }
   end
 
-  it "relabels an older store's assets it had called pictures" do
-    dir = File.tempname("dd-media-relabel")
-    Dir.mkdir_p(dir)
-    path = File.join(dir, "assets.db")
-    raw = ::DB.open("sqlite3://#{path}")
-    raw.exec(DataDungeon::DB::ASSETS_SCHEMA)
-    raw.exec("CREATE TABLE image_meta (asset_id INTEGER PRIMARY KEY, width INTEGER, height INTEGER, usage_class TEXT, " \
-             "compression TEXT DEFAULT 'original', quality_floor INTEGER, max_colors INTEGER, target_format TEXT, presentation TEXT)")
-    {1 => "application/json", 2 => "application/pdf", 3 => "image/webp"}.each do |id, content_type|
-      raw.exec("INSERT INTO assets (id, asset_type, media, content_type, file_path, created_at) VALUES (?, 'x', 'image', ?, ?, '2026-01-01 00:00:00')",
-        id, content_type, "f#{id}")
-      raw.exec("INSERT INTO image_meta (asset_id) VALUES (?)", id)
-    end
-    raw.close
-
-    db = DataDungeon::DB.new(path)
-    db.connection.query_all("SELECT media FROM assets ORDER BY id", as: String).should eq %w[text data image]
-    db.connection.query_all("SELECT asset_id FROM image_meta", as: Int64).should eq [3_i64]
-  ensure
-    db.try(&.close)
-    FileUtils.rm_rf(dir) if dir
-  end
 end
 
 describe DataDungeon::Direction do
@@ -348,23 +326,6 @@ describe "Image fields" do
     end
   end
 
-  it "names an older store's views, and counts them" do
-    with_db("dd-image-view-names") do |db|
-      db.store("prop", {"thing" => "a"}, bytes: png(1, 1) { RED }, content_type: "image/png",
-        image: DataDungeon::ImageMeta.new(view: DataDungeon::Direction.new("front", 0.5)))
-      # As 0.11.1 left it: no names, no view counts, no triggers for them.
-      DataDungeon::DB::TAG_COUNT_TRIGGER_NAMES.each { |name| db.connection.exec("DROP TRIGGER #{name}") }
-      db.connection.exec("DELETE FROM asset_tag_counts WHERE tag_key = '@view'")
-      db.connection.exec("ALTER TABLE image_meta DROP COLUMN view_name")
-      reopened = DataDungeon::DB.new(db.path)
-      begin
-        reopened.view_counts("prop").should eq({"front-right" => 1})
-      ensure
-        reopened.close
-      end
-    end
-  end
-
   it "keeps an animation's checkpoints, measuring the content box at each" do
     with_db("dd-image-keyframes") do |db|
       frames = [0, 1, 2].map { |n| rgba(16, 16) { |x, y| x < 4 + n * 4 && y < 8 ? RED : CLEAR } }
@@ -422,30 +383,6 @@ describe "Image fields" do
     end
   end
 
-  it "moves an older store's animation fields into image_animation" do
-    dir = File.tempname("dd-image-migrate")
-    Dir.mkdir_p(dir)
-    path = File.join(dir, "assets.db")
-    raw = ::DB.open("sqlite3://#{path}")
-    raw.exec(DataDungeon::DB::ASSETS_SCHEMA)
-    raw.exec(<<-SQL)
-      CREATE TABLE image_meta (asset_id INTEGER PRIMARY KEY, width INTEGER, height INTEGER, usage_class TEXT,
-        animated INTEGER DEFAULT 0, frame_count INTEGER, duration_ms INTEGER, compression TEXT DEFAULT 'original',
-        quality_floor INTEGER, max_colors INTEGER, target_format TEXT, presentation TEXT)
-    SQL
-    raw.exec("INSERT INTO assets (id, asset_type, media, content_type, file_path, created_at) VALUES (1, 'sprite', 'image', 'image/webp', 'ab/x.webp', '2026-01-01 00:00:00')")
-    raw.exec("INSERT INTO image_meta (asset_id, width, animated, frame_count, duration_ms) VALUES (1, 64, 1, 8, 800)")
-    raw.close
-
-    db = DataDungeon::DB.new(path)
-    meta = db.load_image_meta(1_i64).not_nil!
-    meta.width.should eq 64
-    {meta.animation.not_nil!.frame_count, meta.animation.not_nil!.duration_ms}.should eq({8, 800})
-    db.connection.query_all("SELECT name FROM pragma_table_info('image_meta')", as: String).should_not contain "animated"
-  ensure
-    db.try(&.close)
-    FileUtils.rm_rf(dir) if dir
-  end
 end
 
 describe "Best matches on image fields" do

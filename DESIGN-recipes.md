@@ -1,6 +1,6 @@
 # Recipes: a shared standard for how assets were made
 
-*Draft 2026-10-12, with Thomas, `@overlore` and `@mj`; built in 0.13, and in 0.14 a recipe keeps the prompt as sent with the wordings in it (2026-10-16), each app names and words its own styles, with no standard ones, and a wording's purpose is deprecated (2026-10-17). The types it applies to are in `DESIGN-types.md`.*
+*Draft 2026-10-12, with Thomas, `@overlore` and `@mj`; built in 0.13, and in 0.14 a recipe keeps the prompt as sent with the wordings in it (2026-10-16), each app names and words its own styles, with no standard ones (2026-10-17); 0.15 removed a wording's purpose (2026-10-17). The types it applies to are in `DESIGN-types.md`.*
 
 ## Why
 
@@ -152,8 +152,8 @@ it:
   their index costing more than the words they saved.
 - **Wordings:** the words an app reuses (its styles, rules, framing, a
   character; a voice's style), each named by its owner: a row with **kind,
-  owner, name, purpose, version** pointing at its text (Thomas,
-  2026-10-12: fields, not one string; the purpose 2026-10-14). The owner is
+  owner, name, version** pointing at its text (Thomas, 2026-10-12: fields,
+  not one string). The owner is
   the app that made it, its consumer name (`DB.new(…, consumer:
   "overlore")`), or `dd` for DataDungeon's own; only it adds wordings under
   its names. A recipe lists the wordings in its prompt and instructions, in
@@ -166,11 +166,13 @@ it:
   renames another's. Searchable like tags: every picture of one style, any
   version, or one version. A **purpose**, what a wording is for
   (`overlore:silver-comic/place`), came in on 2026-10-14 so one style
-  could be worded once for figures and once for places. It is deprecated
-  (Thomas, 2026-10-17): that difference is framing, which has its own
-  part, so one style wording serves both. Stored ones keep working until a
-  later release removes it, rewriting the stored ones once, a fix to the
-  design (Thomas); proposed: each becomes a version of its name.
+  could be worded once for figures and once for places. That difference
+  is framing, which has its own part, so one style wording serves both:
+  deprecated in 0.14 and removed in 0.15 (Thomas, 2026-10-17). 0.15's
+  first open rewrites the stored ones once, the one rewrite of stored
+  wordings, as a fix to the design (Thomas): each becomes a version of its
+  plain name, its words and version unchanged, and the open is refused if
+  two would become one.
 - **A version is the words' hash** (`@mj` with Thomas, 2026-10-16): the
   first 10 hex characters of their SHA-256 (`texts.hash`), so
   `overlore:silver-comic@3f9a2c71b0` means the same words in every store,
@@ -274,9 +276,8 @@ db.update_asset(id, description: "…", everywhere: true)  # for every asset sha
   `""`, settings and references only.
 - **Steps:** `Recipe.in_steps([edit, matte])` for an asset made in steps,
   each a recipe of its own; a single recipe is one step.
-- **Wordings:** `Recipe.wording(kind, name, words)`, the name `owner:name`
-  (`owner:name/purpose` is deprecated), with `@version` when reading one
-  back (a version given going in must be the words'). The kind is free:
+- **Wordings:** `Recipe.wording(kind, name, words)`, the name `owner:name`,
+  with `@version` when reading one back (a version given going in must be the words'). The kind is free:
   `style`, `rules`, `rating`, `framing`, `character`, `theme`, … A search
   by `owner:name` finds every version; `@version` narrows it to one.
 - **The asset's `description`** is a text in the same table (decided
@@ -292,7 +293,7 @@ db.update_asset(id, description: "…", everywhere: true)  # for every asset sha
   cheap flag `@curio` asked for; `GET /assets/:id/recipe` returns the
   recipe, `{form, settings, prompt, instructions, wordings: [{kind, name,
   text}], …}`, steps included; `GET /assets` filters by `file_hash`,
-  `description_hash` and `text.<kind>=owner:name[/purpose][@version]`.
+  `description_hash` and `text.<kind>=owner:name[@version]`.
 - **Dialogue and assembled recipes** (a cast, a timeline) come when an app
   stores the first one.
 
@@ -322,9 +323,10 @@ instructions; a chat text's description, with its instructions. Each named
 field becomes one of its wordings, the field its kind, the version its
 words' hash; `named_texts` is rebuilt once for that, its rows copied with
 their ids and compared before the old table goes. Every step is compared
-with its fields before a column goes, and the fields stay, in
-`recipe_fields`, no longer written, until the apps have moved. A 0.13.0
-store, whose named texts had no purpose, converts the same way.
+with its fields before a column goes. 0.14 kept the fields, in
+`recipe_fields`, no longer written, until the apps had moved; 0.15 drops
+them, after a 0.13 store's prompts are read from them. A 0.13.0 store,
+whose named texts had no purpose, converts the same way.
 
 ## Considered first: compressed segments
 
@@ -374,9 +376,10 @@ wordings.
   it. Nothing breaks without it.
 - **Release:** 0.13, on its own; the prompt as sent, the wordings, the
   apps' own styles in 0.14 with the vocabulary of ratings and their words,
-  and the purpose deprecated (Thomas, 2026-10-15 to 2026-10-17); the purpose
-  removed, and `recipe_fields` dropped, once Overlore and Owl have moved
-  off them; the embeddings registry (`DESIGN-embeddings.md`) in 0.16.
+  and the purpose deprecated (Thomas, 2026-10-15 to 2026-10-17); 0.15 a
+  cleanup, the purpose removed and `recipe_fields` dropped, with the
+  conversions from before 0.12 (Thomas, 2026-10-17); the embeddings
+  registry (`DESIGN-embeddings.md`) in 0.16.
 - **Compression** of stored prompts, if size comes to matter: zlib took
   Overlore's prompts from 659 to 399 bytes on average, and it can come
   later without changing anything apps write.

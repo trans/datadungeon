@@ -9,7 +9,8 @@ records into its own, so what was here for several apps sharing one store
 dropped, and the hub is deferred. **There are no standard styles**
 (Thomas, 2026-10-17): each app names, words and tags its own, pictures
 aren't expected to move between apps, and styles shared between apps fall
-to the hub, later.*
+to the hub, later. Standard types and tags aren't in 0.15, a small cleanup
+release first (Thomas, 2026-10-17); they wait for a later decision.*
 
 ## Why
 
@@ -495,4 +496,4 @@ vocabulary. Apps keep `register_index` for their own fast lookups (Thomas,
   picture prompts, `rating` only (no standard styles, Thomas, 2026-10-17). The types, several values per tag
   and keys as the apps' indexes wait for an app that needs them (Thomas,
   2026-10-16: a freeze on what no app uses yet); uses and owner tags are
-  dropped.
+  dropped. 0.15 is a small cleanup, without them (Thomas, 2026-10-17).

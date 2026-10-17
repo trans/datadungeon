@@ -221,8 +221,9 @@ describe DataDungeon::API do
       listed["total"].should eq 2
       json(call(api, "GET", "/dd/assets?file_hash=#{b.file_hash}", "r"))["assets"].as_a.map(&.["asset"]["id"]).should eq [b.id]
       json(call(api, "GET", "/dd/assets?text.style=overlore:silver", "r"))["assets"].as_a.should be_empty
-      json(call(api, "GET", "/dd/assets?text.style=overlore:silver-comic/figure@0123456789", "r"))["assets"].as_a.should be_empty
-      call(api, "GET", "/dd/assets?text.style=overlore:silver-comic/figure@2", "r").status_code.should eq 400
+      json(call(api, "GET", "/dd/assets?text.style=overlore:silver-comic@0123456789", "r"))["assets"].as_a.should be_empty
+      call(api, "GET", "/dd/assets?text.style=overlore:silver-comic@2", "r").status_code.should eq 400
+      call(api, "GET", "/dd/assets?text.style=overlore:silver-comic/figure", "r").status_code.should eq 400 # purposes went in 0.15
       call(api, "GET", "/dd/assets?text.style=silver", "r").status_code.should eq 400
       call(api, "GET", "/dd/assets?text.style=overlore:silver-comic/", "r").status_code.should eq 400
 

@@ -23,10 +23,9 @@ module DataDungeon
     # wording it is (`style`, `rules`, `rating`, `framing`, `character`,
     # `theme`, ...), its name and its words. A name is `owner:name` going in
     # and `owner:name@version` coming back; the owner is the app that wrote
-    # the wording (its consumer name), or `dd` for DataDungeon's own. A name
-    # may still add a purpose, `owner:name/purpose`, but it's deprecated
-    # (Thomas, 2026-10-17): it came in for one style worded once for figures
-    # and once for places, which is framing, and framing is its own part.
+    # the wording (its consumer name), or `dd` for DataDungeon's own. (0.13
+    # and 0.14 let a name add a purpose, `owner:name/purpose`; 0.15 removed
+    # it, since what it told apart was framing, which has its own part.)
     struct Wording
       include JSON::Serializable
 
@@ -37,27 +36,25 @@ module DataDungeon
       def initialize(@kind : String, @name : String, @text : String)
       end
 
-      # {owner, name, purpose, version}: the purpose empty when there's
-      # none, the version nil when not given.
-      def handle : {String, String, String, String?}
+      # {owner, name, version}: the version nil when not given.
+      def handle : {String, String, String?}
         base, at, version = @name.partition('@')
-        owner, colon, rest = base.partition(':')
-        name, slash, purpose = rest.partition('/')
-        unless colon == ":" && DB::LABEL.matches?(owner) && DB::LABEL.matches?(name) &&
-               (slash.empty? || DB::LABEL.matches?(purpose)) && (at.empty? || Recipe.version?(version))
-          raise ArgumentError.new("a wording's name is owner:name or owner:name/purpose, with @version " \
-                                  "(#{VERSION_SIZE} hex characters of its words' SHA-256) to name one wording " \
-                                  "(#{@name.inspect})")
+        owner, colon, name = base.partition(':')
+        if name.includes?('/')
+          raise ArgumentError.new("a wording's name is owner:name: purposes were removed in 0.15 (#{@name.inspect})")
         end
-        {owner, name, purpose, at.empty? ? nil : version}
+        unless colon == ":" && DB::LABEL.matches?(owner) && DB::LABEL.matches?(name) && (at.empty? || Recipe.version?(version))
+          raise ArgumentError.new("a wording's name is owner:name, with @version (#{VERSION_SIZE} hex characters " \
+                                  "of its words' SHA-256) to name one wording (#{@name.inspect})")
+        end
+        {owner, name, at.empty? ? nil : version}
       end
 
-      # How a wording is named: `owner:name`, `/purpose` when it has one,
-      # and `@version` when there is one.
-      def self.handle(owner : String, name : String, purpose : String, version : String? = nil) : String
+      # How a wording is named: `owner:name`, and `@version` when there is
+      # one.
+      def self.handle(owner : String, name : String, version : String? = nil) : String
         String.build do |io|
           io << owner << ':' << name
-          io << '/' << purpose unless purpose.empty?
           io << '@' << version if version
         end
       end
@@ -100,8 +97,7 @@ module DataDungeon
       new("", steps: steps)
     end
 
-    # A named wording of some kind, `owner:name` (`owner:name/purpose` is
-    # deprecated).
+    # A named wording of some kind, `owner:name`.
     def self.wording(kind : String, name : String, text : String) : Wording
       Wording.new(kind, name, text)
     end
@@ -143,7 +139,7 @@ module DataDungeon
       @wordings.each do |wording|
         raise ArgumentError.new("a wording's kind is lowercase words joined by '-' (#{wording.kind.inspect})") unless DB::LABEL.matches?(wording.kind)
         raise ArgumentError.new("the #{wording.kind} wording #{wording.name} has no words") if wording.text.empty?
-        _, _, _, version = wording.handle
+        _, _, version = wording.handle
         if version && version != Recipe.version(wording.text)
           raise ArgumentError.new("#{wording.name}'s words are version #{Recipe.version(wording.text)}, not #{version}")
         end

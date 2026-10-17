@@ -314,6 +314,15 @@ describe "DataDungeon::DB read-only" do
     raw = ::DB.open("sqlite3://#{File.join(dir, "assets.db")}")
     raw.exec("CREATE TABLE assets (id INTEGER PRIMARY KEY, asset_type TEXT, canonical_key TEXT)")
     raw.close
+    expect_raises(Exception, /older than 0.12/) { open_read_only(dir) }
+    FileUtils.rm_rf(dir)
+
+    # A 0.14 store keeps 0.13's prompt fields until it's opened read-write.
+    Dir.mkdir_p(dir)
+    DataDungeon::DB.new(File.join(dir, "assets.db"), cache_root: File.join(dir, "store")).close
+    raw = ::DB.open("sqlite3://#{File.join(dir, "assets.db")}")
+    raw.exec("CREATE TABLE recipe_fields (asset_id INTEGER)")
+    raw.close
     expect_raises(DataDungeon::ReadOnlyError, /needs upgrading/) { open_read_only(dir) }
   ensure
     FileUtils.rm_rf(dir) if dir
