@@ -116,6 +116,20 @@ Overlore the reply, with its 10 stored purposes and its `dd-0.14` still
 on `bg`/`tile` and flavor; Owl, mj and curio the change (and `/vocabulary`'s
 `style` → `wording`); Cattacula and Pirateship where 0.14 stands.
 
+**Overlore took it (2026-10-17, `…-171508Z-…-b11c55aa.md`):** its
+`dd-0.14` `ee7036d` uses its eight, one `overlore:<standard>` style
+wording for places and figures, no `dd:` words, no flavor; 230 specs pass
+on `791b22a`. Nothing of its reads by purpose; its 10 stored purposes are
+only in old recipes, and it's fine with them becoming versions of
+`overlore:<style>` whenever.
+
+**Checked at `791b22a` (2026-10-17), for the tag:** fresh copies of all
+five live stores (`scratchpad/p014/final3`) convert with 0 differences
+(Overlore 916 recipes, 26 wordings; Owl 97, 11), no other table changed,
+integrity and foreign keys ok, 18 vocabulary values each with DD's words,
+UPDATE and DELETE on `named_texts` refused, a second open changes nothing.
+dd-serve, Cattacula and Pirateship type-check.
+
 **Next:** no separate notice of `rating_text` (Thomas, 2026-10-17); painted-animation waits on Thomas asking Owl; then merge,
 tag (ask first), release notes.
 
