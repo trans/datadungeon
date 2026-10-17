@@ -210,7 +210,7 @@ describe DataDungeon::Recipe do
     end
   end
 
-  it "makes a 0.14 wording with a purpose a version of its plain name" do
+  it "makes a 0.14 wording with a purpose a version of its plain name, or drops it if nothing names it" do
     dir = File.tempname("dd-recipe-from-014")
     Dir.mkdir_p(dir)
     path = File.join(dir, "assets.db")
@@ -222,13 +222,16 @@ describe DataDungeon::Recipe do
     raw = ::DB.open("sqlite3://#{path}")
     as_014(raw, {"Silver Age comic art, one figure." => "figure", "Silver Age comic art, a wide room." => "place"})
     ids = raw.query_all("SELECT id FROM named_texts ORDER BY id", as: Int64)
+    # One with a purpose that nothing names any more, as after an app relinks its pictures.
+    raw.exec("INSERT INTO named_texts (kind, owner, name, purpose, version, text_id) VALUES ('style', 'overlore', 'silver-comic', 'portrait', ?, ?)",
+      version("Silver Age comic art, retired."), raw_text(raw, "Silver Age comic art, retired."))
     raw.close
 
     db = DataDungeon::DB.new(path, cache_root: File.join(dir, "store"), consumer: "overlore")
     db.recipe(figure.id).not_nil!.wordings[0].name.should eq "overlore:silver-comic@#{version("Silver Age comic art, one figure.")}"
     db.with_text("style", "overlore:silver-comic").should eq [figure.id, place.id]
     db.named_texts("style", "overlore").map(&.[0]).should eq ["silver-comic", "silver-comic"]
-    db.connection.query_all("SELECT id FROM named_texts ORDER BY id", as: Int64).should eq ids
+    db.connection.query_all("SELECT id FROM named_texts ORDER BY id", as: Int64).should eq ids # the unnamed one isn't kept
     db.connection.query_all("SELECT name FROM pragma_table_info('named_texts')", as: String).should_not contain "purpose"
     db.connection.query_all("PRAGMA foreign_key_check", &.read(::DB::Any)).should be_empty
     raw = ::DB.open("sqlite3://#{path}")
@@ -245,18 +248,20 @@ describe DataDungeon::Recipe do
     FileUtils.rm_rf(dir) if dir
   end
 
-  it "leaves a 0.14 store as it was when two purposes held the same words" do
+  it "leaves a 0.14 store as it was when two purposes in use held the same words" do
     dir = File.tempname("dd-recipe-from-014-refused")
     Dir.mkdir_p(dir)
     path = File.join(dir, "assets.db")
     db = DataDungeon::DB.new(path, cache_root: File.join(dir, "store"), consumer: "overlore")
     db.register_type("panel", pool_traits: %w[art-style])
     store_panel(db, "a", styled("An elf.", "overlore:silver-comic", "Silver Age comic art."))
+    hall = store_panel(db, "b", styled("A hall.", "overlore:silver-comic", "Silver Age comic art."))
     db.close
     raw = ::DB.open("sqlite3://#{path}")
     as_014(raw, {"Silver Age comic art." => "figure"})
     raw.exec("INSERT INTO named_texts (kind, owner, name, purpose, version, text_id) " \
              "SELECT kind, owner, name, 'place', version, text_id FROM named_texts WHERE purpose = 'figure'")
+    raw.exec("UPDATE recipe_wordings SET named_id = (SELECT id FROM named_texts WHERE purpose = 'place') WHERE asset_id = ?", hall.id)
     before = raw.query_all("SELECT id, purpose FROM named_texts ORDER BY id", as: {Int64, String})
     raw.close
 

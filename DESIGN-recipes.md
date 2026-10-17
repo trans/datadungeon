@@ -170,9 +170,13 @@ it:
   is framing, which has its own part, so one style wording serves both:
   deprecated in 0.14 and removed in 0.15 (Thomas, 2026-10-17). 0.15's
   first open rewrites the stored ones once, the one rewrite of stored
-  wordings, as a fix to the design (Thomas): each becomes a version of its
-  plain name, its words and version unchanged, and the open is refused if
-  two would become one.
+  wordings, as a fix to the design (Thomas): one nothing names any more
+  isn't kept, and one still named becomes a version of its plain name, its
+  words and version unchanged; the open is refused if two would become
+  one. Overlore's 10 were built on the mistake, so it relinks its 26
+  pictures to its current style wordings first (`set_recipe(replace:
+  true)`, the prompt taking the new words), and none is left over (Thomas,
+  2026-10-17: a clean start, not special versions).
 - **A version is the words' hash** (`@mj` with Thomas, 2026-10-16): the
   first 10 hex characters of their SHA-256 (`texts.hash`), so
   `overlore:silver-comic@3f9a2c71b0` means the same words in every store,

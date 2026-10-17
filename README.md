@@ -270,9 +270,10 @@ db.vocabulary                         # the shared tags (rating) and their value
 - **No purposes** (Thomas, 2026-10-17): 0.13 and 0.14 let a name add one,
   `owner:name/purpose`, so one style could be worded once for figures and
   once for places. That difference is framing, which has its own part, so
-  0.15 removed it: a name with a `/` is refused, and the first read-write
-  open by 0.15 makes each stored wording with a purpose a version of its
-  plain name (`overlore:silver-comic/place@3f9a2c71b0` becomes
+  0.15 removed it: a name with a `/` is refused. The first read-write open
+  by 0.15 drops a stored wording with a purpose that nothing names any
+  more, and makes one still named a version of its plain name
+  (`overlore:silver-comic/place@3f9a2c71b0` becomes
   `overlore:silver-comic@3f9a2c71b0`, the same words), refusing to open if
   two would become one.
 - **There are no standard styles** (Thomas, 2026-10-17): each app names,

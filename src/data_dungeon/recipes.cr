@@ -383,7 +383,7 @@ module DataDungeon
     # setup_schema checks the references afterwards.
     private def migrate_prompts(conn : ::DB::Connection) : Bool
       return false unless table_columns(conn, "recipes").has_key?("sent_as_joined")
-      migrate_wordings(conn)
+      migrate_wordings(conn, fields_name: true)
       conn.exec("ALTER TABLE recipes ADD COLUMN prompt_id INTEGER REFERENCES texts(id)")
       conn.exec("ALTER TABLE recipes ADD COLUMN instructions_id INTEGER REFERENCES texts(id)")
 
@@ -439,21 +439,35 @@ module DataDungeon
     # Rebuilds named_texts in 0.15's shape, from 0.13's (each wording's
     # field and a number for its version, with a purpose since 0.13.1) or
     # 0.14's (with a purpose): its kind, owner, name, and a version from its
-    # words. A wording with a purpose becomes a version of its plain name,
-    # its words and version unchanged: what the purpose told apart was
-    # framing (Thomas, 2026-10-17). Every row is copied with its id, so
-    # recipes still point at it, and the copy is compared with the original
-    # before the original goes. Two wordings that would be one name's same
-    # version (the same words under two purposes, or two versions whose
-    # words' hashes start alike) raise, and the open's transaction leaves
-    # the store as it was. True when it rebuilt.
-    private def migrate_wordings(conn : ::DB::Connection) : Bool
+    # words. Purposes went in 0.15, since what they told apart was framing
+    # (Thomas, 2026-10-17): a wording with one that nothing names any more
+    # isn't kept, so no version is left over for it, and one a recipe still
+    # names becomes a version of its plain name, its words and version
+    # unchanged. Every other row is copied with its id, so recipes still
+    # point at it, and the copy is compared with the original before the
+    # original goes. Two wordings that would be one name's same version (the
+    # same words under two purposes, or two versions whose words' hashes
+    # start alike) raise, and the open's transaction leaves the store as it
+    # was. `fields_name:` when a 0.13 store's recipes are read from its
+    # prompt fields after this, so what they name is in use. True when it
+    # rebuilt.
+    private def migrate_wordings(conn : ::DB::Connection, fields_name : Bool = false) : Bool
       columns = table_columns(conn, "named_texts")
       return false if columns.has_key?("kind") && !columns.has_key?("purpose")
       kind = columns.has_key?("kind") ? "n.kind" : "n.field"
-      rows = conn.query_all(<<-SQL, as: {Int64, String, String, String, Int64, String})
-        SELECT n.id, #{kind}, n.owner, n.name, n.text_id, t.hash FROM named_texts n JOIN texts t ON t.id = n.text_id
+      # What names a wording: a recipe, the vocabulary, or 0.13's prompt
+      # fields while they're still to be read.
+      users = {"recipe_wordings" => "named_id", "vocabulary_values" => "wording_id"}
+      users["recipe_fields"] = "named_id" if fields_name
+      named = users.compact_map do |table, column|
+        "EXISTS (SELECT 1 FROM #{table} u WHERE u.#{column} = n.id)" unless table_columns(conn, table).empty?
+      end
+      unused = columns.has_key?("purpose") ? "n.purpose != '' AND NOT (#{named.empty? ? "0" : named.join(" OR ")})" : "0"
+      rows = conn.query_all(<<-SQL, as: {Int64, String, String, String, Int64, String, Bool})
+        SELECT n.id, #{kind}, n.owner, n.name, n.text_id, t.hash, #{unused}
+        FROM named_texts n JOIN texts t ON t.id = n.text_id
       SQL
+      dropped, rows = rows.partition(&.[6])
       rows.group_by { |row| {row[1], row[2], row[3]} }.each do |(of_kind, owner, name), group|
         versions = group.map(&.[5][0, Recipe::VERSION_SIZE])
         unless versions.uniq.size == versions.size
@@ -463,19 +477,20 @@ module DataDungeon
       end
       schema = RECIPE_SCHEMAS.split(";").find!(&.includes?("named_texts ("))
       conn.exec(schema.sub("IF NOT EXISTS named_texts", "named_texts_migrated"))
-      rows.each do |(id, of_kind, owner, name, text_id, hash)|
+      rows.each do |(id, of_kind, owner, name, text_id, hash, _)|
         conn.exec("INSERT INTO named_texts_migrated (id, kind, owner, name, version, text_id) VALUES (?, ?, ?, ?, ?, ?)",
           id, of_kind, owner, name, hash[0, Recipe::VERSION_SIZE], text_id)
       end
       # 0.14's versions are already their words'.
       kept = columns.has_key?("kind") ? "OR m.version IS NOT n.version" : ""
-      lost = conn.scalar(<<-SQL).as(Int64)
-        SELECT (SELECT COUNT(*) FROM named_texts) - (SELECT COUNT(*) FROM named_texts_migrated)
-             + (SELECT COUNT(*) FROM named_texts n LEFT JOIN named_texts_migrated m ON m.id = n.id
+      lost = conn.scalar(<<-SQL, dropped.size).as(Int64)
+        SELECT (SELECT COUNT(*) FROM named_texts) - ? - (SELECT COUNT(*) FROM named_texts_migrated)
+             + (SELECT COUNT(*) FROM named_texts n JOIN named_texts_migrated m ON m.id = n.id
                 LEFT JOIN texts t ON t.id = n.text_id
                 WHERE m.kind IS NOT #{kind} OR m.owner IS NOT n.owner OR m.name IS NOT n.name
                    OR m.text_id IS NOT n.text_id OR m.version IS NOT substr(t.hash, 1, #{Recipe::VERSION_SIZE}) #{kept})
       SQL
+      lost += 1 unless conn.query_all("SELECT id FROM named_texts_migrated ORDER BY id", as: Int64) == rows.map(&.[0]).sort
       raise "copying named texts to version them by their words left #{lost} different; the store is unchanged" unless lost == 0
       conn.exec("DROP TABLE named_texts")
       conn.exec("ALTER TABLE named_texts_migrated RENAME TO named_texts")
