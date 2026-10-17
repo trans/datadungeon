@@ -57,9 +57,31 @@ parts (the held template-parts draft is superseded and deleted);
 `mail/sent/*-@cattacula--0.14.md` to `@cattacula` and `@pirateship`
 (nothing to change).
 
-**Next:** rating words (`dd:g` …) drafted for Thomas's approval, or 0.14
-ships without them; painted-animation waits on Thomas asking Owl; then
-merge, tag (ask first), release notes.
+**Rating words approved (Thomas, 2026-10-17),** r in his words, with "scenes" added
+("For mature audiences: violence, blood and risqué scenes may be shown."); built,
+not committed: `dd:g`, `dd:pg`, `dd:r`, `dd:x`, kind `rating`,
+`db.rating_text`; the vocabulary value's `style` is now `wording`
+(`vocabulary_values.wording_id`; nothing read it). 171 specs pass.
+
+**From `@overlore` (2026-10-17;
+`mail/received/20261017-065927Z-@overlore--naming-words-in-recipes-already-stored-d514ebca.md`,
+`…-072951Z-@overlore--naming-our-fixed-rules-daecdcf1.md`):** Overlore is
+on 0.14 on its branch `dd-0.14`, against our local `0.14` at `4426581`; a
+copy of its store converted cleanly (916 recipes) and the app starts on
+it. Thomas wants Overlore's own rating words named in its store as its own
+(`overlore:g` … kind `rating`), DD's to be adopted later or not. 24 stored
+pictures have them in their prompts, but `set_recipe(replace: true)`
+refuses those recipes, whose pre-0.14 style wordings fail the `dd:` rule.
+**Built, not committed:** `db.add_wordings(id, wordings, step: 0)` names
+words a stored step was sent, checking only the new ones and skipping
+those it names already (172 specs pass). Overlore also asks whether to name
+its fixed rules (kind `rules`) and whether DD plans standard rules or a
+check on `rules`: none planned (the freeze). Reply drafted, held for
+Thomas.
+
+**Next:** commit the rating words and `add_wordings` when Thomas says,
+send the reply to Overlore, and tell everyone of `rating_text`; painted-animation waits on Thomas asking Owl; then merge,
+tag (ask first), release notes.
 
 **Prompt as one template (`@mj` with Thomas, 2026-10-16; proposal in
 `mail/received/20261016-172503Z-@mj--prompt-as-template-867b37d4.md`,
