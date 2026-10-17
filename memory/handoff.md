@@ -1,41 +1,56 @@
 # DataDungeon handoff
 
-## 0.14: picture prompts and the vocabulary (built 2026-10-15, not released)
+## 0.14: the prompt as sent, the wordings in it, the vocabulary (built 2026-10-16, not committed)
 
-**Scope (Thomas, 2026-10-15; plan approved):** 0.14 is the picture prompt
-redesign plus the vocabulary. Standard types, several values per tag,
-owner tags, keys as app indexes and uses are 0.15; embeddings 0.16.
+**Simplified (Thomas, 2026-10-16; plan `~/.claude/plans/delegated-doodling-hippo.md`,
+approved), after an independent review** found DD over-engineered in places:
+prompt modelling redesigned four times in three days, and on Overlore's
+store the 0.13 field dedup took 426 KB against 295 KB for prompts kept
+whole. Thomas: one solid simplification, a freeze on what no app uses, one
+owner per store (principles.md). The template and the 0.15 plans below are
+superseded.
 
-**Built on branch `0.14` at `c76640e`** (from `main` `4df221b`; not merged,
-not pushed, not tagged; `shard.yml` 0.14.0). 171 specs pass (1 pending, S3).
-- Picture order 2: **rules · framing · style · flavor · theme · subject ·
-  description · staging · light · directives.** `style` is DataDungeon's
-  words for the art style, `flavor` the app's own wording (Thomas, settling
-  the style-base Open below). Thomas offered `substyle` for `flavor`; kept
-  `flavor`, since `pixel-16` is already a substyle of `pixel`.
-- `recipes.field_order` (old rows 1, new 2); `preamble` renamed `framing`
-  in `recipe_fields` and `named_texts`, counted before and after; `joined`
-  raises on a field the order lacks (Overlore's and Owl's `preamble` are
-  refused before generating).
-- `vocabulary.cr`: tables `vocabulary_tags`, `vocabulary_values`, seeded
-  on read-write open; `art-style` (14) and `rating` (g, pg, r, x). Each tag
-  and value has a **title** (Thomas, 2026-10-15: "Fantasy Cover", "16-Bit
-  Pixel") and a description (what counts as it; never sent). Each art style
-  has DD's words, named text `datadungeon:<style>` in field `style`
-  (`db.style_text`, `db.vocabulary`, `GET /vocabulary`). Order-2 pictures
-  are checked: style must be DD's, a named flavor named for the same style.
-- **Style words approved by Thomas (2026-10-15):** pixel-32 "Detailed late
-  16-bit / early 32-bit pixel art.", pixel-16 "Chunky early to mid 16-bit
-  pixel art.", modern-comic "Modern comic book art, detailed inks, digital
-  coloring.", fantasy "Classic fantasy cover art, slightly painterly." (no
-  oil painting: it goes impressionistic); the rest as the DESIGN-types
-  names. The table is in DESIGN-types.md on the branch.
-- `view_words.cr`: mj's `ViewWords`, on DD's `Direction`.
-- **Checked on fresh copies of all five live stores (2026-10-15):** every
-  recipe reads back as on 0.13.1 (Overlore 916, Owl 97; 0 differ); no other
-  table changes; +14 datadungeon named texts and texts; integrity and
-  foreign keys ok. All five apps type-checked against the branch before
-  the titles were added.
+**Built on branch `0.14`** (on top of `c76640e`, uncommitted, in the
+scratchpad worktree):
+- A recipe step: form, settings, `prompt` (exactly what was sent),
+  `instructions` (speech's and text's second input; none for a picture),
+  `wordings` (`Recipe.wording(kind, name, words)`), seed, cost, basis,
+  time, references, steps. Fields, field orders, `joined`, `prompt_sent`
+  and `Recipe::Text` are gone.
+- Checks before writing: each wording's words appear verbatim in the
+  prompt or instructions; a given `@version` matches; a new wording is the
+  consumer's, a `dd:` one DD's existing words; a picture's `style` is
+  `dd:`, a `flavor` named for that style. Names keep 0.13.1's
+  `owner:name/purpose`.
+- `named_texts` (kind, owner, name, purpose, version = 10 hex of the words'
+  SHA-256, text_id); triggers refuse UPDATE and DELETE. `recipe_wordings`
+  (asset, step, position, named_id). `recipes` gains prompt_id and
+  instructions_id, loses sent_as_joined and prompt_sent_id. DD's owner is
+  `dd`.
+- Conversion of 0.13.1 and 0.13.0 stores (`migrate_prompts`): prompt =
+  prompt_sent or a picture's fields joined in 0.13's order; speech text +
+  style as instructions; text description + instructions; named fields
+  become wordings; verified per step, raising with the store unchanged;
+  `recipe_fields` kept, no longer written.
+- Vocabulary, titles, the 14 approved style words, ViewWords and
+  `GET /vocabulary` kept from the branch. `scripts/schema_diagram.cr`
+  writes `DESIGN-schema.md` (Mermaid; 22 tables, 24 foreign keys).
+- Docs: README recipes, the recommended order as advice, one owner per
+  store; DESIGN-recipes.md rewritten with the history; DESIGN-types.md
+  (uses, owner tags and the 409 dropped, hub deferred, 0.15 waits).
+- **Checked (2026-10-16):** 170 specs pass (1 pending, S3). Fresh copies
+  of all five live stores: every recipe reads back as 0.13.1 said it was
+  sent (Overlore 916, Owl 97; 0 differ; 26 and 11 wordings); no other table
+  changed, `recipe_fields` included; named texts kept with their ids and
+  hash versions; integrity and foreign keys ok; an UPDATE on a wording is
+  refused. Cattacula, Pirateship and dd-serve type-check; Overlore and Owl
+  break on the removed `Recipe::Text`, as expected (they're pinned
+  `~> 0.13.x`).
+
+**Next:** Thomas to say commit; rating words (`dd:g` …) drafted for his
+approval, or 0.14 ships without them; heads-ups to Overlore, Owl, curio
+(its recipe panel, `console.html:1327-1370`) and mj, held for Thomas;
+then merge, tag (ask first), release notes.
 
 **Prompt as one template (`@mj` with Thomas, 2026-10-16; proposal in
 `mail/received/20261016-172503Z-@mj--prompt-as-template-867b37d4.md`,

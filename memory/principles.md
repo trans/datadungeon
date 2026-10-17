@@ -1,6 +1,6 @@
 # Principles
 
-*Updated 2026-10-13*
+*Updated 2026-10-16*
 
 ## DD stays generic
 
@@ -35,6 +35,28 @@ or drops is gone for every app sharing the store.
   transaction leaves the store as it was.
 - No app deletes for everyone: an app drops its own use (DESIGN-types.md,
   pruning).
+
+## Each store is one owner's
+
+Thomas, 2026-10-16. A store belongs to the app that opens it (its
+`consumer:`) and that app's dd-serve. An app that wants another store's
+assets copies the records into its own (`copied-from`; a provenance table
+when copying is built), and the bytes stay one object in the shared R2
+bucket, which no store deletes from. So nothing is built for several apps
+sharing one store: uses, owner tags and refusing a delete while another
+app uses an asset were dropped, and the hub waits until stores connect.
+
+## Freeze what no app uses
+
+Thomas, 2026-10-16, after an independent review found DataDungeon
+over-engineered in places (about 2,500-3,000 of 7,300 lines serving no
+caller). Keep what exists, extend nothing no app uses yet: MatchIndex,
+per-consumer indexes, views/light/keyframes beyond what's there, the 0.15
+types and several values per tag. SemanticIndex stays live: players will
+find characters matching their customization prompts with it. Removing
+the pre-0.12 migrations waits until we've checked no store is missed. When
+a consumer asks for something new, build the smallest thing that serves
+that call.
 
 ## No underscores in asset names
 
