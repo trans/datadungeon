@@ -1,8 +1,8 @@
 # DataDungeon handoff
 
-*Updated 2026-10-16*
+*Updated 2026-10-17*
 
-## 0.14: the prompt as sent, the wordings in it, the vocabulary (committed `4426581`, 2026-10-16; `98ed629`, 2026-10-17)
+## 0.14: the prompt as sent, the wordings in it, the vocabulary (committed `4426581`, 2026-10-16; `98ed629` and `791b22a`, 2026-10-17)
 
 **Simplified (Thomas, 2026-10-16; plan `~/.claude/plans/delegated-doodling-hippo.md`,
 approved), after an independent review** found DD over-engineered in places:
@@ -95,7 +95,26 @@ Also from Overlore (`…-074415Z-…-99e4db05.md`): `add_wordings` named 72
 wordings in its 24 pictures (`overlore:no-text`, `overlore:no-marks`, kind
 `rules`; `overlore:g`, `pg`, `r`), and a store opened by `4426581` failed
 to open with `98ed629` (the `style_id` rename); now renamed on open.
-**Built, not committed** (172 specs pass); reply drafted, held.
+
+**Flavor was a false lead, and the purpose with it (Thomas, 2026-10-17).**
+Overlore wanted flavor, and `/purpose` (`silver-comic/figure`, `/place`,
+added 2026-10-14), only because it mixed framing into its styles; with
+framing in its own part one style wording serves both. **The purpose is
+deprecated** in 0.14 (docs and comments; it still works) and goes in a
+later release with `recipe_fields`, once Overlore and Owl are off it.
+Thomas: rewriting the stored ones then is a fix to the design, despite
+append-only. Proposed (not decided): each becomes a version of its name.
+Owl has none (`owl:narrator`; checked its `main` and notes). Overlore's
+`dd-0.14` still writes `overlore:<style>/<purpose>` as a flavor
+(`prompts.cr:93`, 2026-10-17), and its 2026-10-14 store copy has 10 with
+purposes; Thomas is checking with Overlore. Overlore relayed the same
+(`…-162616Z-…-f15aa085.md`, `…-163203Z-…-9f72ef5a.md`): flavor out of the
+docs and specs too, and "/purpose goes"; it thought its store had none.
+**Committed `791b22a` (2026-10-17;** 172 specs pass, the specs' examples
+without flavor; Cattacula and Pirateship type-check). **Sent 2026-10-17:**
+Overlore the reply, with its 10 stored purposes and its `dd-0.14` still
+on `bg`/`tile` and flavor; Owl, mj and curio the change (and `/vocabulary`'s
+`style` → `wording`); Cattacula and Pirateship where 0.14 stands.
 
 **Next:** no separate notice of `rating_text` (Thomas, 2026-10-17); painted-animation waits on Thomas asking Owl; then merge,
 tag (ask first), release notes.
