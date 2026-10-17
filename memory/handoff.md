@@ -1,6 +1,8 @@
 # DataDungeon handoff
 
-## 0.14: the prompt as sent, the wordings in it, the vocabulary (built 2026-10-16, not committed)
+*Updated 2026-10-16*
+
+## 0.14: the prompt as sent, the wordings in it, the vocabulary (committed `4426581`, 2026-10-16)
 
 **Simplified (Thomas, 2026-10-16; plan `~/.claude/plans/delegated-doodling-hippo.md`,
 approved), after an independent review** found DD over-engineered in places:
@@ -10,8 +12,8 @@ whole. Thomas: one solid simplification, a freeze on what no app uses, one
 owner per store (principles.md). The template and the 0.15 plans below are
 superseded.
 
-**Built on branch `0.14`** (on top of `c76640e`, uncommitted, in the
-scratchpad worktree):
+**Committed on branch `0.14` as `4426581`** (on top of `c76640e`; the
+branch isn't pushed):
 - A recipe step: form, settings, `prompt` (exactly what was sent),
   `instructions` (speech's and text's second input; none for a picture),
   `wordings` (`Recipe.wording(kind, name, words)`), seed, cost, basis,
@@ -47,10 +49,17 @@ scratchpad worktree):
   break on the removed `Recipe::Text`, as expected (they're pinned
   `~> 0.13.x`).
 
-**Next:** Thomas to say commit; rating words (`dd:g` …) drafted for his
-approval, or 0.14 ships without them; heads-ups to Overlore, Owl, curio
-(its recipe panel, `console.html:1327-1370`) and mj, held for Thomas;
-then merge, tag (ask first), release notes.
+**Heads-ups sent 2026-10-16** (Thomas: "commit and let everyone know"):
+`mail/sent/*-@overlore--0.14-simplified.md` to `@overlore`, `@owl`,
+`@curio` and `@mj`, with each app's sites to change (curio's recipe panel,
+`console.html:1327-1370`), answering Overlore's 492fa87f on keeping the
+parts (the held template-parts draft is superseded and deleted);
+`mail/sent/*-@cattacula--0.14.md` to `@cattacula` and `@pirateship`
+(nothing to change).
+
+**Next:** rating words (`dd:g` …) drafted for Thomas's approval, or 0.14
+ships without them; painted-animation waits on Thomas asking Owl; then
+merge, tag (ask first), release notes.
 
 **Prompt as one template (`@mj` with Thomas, 2026-10-16; proposal in
 `mail/received/20261016-172503Z-@mj--prompt-as-template-867b37d4.md`,
