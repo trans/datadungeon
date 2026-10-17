@@ -6,7 +6,9 @@ the rest waits for an app that needs it. **Each store is one owner's**
 (Thomas, 2026-10-16): an app that wants another store's assets copies the
 records into its own, so what was here for several apps sharing one store
 (uses, owner tags, refusing a delete while another app uses an asset) is
-dropped, and the hub is deferred.*
+dropped, and the hub is deferred. Each app words its own styles (Thomas,
+2026-10-17), so one art style looks different from app to app, and
+pictures aren't expected to move between apps.*
 
 ## Why
 
@@ -224,9 +226,9 @@ means, and its values each with one too, seeded with the agreed tags
 /vocabulary`). Tags and values have titles for people, so apps show the
 same names ("Art Style", "Fantasy Cover", "16-Bit Pixel"; Thomas,
 2026-10-15). A value can name its family (`pixel` for `pixel-16`), and an
-art style has DataDungeon's words for it, the wording `dd:<style>` a
-picture's prompt takes as its style (DESIGN-recipes.md, "The style and its
-flavor"), and a rating has its words too (`dd:pg`). For now a tag or a
+art style has DataDungeon's words for it, the wording `dd:<style>`, for an
+app that takes its style from them (DESIGN-recipes.md, "The style"), and a
+rating has its words too (`dd:pg`). For now a tag or a
 value is added in a DataDungeon release, by agreement: every store opened
 read-write takes the vocabulary its release has, and keeps a value a later
 release drops.
@@ -254,7 +256,9 @@ release drops.
   Overlore's `content_hash` and `look` tags go.
 - **Custom values: later** (Thomas, 2026-10-14, through `@owl`), perhaps
   in a paid 2.0. Art style decides what can be shared, and sharing is what
-  makes the pictures affordable, so Owl uses the standard values. An Owl
+  makes the pictures affordable, so Owl uses the standard values. (Since
+  2026-10-17 each app words its own styles, so the look isn't shared
+  across apps; the standard values stay what pictures are tagged with.) An Owl
   world sets its art style, theme and rating apart, as a recipe's style
   and theme are: a player's "kiddy cartoon" is a kids theme, `g`, and
   `golden-comic`, `3d-cartoon` or `pixel`. Custom styles would be the

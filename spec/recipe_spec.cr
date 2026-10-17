@@ -34,18 +34,16 @@ SILVER_WORDS = "Silver Age comic."
 SILVER       = DataDungeon::Recipe.wording("style", "dd:silver-comic@#{DataDungeon::Recipe.version(SILVER_WORDS)}", SILVER_WORDS)
 
 # A picture as an app sends it: its prompt, and the wordings in it.
-private def picture(subject : String, flavor : String = "Silver Age comic art.",
+private def picture(subject : String, style : String = "Silver Age comic art.",
                     settings = {"camera" => "mj:camera:flare", "model" => "flux-dev", "steps" => 4}) : DataDungeon::Recipe
   DataDungeon::Recipe.new("picture", settings: settings,
-    prompt: "Draw one panel. #{SILVER_WORDS} #{flavor} #{subject}",
-    wordings: [wording("framing", "overlore:house", "Draw one panel."), SILVER,
-               wording("flavor", "overlore:silver-comic", flavor)],
+    prompt: "Draw one panel. #{style} #{subject}",
+    wordings: [wording("framing", "overlore:house", "Draw one panel."), wording("style", "overlore:silver-comic", style)],
     seed: 7, cost: 0.04, generated_at: Time.utc(2026, 10, 13, 9, 30), references: ["a" * 64])
 end
 
-private def flavored(subject : String, name : String, flavor : String) : DataDungeon::Recipe
-  DataDungeon::Recipe.new("picture", prompt: "#{SILVER_WORDS} #{flavor} #{subject}",
-    wordings: [SILVER, wording("flavor", name, flavor)])
+private def styled(subject : String, name : String, style : String) : DataDungeon::Recipe
+  DataDungeon::Recipe.new("picture", prompt: "#{style} #{subject}", wordings: [wording("style", name, style)])
 end
 
 private def count(db, table : String) : Int64
@@ -143,12 +141,12 @@ describe DataDungeon::Recipe do
 
       got = db.recipe(rec.id).not_nil!
       got.form.should eq "picture"
-      got.prompt.should eq "Draw one panel. Silver Age comic. Silver Age comic art. A tall elf with red braids."
+      got.prompt.should eq "Draw one panel. Silver Age comic art. A tall elf with red braids."
       got.instructions.should be_nil
-      got.wordings.map(&.kind).should eq %w[framing style flavor] # in the order given
-      got.wordings.map(&.name).should eq ["overlore:house@#{version("Draw one panel.")}", SILVER.name,
+      got.wordings.map(&.kind).should eq %w[framing style] # in the order given
+      got.wordings.map(&.name).should eq ["overlore:house@#{version("Draw one panel.")}",
                                           "overlore:silver-comic@#{version("Silver Age comic art.")}"]
-      got.wordings[2].text.should eq "Silver Age comic art."
+      got.wordings[1].text.should eq "Silver Age comic art."
       got.settings.should eq({"camera" => "mj:camera:flare", "model" => "flux-dev", "steps" => 4})
       got.seed.should eq 7
       got.cost.should eq 0.04
@@ -163,45 +161,45 @@ describe DataDungeon::Recipe do
 
   it "versions a wording by its words, the same in every store, and finds the assets using it" do
     with_db("dd-recipe-names") do |db|
-      first = store_panel(db, "a", picture("A", flavor: "Silver Age comic art."))
-      second = store_panel(db, "b", picture("B", flavor: "Silver Age comic art, heavy inks."))
-      again = store_panel(db, "c", picture("C", flavor: "Silver Age comic art."))
+      first = store_panel(db, "a", picture("A", style: "Silver Age comic art."))
+      second = store_panel(db, "b", picture("B", style: "Silver Age comic art, heavy inks."))
+      again = store_panel(db, "c", picture("C", style: "Silver Age comic art."))
 
       inked = version("Silver Age comic art, heavy inks.")
       inked.should eq Digest::SHA256.hexdigest("Silver Age comic art, heavy inks.")[0, 10]
-      db.recipe(second.id).not_nil!.wordings[2].name.should eq "overlore:silver-comic@#{inked}"
-      db.recipe(again.id).not_nil!.wordings[2].name.should eq db.recipe(first.id).not_nil!.wordings[2].name
-      db.with_text("flavor", "overlore:silver-comic").should eq [first.id, second.id, again.id]
-      db.with_text("flavor", "overlore:silver-comic@#{version("Silver Age comic art.")}").should eq [first.id, again.id]
+      db.recipe(second.id).not_nil!.wordings[1].name.should eq "overlore:silver-comic@#{inked}"
+      db.recipe(again.id).not_nil!.wordings[1].name.should eq db.recipe(first.id).not_nil!.wordings[1].name
+      db.with_text("style", "overlore:silver-comic").should eq [first.id, second.id, again.id]
+      db.with_text("style", "overlore:silver-comic@#{version("Silver Age comic art.")}").should eq [first.id, again.id]
       db.with_text("framing", "overlore:silver-comic").should be_empty # names belong to a kind
-      db.with_text("style", "dd:silver-comic").should eq [first.id, second.id, again.id]
-      db.named_texts("flavor", "overlore").should eq [{"silver-comic", version("Silver Age comic art."), "Silver Age comic art."},
+      db.with_text("style", "dd:silver-comic").should be_empty # Overlore's words, not DataDungeon's
+      db.named_texts("style", "overlore").should eq [{"silver-comic", version("Silver Age comic art."), "Silver Age comic art."},
                                                       {"silver-comic", inked, "Silver Age comic art, heavy inks."}]
-      wrong = DataDungeon::Recipe.new("picture", prompt: "Silver Age comic. Silver Age comic art.",
-        wordings: [SILVER, wording("flavor", "overlore:silver-comic@#{inked}", "Silver Age comic art.")])
+      wrong = DataDungeon::Recipe.new("picture", prompt: "Silver Age comic art.",
+        wordings: [wording("style", "overlore:silver-comic@#{inked}", "Silver Age comic art.")])
       expect_raises(ArgumentError, /version #{version("Silver Age comic art.")}, not #{inked}/) { store_panel(db, "d", wrong) }
     end
 
     with_db("dd-recipe-names-elsewhere") do |db|
-      other = store_panel(db, "a", picture("A", flavor: "Silver Age comic art, heavy inks."))
-      db.recipe(other.id).not_nil!.wordings[2].name.should eq "overlore:silver-comic@#{version("Silver Age comic art, heavy inks.")}"
+      other = store_panel(db, "a", picture("A", style: "Silver Age comic art, heavy inks."))
+      db.recipe(other.id).not_nil!.wordings[1].name.should eq "overlore:silver-comic@#{version("Silver Age comic art, heavy inks.")}"
     end
   end
 
-  it "files a style's wordings by purpose" do
+  it "still files wordings by purpose, deprecated" do
     with_db("dd-recipe-purpose") do |db|
-      figure = store_panel(db, "a", flavored("An elf.", "overlore:silver-comic/figure", "Silver Age comic art, one figure."))
-      place = store_panel(db, "b", flavored("A hall.", "overlore:silver-comic/place", "Silver Age comic art, a wide room."))
-      inked = store_panel(db, "c", flavored("A dwarf.", "overlore:silver-comic/figure", "Silver Age comic art, heavy inks."))
-      bare = store_panel(db, "d", flavored("A cat.", "overlore:silver-comic", "Silver Age comic art."))
+      figure = store_panel(db, "a", styled("An elf.", "overlore:silver-comic/figure", "Silver Age comic art, one figure."))
+      place = store_panel(db, "b", styled("A hall.", "overlore:silver-comic/place", "Silver Age comic art, a wide room."))
+      inked = store_panel(db, "c", styled("A dwarf.", "overlore:silver-comic/figure", "Silver Age comic art, heavy inks."))
+      bare = store_panel(db, "d", styled("A cat.", "overlore:silver-comic", "Silver Age comic art."))
 
-      db.recipe(figure.id).not_nil!.wordings[1].name.should eq "overlore:silver-comic/figure@#{version("Silver Age comic art, one figure.")}"
-      db.recipe(bare.id).not_nil!.wordings[1].name.should eq "overlore:silver-comic@#{version("Silver Age comic art.")}" # a purpose is optional
-      db.with_text("flavor", "overlore:silver-comic").should eq [figure.id, place.id, inked.id, bare.id]
-      db.with_text("flavor", "overlore:silver-comic/figure").should eq [figure.id, inked.id]
-      db.with_text("flavor", "overlore:silver-comic/figure@#{version("Silver Age comic art, heavy inks.")}").should eq [inked.id]
-      db.list_assets(texts: {"flavor" => "overlore:silver-comic/place"}).map(&.id).should eq [place.id]
-      db.named_texts("flavor", "overlore").map(&.[0]).should eq ["silver-comic", "silver-comic/figure", "silver-comic/figure",
+      db.recipe(figure.id).not_nil!.wordings[0].name.should eq "overlore:silver-comic/figure@#{version("Silver Age comic art, one figure.")}"
+      db.recipe(bare.id).not_nil!.wordings[0].name.should eq "overlore:silver-comic@#{version("Silver Age comic art.")}" # a purpose is optional
+      db.with_text("style", "overlore:silver-comic").should eq [figure.id, place.id, inked.id, bare.id]
+      db.with_text("style", "overlore:silver-comic/figure").should eq [figure.id, inked.id]
+      db.with_text("style", "overlore:silver-comic/figure@#{version("Silver Age comic art, heavy inks.")}").should eq [inked.id]
+      db.list_assets(texts: {"style" => "overlore:silver-comic/place"}).map(&.id).should eq [place.id]
+      db.named_texts("style", "overlore").map(&.[0]).should eq ["silver-comic", "silver-comic/figure", "silver-comic/figure",
                                                                  "silver-comic/place"] # oldest first within each
     end
   end
@@ -217,9 +215,9 @@ describe DataDungeon::Recipe do
 
     owl = DataDungeon::DB.new(path, cache_root: File.join(dir, "store"), consumer: "owl")
     used = store_panel(owl, "b", picture("B")) # Overlore's wordings, as they are
-    owl.recipe(used.id).not_nil!.wordings[2].name.should start_with "overlore:silver-comic@"
+    owl.recipe(used.id).not_nil!.wordings[1].name.should start_with "overlore:silver-comic@"
     expect_raises(ArgumentError, /overlore:silver-comic is overlore's/) do
-      store_panel(owl, "c", picture("C", flavor: "Owl's own take on silver."))
+      store_panel(owl, "c", picture("C", style: "Owl's own take on silver."))
     end
     expect_raises(ArgumentError, /isn't DataDungeon's words/) do
       store_panel(owl, "d", DataDungeon::Recipe.new("picture", prompt: "Silver, more or less.",
@@ -268,7 +266,7 @@ describe DataDungeon::Recipe do
       steps = db.recipe(layer.id).not_nil!.steps
       steps.size.should eq 2
       steps[0].prompt.should eq edit.prompt
-      steps[0].wordings.size.should eq 3
+      steps[0].wordings.size.should eq 2
       steps[1].form.should eq ""
       steps[1].prompt.should be_nil
       steps[1].references.should eq ["b" * 64, "c" * 64]
@@ -283,15 +281,15 @@ describe DataDungeon::Recipe do
         DataDungeon::Recipe.new("picture", prompt: "A.", instructions: "Paint it."),
         DataDungeon::Recipe.new("picture", references: ["not-a-hash"]),
         DataDungeon::Recipe.new("", prompt: "A."),
-        DataDungeon::Recipe.new("picture", prompt: "A dwarf.", wordings: [wording("flavor", "overlore:silver-comic", "Bold inks.")]),
+        DataDungeon::Recipe.new("picture", prompt: "A dwarf.", wordings: [wording("style", "overlore:silver-comic", "Bold inks.")]),
         DataDungeon::Recipe.new("picture", wordings: [SILVER]),
-        DataDungeon::Recipe.new("picture", prompt: "A.", wordings: [wording("flavor", "silver", "A.")]),
-        DataDungeon::Recipe.new("picture", prompt: "A.", wordings: [wording("flavor", "overlore:silver-comic/", "A.")]),
-        DataDungeon::Recipe.new("picture", prompt: "A.", wordings: [wording("flavor", "overlore:silver-comic/Figure", "A.")]),
-        DataDungeon::Recipe.new("picture", prompt: "A.", wordings: [wording("flavor", "overlore:silver-comic/a/b", "A.")]),
-        DataDungeon::Recipe.new("picture", prompt: "A.", wordings: [wording("flavor", "overlore:silver-comic@2", "A.")]),
-        DataDungeon::Recipe.new("picture", prompt: "A.", wordings: [wording("Flavor", "overlore:silver-comic", "A.")]),
-        DataDungeon::Recipe.new("picture", prompt: "A.", wordings: [wording("flavor", "overlore:silver-comic", "")]),
+        DataDungeon::Recipe.new("picture", prompt: "A.", wordings: [wording("style", "silver", "A.")]),
+        DataDungeon::Recipe.new("picture", prompt: "A.", wordings: [wording("style", "overlore:silver-comic/", "A.")]),
+        DataDungeon::Recipe.new("picture", prompt: "A.", wordings: [wording("style", "overlore:silver-comic/Figure", "A.")]),
+        DataDungeon::Recipe.new("picture", prompt: "A.", wordings: [wording("style", "overlore:silver-comic/a/b", "A.")]),
+        DataDungeon::Recipe.new("picture", prompt: "A.", wordings: [wording("style", "overlore:silver-comic@2", "A.")]),
+        DataDungeon::Recipe.new("picture", prompt: "A.", wordings: [wording("Style", "overlore:silver-comic", "A.")]),
+        DataDungeon::Recipe.new("picture", prompt: "A.", wordings: [wording("style", "overlore:silver-comic", "")]),
       ]
       bad.each do |recipe|
         expect_raises(ArgumentError) { store_panel(db, "a", recipe) }
@@ -302,19 +300,17 @@ describe DataDungeon::Recipe do
     end
   end
 
-  it "takes a picture's style from the vocabulary, and the app's own words as its flavor" do
+  it "takes a picture's style as the app words it, its own or the vocabulary's" do
     with_db("dd-recipe-styles") do |db|
+      own = store_panel(db, "a", picture("A dwarf.")) # overlore:silver-comic
       db.style_text("silver-comic").should eq SILVER
-      store_panel(db, "a", picture("A dwarf.")).has_recipe?.should be_true
-      own = DataDungeon::Recipe.new("picture", prompt: "Silver Age comic art. A dwarf.",
-        wordings: [wording("style", "overlore:silver-comic", "Silver Age comic art.")])
-      expect_raises(ArgumentError, /a picture's style is DataDungeon's words/) { store_panel(db, "b", own) }
-      lonely = DataDungeon::Recipe.new("picture", prompt: "Bold inks. A dwarf.",
-        wordings: [wording("flavor", "overlore:silver-comic", "Bold inks.")])
-      expect_raises(ArgumentError, /a flavor adds to a style/) { store_panel(db, "c", lonely) }
-      golden = DataDungeon::Recipe.new("picture", prompt: "Silver Age comic. Bold golden inks.",
-        wordings: [SILVER, wording("flavor", "overlore:golden-comic", "Bold golden inks.")])
-      expect_raises(ArgumentError, /is a flavor of golden-comic, but this picture's style is silver-comic/) { store_panel(db, "d", golden) }
+      ours = store_panel(db, "b", DataDungeon::Recipe.new("picture", prompt: "#{SILVER_WORDS} A dwarf.",
+        wordings: [db.style_text("silver-comic")]))
+      db.with_text("style", "overlore:silver-comic").should eq [own.id]
+      db.with_text("style", "dd:silver-comic").should eq [ours.id]
+      borrowed = DataDungeon::Recipe.new("picture", prompt: "Silver Age comic, more or less. A dwarf.",
+        wordings: [wording("style", "dd:silver-comic", "Silver Age comic, more or less.")])
+      expect_raises(ArgumentError, /isn't DataDungeon's words/) { store_panel(db, "d", borrowed) }
       expect_raises(ArgumentError, /isn't a standard art style/) { db.style_text("kiddy-cartoon") }
       # A voice's style is its own: the art styles are pictures'.
       speech = DataDungeon::Recipe.new("speech", prompt: "Hello.", instructions: "Warm.",
@@ -352,7 +348,7 @@ describe DataDungeon::Recipe do
         raw.exec("DELETE FROM named_texts WHERE owner = 'overlore'")
       end
       raw.close rescue nil
-      db.with_text("flavor", "overlore:silver-comic").size.should eq 1
+      db.with_text("style", "overlore:silver-comic").size.should eq 1
     end
   end
 
@@ -375,7 +371,7 @@ describe DataDungeon::Recipe do
       db.set_recipe(old.id, picture("An old elf."), replace: true)
       db.recipe(old.id).not_nil!.prompt.should eq picture("An old elf.").prompt
       count(db, "recipes").should eq 2
-      count(db, "recipe_wordings").should eq 6 # the replaced recipe's went with it
+      count(db, "recipe_wordings").should eq 4 # the replaced recipe's went with it
       expect_raises(ArgumentError, /No asset/) { db.set_recipe(999, picture("X")) }
     end
   end
@@ -469,6 +465,16 @@ describe DataDungeon::Recipe do
       read_only = DataDungeon::DB.new(File.join(dir, "assets.db"), read_only: true)
       read_only.vocabulary.size.should eq 2
       read_only.close
+
+      # A store the first 0.14 build opened called a value's words style_id.
+      db.close
+      raw = ::DB.open("sqlite3://#{File.join(dir, "assets.db")}")
+      raw.exec("ALTER TABLE vocabulary_values RENAME COLUMN wording_id TO style_id")
+      raw.close
+      db = DataDungeon::DB.new(File.join(dir, "assets.db"), cache_root: File.join(dir, "store"), consumer: "overlore")
+      db.style_text("silver-comic").should eq SILVER
+      db.connection.query_all("SELECT name FROM pragma_table_info('vocabulary_values')", as: String).should_not contain "style_id"
+      db.close
     end
   end
 
@@ -533,7 +539,7 @@ describe DataDungeon::Recipe do
     count(db, "recipe_fields").should eq 13 # kept as they were
     db.connection.query_all("PRAGMA foreign_key_check", &.read(::DB::Any)).should be_empty
     db.style_text("silver-comic").should eq SILVER # the vocabulary, seeded after
-    db.recipe(store_panel(db, "f", picture("An orc.")).id).not_nil!.wordings.size.should eq 3
+    db.recipe(store_panel(db, "f", picture("An orc.")).id).not_nil!.wordings.size.should eq 2
   ensure
     db.try(&.close)
     FileUtils.rm_rf(dir) if dir
@@ -559,15 +565,13 @@ describe DataDungeon::Recipe do
     db = DataDungeon::DB.new(path, cache_root: File.join(dir, "store"), consumer: "overlore")
     stored = db.recipe(old).not_nil!
     pg = wording("rating", "overlore:pg", "Kept clean.")
-    # Its style is an app's, from before 0.14, so the recipe as a whole isn't one a store takes now.
-    expect_raises(ArgumentError, /a picture's style is DataDungeon's words/) { db.set_recipe(old, stored, replace: true) }
     db.add_wordings(old, [pg, pg]).should eq 1
     db.recipe(old).not_nil!.wordings.should eq stored.wordings + [wording("rating", "overlore:pg@#{version("Kept clean.")}", "Kept clean.")]
     db.with_text("rating", "overlore:pg").should eq [old]
     db.add_wordings(old, [pg]).should eq 0 # named already
     expect_raises(ArgumentError, /isn't in what was sent/) { db.add_wordings(old, [wording("rating", "overlore:r", "Gory.")]) }
-    expect_raises(ArgumentError, /a picture's style is DataDungeon's words/) do
-      db.add_wordings(old, [wording("style", "overlore:silver-comic", "Silver Age comic art.")])
+    expect_raises(ArgumentError, /isn't DataDungeon's words/) do
+      db.add_wordings(old, [wording("style", "dd:silver-comic", "Silver Age comic art.")])
     end
     expect_raises(ArgumentError, /is owl's/) { db.add_wordings(old, [wording("rating", "owl:pg", "Kept clean.")]) }
     db.add_wordings(layer, [wording("subject", "overlore:street", "A street.")]).should eq 1
@@ -677,14 +681,14 @@ describe DataDungeon::Recipe do
 
   it "lists the assets with a file, or using a wording" do
     with_db("dd-recipe-list") do |db|
-      first = store_panel(db, "a", picture("A", flavor: "Silver Age comic art."))
-      second = store_panel(db, "b", picture("B", flavor: "Silver Age comic art, heavy inks."))
+      first = store_panel(db, "a", picture("A", style: "Silver Age comic art."))
+      second = store_panel(db, "b", picture("B", style: "Silver Age comic art, heavy inks."))
       plain = store_panel(db, "c")
       db.list_assets(file_hash: plain.file_hash).map(&.id).should eq [plain.id]
-      db.list_assets(texts: {"flavor" => "overlore:silver-comic"}).map(&.id).should eq [second.id, first.id]
+      db.list_assets(texts: {"style" => "overlore:silver-comic"}).map(&.id).should eq [second.id, first.id]
       inked = "overlore:silver-comic@#{version("Silver Age comic art, heavy inks.")}"
-      db.list_assets("panel", texts: {"flavor" => inked}).map(&.id).should eq [second.id]
-      db.count_assets(texts: {"framing" => "overlore:house", "flavor" => "overlore:silver-comic@#{version("Silver Age comic art.")}"}).should eq 1
+      db.list_assets("panel", texts: {"style" => inked}).map(&.id).should eq [second.id]
+      db.count_assets(texts: {"framing" => "overlore:house", "style" => "overlore:silver-comic@#{version("Silver Age comic art.")}"}).should eq 1
       expect_raises(ArgumentError, /owner:name/) { db.list_assets(texts: {"style" => "silver"}) }
     end
   end

@@ -20,13 +20,13 @@ module DataDungeon
     VERSION_SIZE = 10
 
     # A named wording a recipe used, from the store's registry: what kind of
-    # wording it is (`style`, `flavor`, `rating`, `framing`, `character`,
+    # wording it is (`style`, `rules`, `rating`, `framing`, `character`,
     # `theme`, ...), its name and its words. A name is `owner:name` going in
     # and `owner:name@version` coming back; the owner is the app that wrote
     # the wording (its consumer name), or `dd` for DataDungeon's own. A name
-    # may add what the wording is for, `owner:name/purpose`, so two wordings
-    # of one style in use at once share its name
-    # (`overlore:silver-comic/figure`, `overlore:silver-comic/place`).
+    # may still add a purpose, `owner:name/purpose`, but it's deprecated
+    # (Thomas, 2026-10-17): it came in for one style worded once for figures
+    # and once for places, which is framing, and framing is its own part.
     struct Wording
       include JSON::Serializable
 
@@ -100,7 +100,8 @@ module DataDungeon
       new("", steps: steps)
     end
 
-    # A named wording of some kind, `owner:name` or `owner:name/purpose`.
+    # A named wording of some kind, `owner:name` (`owner:name/purpose` is
+    # deprecated).
     def self.wording(kind : String, name : String, text : String) : Wording
       Wording.new(kind, name, text)
     end

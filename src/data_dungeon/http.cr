@@ -28,7 +28,7 @@ module DataDungeon
   #                                          &description_hash=<sha-256> (every asset sharing
   #                                          a description) &text.<kind>=<owner:name> (a
   #                                          wording a recipe used; /<purpose> for one purpose,
-  #                                          @<version> for one wording)
+  #                                          deprecated; @<version> for one wording)
   #                                          &limit= &page=<n> or &before=<id>
   #                                          &count=1 (a total), &meta=1 (each picture's fields,
   #                                          and its view readably)

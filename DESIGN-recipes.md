@@ -1,6 +1,6 @@
 # Recipes: a shared standard for how assets were made
 
-*Draft 2026-10-12, with Thomas, `@overlore` and `@mj`; built in 0.13, and in 0.14 a recipe keeps the prompt as sent with the wordings in it (2026-10-16). The types it applies to are in `DESIGN-types.md`.*
+*Draft 2026-10-12, with Thomas, `@overlore` and `@mj`; built in 0.13, and in 0.14 a recipe keeps the prompt as sent with the wordings in it (2026-10-16), each app words its own styles, and a wording's purpose is deprecated (2026-10-17). The types it applies to are in `DESIGN-types.md`.*
 
 ## Why
 
@@ -38,7 +38,7 @@ that several apps share.
   the **prompt**, exactly as the provider received it; and the **wordings**
   in it, the named words it reused (its style, its rules, a character).
   The prompt is the app's: DataDungeon recommends its parts and their
-  order, **rules · framing · style · flavor · theme · subject · description
+  order, **rules · framing · style · theme · subject · description
   · staging · light · directives** (`@mj` with Thomas, 2026-10-14, from how
   Overlore makes pictures during play; mj's `notes/picture-prompt-design-v1.md`),
   and a prompt starts there and may depart from it (`@overlore`, 2026-10-16:
@@ -50,9 +50,10 @@ that several apps share.
     landscape", "full body, head to toe"). A fixed rule mustn't contradict
     a description (Thomas): some pictures need words in them, so "no text
     unless the description asks for it".
-  - **the look**, from the game's state: the **style**, DataDungeon's words
-    for the art style, from the vocabulary; the **flavor**, the app's own
-    words for it; and the **theme**, mood included.
+  - **the look**, from the game's state: the **style**, the app's words for
+    the art style (its own, or DataDungeon's from the vocabulary), and the
+    **theme**, mood included. Mood and staged light belong in the theme and
+    the light, not the style (`@overlore`, 2026-10-17).
   - **the object**, from the DM: **subject**, **description** and
     **staging** (where each figure is, which way it faces, and the view, in
     words; a view vector is only measured afterwards).
@@ -150,7 +151,7 @@ it:
   on Overlore's store (2026-10-16), keeping the prompts whole took 295 KB
   where its 0.13 fields and their indexes took 426 KB, the hashes and
   their index costing more than the words they saved.
-- **Wordings:** the words an app reuses (rules, framing, flavor, a
+- **Wordings:** the words an app reuses (its styles, rules, framing, a
   character; a voice's style), each named by its owner: a row with **kind,
   owner, name, purpose, version** pointing at its text (Thomas,
   2026-10-12: fields, not one string; the purpose 2026-10-14). The owner is
@@ -164,13 +165,16 @@ it:
   registry). Names are shared: any app uses `overlore:silver-comic` as it
   is, which is what makes its pictures comparable to Overlore's; nobody
   renames another's. Searchable like tags: every picture of one style, any
-  version, or one version. **No custom top-level styles** (Thomas,
-  2026-10-14, through `@overlore`): a variant of a style is the same style,
-  so an app's style wording is named for its standard style
-  (DESIGN-types.md), and two wordings in use at once differ by **purpose**,
-  what each is for: `overlore:silver-comic/figure` and
-  `overlore:silver-comic/place`. The purpose is optional (`owl:narrator`
-  has none).
+  version, or one version. An app's style wording is named for the
+  standard art style its pictures are tagged with (Thomas, 2026-10-14,
+  through `@overlore`: a variant of a style is the same style;
+  DESIGN-types.md). A **purpose**, what a wording is for
+  (`overlore:silver-comic/place`), came in on 2026-10-14 so one style
+  could be worded once for figures and once for places. It is deprecated
+  (Thomas, 2026-10-17): that difference is framing, which has its own
+  part, so one style wording serves both. Stored ones keep working until a
+  later release removes it, rewriting the stored ones once, a fix to the
+  design (Thomas); proposed: each becomes a version of its name.
 - **A version is the words' hash** (`@mj` with Thomas, 2026-10-16): the
   first 10 hex characters of their SHA-256 (`texts.hash`), so
   `overlore:silver-comic@3f9a2c71b0` means the same words in every store,
@@ -183,20 +187,28 @@ it:
   row id says which came first. A wording is never changed or deleted:
   triggers refuse it, in the sqlite3 shell too, so a rename is a new name
   and the old one stays, since prompts that name it are stored.
-- **The style and its flavor** (0.14; Thomas, 2026-10-14): the standard
-  is always in the prompt, not left to each app's wording to repeat.
-  Each art style in the vocabulary has DataDungeon's words for it, a
-  wording of DataDungeon's own (`dd:silver-comic`, "Silver Age comic."),
-  which a picture's prompt takes as its `style` (`db.style_text("silver-comic")`);
-  the app's wording is a `flavor`, which only narrows the style or serves
-  its purpose, never asks for another. The words stay short, adding a
-  style's key differentiators only where a model may not know it. An
-  improved wording is the style's next version; earlier pictures keep the
-  words they were given, and a change only refines (Thomas, 2026-10-16), so
-  apps aren't told. A picture's `style` wordings must be DataDungeon's, and
-  a flavor needs a style and is named for it, checked before anything is
-  written. (Thomas turned down checking that each app's wording starts
-  with the standard, word for word: brittle, and it repeats the base.)
+- **The style: each app words its own** (Thomas, 2026-10-17, through
+  `@overlore`), at least at first. 0.14 was first built with DataDungeon's
+  words always in the prompt as the `style` and the app's own beside them
+  as a `flavor`, checked at store (Thomas, 2026-10-14). Overlore's
+  same-seed comparison (64 pictures on `klein`, two rooms and a portrait in
+  all 8 of its styles) found DataDungeon's words alone held every style and
+  the two together looked best. But a flavor tuned by each app makes the
+  "same" style look different from app to app anyway, so the look isn't
+  shared. And flavor was a false lead all along (Thomas, 2026-10-17):
+  Overlore needed it only because it mixed framing into its styles, one
+  wording for figures and another for places, which is also why the
+  purpose came in. With framing in its own part, one style wording serves
+  both. So a picture's `style` wording is the app's
+  own (`overlore:silver-comic`) or DataDungeon's (`db.style_text`), and the
+  store doesn't check which; `flavor` is no longer a part. The
+  vocabulary's art styles stay what pictures are tagged with, so they fall
+  into the same categories in every app. DataDungeon's words for each style
+  (`dd:silver-comic`, "Silver Age comic.") stay short, a style's key
+  differentiators, for any app that takes them; Overlore's own open with
+  them. An improved
+  wording of DataDungeon's is the style's next version, and earlier
+  pictures keep the words they were given.
 - **Staging:** the DM's words since 0.14. Before, it was `@mj`'s camera's
   words for `view` and `light`. Nobody should search its words: the
   vectors are the truth (within 20° of a view is one dot product), and
@@ -229,26 +241,28 @@ a drift audit (every picture from one camera with one parameter set, by
 ## The calls
 
 ```crystal
-style = db.style_text("silver-comic")    # DataDungeon's words for the style: dd:silver-comic@<version>
-flavor = DataDungeon::Recipe.wording("flavor", "overlore:silver-comic/figure", "Bold inks …")
+style = DataDungeon::Recipe.wording("style", "overlore:silver-comic", "Silver Age comic: bold black ink outlines, …")
+                                         # or DataDungeon's words: db.style_text("silver-comic")
+rating = db.rating_text("pg")            # DataDungeon's words for the rating: dd:pg@<version>
 recipe = DataDungeon::Recipe.new("picture",
   settings: {"camera" => "mj:camera:flare", "camera-version" => 1, "model" => "flux-dev",
              "size" => "1024x1024", "steps" => 4},             # stored once by hash
   prompt: sent,                       # exactly what the provider received
-  wordings: [style, flavor],          # each word for word in the prompt
+  wordings: [rating, style],          # each word for word in the prompt
   seed: 1234, cost: 0.04, cost_basis: "reported: runware", generated_at: time,
   references: [portrait.file_hash.not_nil!])
 db.store("panel", tags, bytes: png, content_type: "image/png", recipe: recipe)
 
-db.recipe(id)                         # => Recipe?, wordings named "overlore:silver-comic/figure@3f9a2c71b0"
+db.recipe(id)                         # => Recipe?, wordings named "overlore:silver-comic@3f9a2c71b0"
 db.set_recipe(id, recipe)             # give an asset its recipe later (moving old records);
                                       # replace: true to replace one, drop_generation: true
                                       # to let the old record go
-db.with_text("flavor", "overlore:silver-comic")        # asset ids, any purpose or version;
-                                                       # "…/figure" for one purpose, "…/figure@3f9a2c71b0" one version
+db.add_wordings(id, [rating])         # name words a stored recipe was sent but didn't name
+db.with_text("style", "overlore:silver-comic")         # asset ids, any version;
+                                                       # "…@3f9a2c71b0" for one version
 db.with_text("style", "dd:silver-comic")               # every picture given the style's words
-db.list_assets(texts: {"flavor" => "overlore:silver-comic"})  # the same, with the other filters
-db.named_texts("flavor", "overlore")  # an owner's wordings of a kind: {name, version, text}
+db.list_assets(texts: {"style" => "overlore:silver-comic"})  # the same, with the other filters
+db.named_texts("style", "overlore")   # an owner's wordings of a kind: {name, version, text}
 db.vocabulary                         # the shared tags and values (GET /vocabulary)
 db.list_assets(file_hash: hash)       # the assets holding a recipe's reference
 db.update_asset(id, description: "…", everywhere: true)  # for every asset sharing it
@@ -261,10 +275,10 @@ db.update_asset(id, description: "…", everywhere: true)  # for every asset sha
 - **Steps:** `Recipe.in_steps([edit, matte])` for an asset made in steps,
   each a recipe of its own; a single recipe is one step.
 - **Wordings:** `Recipe.wording(kind, name, words)`, the name `owner:name`
-  or `owner:name/purpose`, with `@version` when reading one back (a version
-  given going in must be the words'). The kind is free: `style`, `flavor`,
-  `rating`, `framing`, `character`, `theme`, … A search by `owner:name`
-  finds every purpose; `/purpose` narrows it to one.
+  (`owner:name/purpose` is deprecated), with `@version` when reading one
+  back (a version given going in must be the words'). The kind is free:
+  `style`, `rules`, `rating`, `framing`, `character`, `theme`, … A search
+  by `owner:name` finds every version; `@version` narrows it to one.
 - **The asset's `description`** is a text in the same table (decided
   2026-10-13). `store(…, description:)` and `AssetRecord#description` stay
   as they are. A blank description clears it. The JSON carries
@@ -359,9 +373,10 @@ wordings.
   stored, so it has no hash. A reference to an earlier step would record
   it. Nothing breaks without it.
 - **Release:** 0.13, on its own; the prompt as sent, the wordings, the
-  style and its flavor in 0.14 with the vocabulary and the ratings' words
-  (Thomas, 2026-10-15 to 2026-10-17); the embeddings registry (`DESIGN-embeddings.md`) in
-  0.16.
+  apps' own styles in 0.14 with the vocabulary and the ratings' words, and
+  the purpose deprecated (Thomas, 2026-10-15 to 2026-10-17); the purpose
+  removed, and `recipe_fields` dropped, once Overlore and Owl have moved
+  off them; the embeddings registry (`DESIGN-embeddings.md`) in 0.16.
 - **Compression** of stored prompts, if size comes to matter: zlib took
   Overlore's prompts from 659 to 399 bytes on average, and it can come
   later without changing anything apps write.

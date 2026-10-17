@@ -228,13 +228,12 @@ by hash.
 ```crystal
 rating = db.rating_text("pg")              # "Suitable for older children: …", named dd:pg@<version>
 rules = DataDungeon::Recipe.wording("rules", "overlore:house", "No text unless the description asks for it.")
-style = db.style_text("silver-comic")      # "Silver Age comic.", named dd:silver-comic@<version>
-flavor = DataDungeon::Recipe.wording("flavor", "overlore:silver-comic/figure", "Bold inks, flat colour.")
-prompt = [rating.text, rules.text, "Full body, head to toe.", style.text, flavor.text,
-          "A tall elf with red braids."].join(" ")
+style = DataDungeon::Recipe.wording("style", "overlore:silver-comic", "Silver Age comic: bold black ink outlines.")
+                                           # or DataDungeon's words for it: db.style_text("silver-comic")
+prompt = [rating.text, rules.text, "Full body, head to toe.", style.text, "A tall elf with red braids."].join(" ")
 recipe = DataDungeon::Recipe.new("picture",
   settings: {"camera" => "mj:camera:flare", "model" => "flux-dev", "steps" => 4},
-  prompt: prompt, wordings: [rating, rules, style, flavor],
+  prompt: prompt, wordings: [rating, rules, style],
   seed: 7, cost: 0.04, cost_basis: "reported: runware", generated_at: Time.utc,
   references: [portrait.file_hash.not_nil!])
 db.store("panel", tags, bytes: png, content_type: "image/png", recipe: recipe)
@@ -243,12 +242,12 @@ narrator = DataDungeon::Recipe.wording("style", "owl:narrator", "Warm, unhurried
 spoken = DataDungeon::Recipe.new("speech", settings: {"model" => "gpt-4o-mini-tts", "voice" => "fable"},
   prompt: "Once, there was a castle.", instructions: narrator.text, wordings: [narrator])
 
-db.recipe(id)                     # => Recipe?, wordings read back as "overlore:silver-comic/figure@3f9a2c71b0"
-db.with_text("flavor", "overlore:silver-comic")  # the assets using any of its wordings, any purpose;
-                                                 # "…/figure" for one purpose, "…/figure@3f9a2c71b0" one wording
-db.with_text("style", "dd:silver-comic")         # every picture given DataDungeon's words for it
-db.list_assets(texts: {"flavor" => "overlore:silver-comic"})  # the same as a listing filter
-db.named_texts("flavor", "overlore")  # [{name, version, text}], the name as "silver-comic/figure"
+db.recipe(id)                     # => Recipe?, wordings read back as "overlore:silver-comic@3f9a2c71b0"
+db.with_text("style", "overlore:silver-comic")  # the assets using any of its wordings;
+                                                # "…@3f9a2c71b0" for one wording
+db.with_text("style", "dd:silver-comic")        # every picture given DataDungeon's words for it
+db.list_assets(texts: {"style" => "overlore:silver-comic"})  # the same as a listing filter
+db.named_texts("style", "overlore")  # [{name, version, text}]
 db.set_recipe(id, recipe)             # give an asset made before 0.13 its recipe
 db.add_wordings(id, [rating])         # name words a stored recipe was sent but didn't name
 db.vocabulary                         # the shared tags (art-style, rating) and their values
@@ -261,7 +260,7 @@ db.vocabulary                         # the shared tags (art-style, rating) and 
   keeps them word for word. A step without a prompt (a matte, a depth map)
   has the form `""`, and an asset made in steps `Recipe.in_steps([edit, matte])`.
 - **Wordings** are the words an app reuses, kept once in the store: each has
-  a kind (`style`, `flavor`, `rating`, `framing`, `character`, `theme`, …),
+  a kind (`style`, `rating`, `rules`, `framing`, `character`, `theme`, …),
   a name, `owner:name`, the owner being the app (`DB.new(…, consumer:)`) or
   `dd` for DataDungeon's own, and its words. A recipe lists the wordings it
   used, and the store refuses one whose words aren't in its prompt or
@@ -271,14 +270,17 @@ db.vocabulary                         # the shared tags (art-style, rating) and 
   SHA-256, so `overlore:silver-comic@3f9a2c71b0` is the same words in every
   store. A wording is never changed or deleted (the store refuses it, in
   the sqlite3 shell too): new words are a new version, a rename a new name.
-- **A purpose** says what a wording is for, when one name has several in use
-  at once: `overlore:silver-comic/figure` and `overlore:silver-comic/place`.
-  It's optional.
-- **The style is the vocabulary's** (no custom top-level styles): a
-  picture's `style` wording is DataDungeon's words for a standard art style,
-  `db.style_text("silver-comic")`, and the app's own words for it are a
-  `flavor` named for the same style. A store refuses a picture otherwise.
-  Recipes stored before 0.14 aren't checked.
+- **A purpose** (`owner:name/purpose`) is deprecated (Thomas, 2026-10-17),
+  to go in a later release. It came in so one style could be worded once
+  for figures and once for places, but that difference is framing, which
+  has its own part, so one style wording serves both. Wordings stored with
+  a purpose keep working until then.
+- **Each app words its own styles** (Thomas, 2026-10-17): a picture's
+  `style` wording is the app's, named for the standard art style its
+  pictures are tagged with (`overlore:silver-comic`), or DataDungeon's
+  words for it, `db.style_text("silver-comic")`. The vocabulary's art
+  styles are what pictures are tagged with, so pictures fall into the same
+  categories in every app; only the words differ.
 - **A rating's words are DataDungeon's too,** one wording for every form,
   saying what's suitable rather than listing what's forbidden:
   `db.rating_text("pg")`. A picture takes them with its rules, a chat text
@@ -286,8 +288,8 @@ db.vocabulary                         # the shared tags (art-style, rating) and 
   its text is written.
 - **A prompt's parts,** in the order we recommend (advice, not a schema:
   each prompt is the app's): the rules (the fixed ones, the same for every
-  picture, such as the rating's), framing (how much is in frame), the style
-  and its flavor, theme (mood included), subject, description, staging
+  picture, such as the rating's), framing (how much is in frame), the style,
+  theme (mood included), subject, description, staging
   (where each figure is, and the view), light (the standing light, from the
   place), and last the directives (this picture's own: its kind's rules,
   and what an edit or a shot from a reference changes and keeps), where the
@@ -431,7 +433,10 @@ anything written since it began.
 Each store is one owner's: the app that opens it (`consumer:`) and its
 `dd-serve` (Thomas, 2026-10-16). An app that wants another store's assets
 copies the records into its own, with a `copied-from` link saying where
-from, and the bytes stay one object in the shared bucket.
+from, and the bytes stay one object in the shared bucket. Pictures aren't
+expected to move between apps (Thomas, 2026-10-17): each app words its own
+styles for its own models, so one art style looks different from app to
+app, and reuse pays within an app.
 
 Run the specs with `crystal spec`. The S3 specs need a server:
 `scripts/garage-test` runs them against a throwaway single-node

@@ -23,8 +23,8 @@ module DataDungeon
   # One value of a shared tag: its title for people ("16-Bit Pixel"), what
   # counts as it, the family a filter on it finds it by (`pixel` for
   # `pixel-16`; empty for none), and DataDungeon's words for it, where it
-  # has them: an art style's, the wording a picture's prompt takes its style
-  # from (`dd:silver-comic@<version>`), and a rating's, what's suitable for
+  # has them: an art style's, for a picture whose app takes its style from
+  # them (`dd:silver-comic@<version>`), and a rating's, what's suitable for
   # it (`dd:pg@<version>`).
   struct VocabularyValue
     include JSON::Serializable
@@ -120,6 +120,10 @@ module DataDungeon
     # Takes the vocabulary as this release has it, inside setup_schema's
     # transaction. Values a later release drops are kept.
     private def seed_vocabulary(conn : ::DB::Connection) : Nil
+      # A store opened by the first 0.14 build (4426581) named a value's words style_id.
+      if conn.query_one?("SELECT 1 FROM pragma_table_info('vocabulary_values') WHERE name = 'style_id'", as: Int32)
+        conn.exec("ALTER TABLE vocabulary_values RENAME COLUMN style_id TO wording_id")
+      end
       VOCABULARY_SCHEMAS.split(";").each { |sql| conn.exec(sql.strip) unless sql.strip.empty? }
       VOCABULARY.each do |tag|
         conn.exec(<<-SQL, tag[:name], tag[:title], tag[:label], tag[:kind], tag[:description])
@@ -158,10 +162,10 @@ module DataDungeon
       end
     end
 
-    # DataDungeon's words for an art style, the wording a picture's prompt
-    # takes its style from: `dd:silver-comic@<version>`, "Silver Age
-    # comic.". The app's own wording of it is its flavor. Raises for a value
-    # that isn't a standard art style.
+    # DataDungeon's words for an art style, for an app that takes its
+    # style from them: `dd:silver-comic@<version>`, "Silver Age comic.". An
+    # app may word its styles its own way instead (`overlore:silver-comic`).
+    # Raises for a value that isn't a standard art style.
     def style_text(art_style : String) : Recipe::Wording
       vocabulary_text("art-style", art_style) || raise ArgumentError.new("#{art_style.inspect} isn't a standard art style (vocabulary)")
     end
