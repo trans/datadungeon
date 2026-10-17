@@ -239,10 +239,12 @@ describe DataDungeon::API do
       silver = tags[0]["values"].as_a.find!(&.["value"].==("silver-comic"))
       silver["title"].should eq "Silver Age Comic"
       silver["description"].should eq "Silver Age comics"
-      silver["style"].should eq({"kind" => "style", "name" => "dd:silver-comic@#{DataDungeon::Recipe.version("Silver Age comic.")}",
+      silver["wording"].should eq({"kind" => "style", "name" => "dd:silver-comic@#{DataDungeon::Recipe.version("Silver Age comic.")}",
                                  "text" => "Silver Age comic."})
       tags[0]["values"].as_a.find!(&.["value"].==("pixel-8"))["family"].should eq "pixel"
       tags[1]["values"].as_a.map(&.["value"]).should eq ["g", "pg", "r", "x"]
+      tags[1]["values"][3]["wording"].should eq({"kind" => "rating", "name" => "dd:x@#{DataDungeon::Recipe.version("For adults only.")}",
+                                                 "text" => "For adults only."})
       call(api, "GET", "/dd/vocabulary").status_code.should eq 401
     end
   end

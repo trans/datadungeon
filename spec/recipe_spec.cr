@@ -323,6 +323,24 @@ describe DataDungeon::Recipe do
     end
   end
 
+  it "takes a rating's words from the vocabulary, for every form" do
+    with_db("dd-recipe-ratings") do |db|
+      words = "Suitable for older children: mild peril and action, kept clean."
+      pg = db.rating_text("pg")
+      pg.should eq wording("rating", "dd:pg@#{version(words)}", words)
+      id = store_panel(db, "a", DataDungeon::Recipe.new("picture", prompt: "#{words} #{SILVER_WORDS} A dwarf.",
+        wordings: [pg, SILVER])).id
+      db.recipe(id).not_nil!.wordings.should eq [pg, SILVER]
+      db.with_text("rating", "dd:pg").should eq [id]
+      text = DataDungeon::Recipe.new("text", prompt: "A dwarf's tale.", instructions: "Tell it. #{words}", wordings: [pg])
+      db.store("line", {"voice" => "fable"}, bytes: "tale".to_slice, content_type: "text/plain", recipe: text).has_recipe?.should be_true
+      reworded = DataDungeon::Recipe.new("picture", prompt: "Kept clean. #{SILVER_WORDS} A dwarf.",
+        wordings: [wording("rating", "dd:pg", "Kept clean."), SILVER])
+      expect_raises(ArgumentError, /isn't DataDungeon's words/) { store_panel(db, "b", reworded) }
+      expect_raises(ArgumentError, /isn't a rating/) { db.rating_text("pg-13") }
+    end
+  end
+
   it "never changes or deletes a wording" do
     with_db("dd-recipe-kept") do |db, dir|
       store_panel(db, "a", picture("A dwarf."))
@@ -424,7 +442,7 @@ describe DataDungeon::Recipe do
     end
   end
 
-  it "seeds the shared vocabulary once, with each art style's words" do
+  it "seeds the shared vocabulary once, with each art style's and rating's words" do
     with_db("dd-recipe-vocabulary") do |db, dir|
       vocabulary = db.vocabulary
       vocabulary.map(&.name).should eq %w[art-style rating]
@@ -435,11 +453,13 @@ describe DataDungeon::Recipe do
       pixel = styles.find!(&.value.==("pixel-16"))
       pixel.title.should eq "16-Bit Pixel"
       pixel.family.should eq "pixel"
-      styles.find!(&.value.==("silver-comic")).style.should eq SILVER
+      styles.find!(&.value.==("silver-comic")).wording.should eq SILVER
       rating = vocabulary[1]
       rating.kind.should eq "scale"
       rating.values.map(&.value).should eq %w[g pg r x]
-      rating.values.all?(&.style.nil?).should be_true
+      rating.values.map(&.wording.not_nil!.kind).uniq.should eq ["rating"]
+      rating.values[2].wording.should eq db.rating_text("r")
+      rating.values[3].wording.not_nil!.text.should eq "For adults only."
 
       named = count(db, "named_texts")
       db.close
@@ -514,6 +534,46 @@ describe DataDungeon::Recipe do
     db.connection.query_all("PRAGMA foreign_key_check", &.read(::DB::Any)).should be_empty
     db.style_text("silver-comic").should eq SILVER # the vocabulary, seeded after
     db.recipe(store_panel(db, "f", picture("An orc.")).id).not_nil!.wordings.size.should eq 3
+  ensure
+    db.try(&.close)
+    FileUtils.rm_rf(dir) if dir
+  end
+
+  it "names words a stored recipe was sent, checking only the new wordings" do
+    dir = File.tempname("dd-recipe-add-wordings")
+    Dir.mkdir_p(dir)
+    path = File.join(dir, "assets.db")
+    db = DataDungeon::DB.new(path, cache_root: File.join(dir, "store"), consumer: "overlore")
+    db.register_type("panel", pool_traits: %w[art-style])
+    old, layer = %w[a b].map { |bytes| store_panel(db, bytes).id }
+    db.close
+
+    raw = ::DB.open("sqlite3://#{path}")
+    as_013(raw)
+    place = raw_named(raw, "style", "overlore", "silver-comic", "place", 1, "Silver Age comic art.")
+    raw_step(raw, old, 0, "picture", {"style" => {"Silver Age comic art.", place}, "rules" => {"Kept clean.", nil}})
+    raw_step(raw, layer, 0, "picture", {"subject" => {"A street.", nil}})
+    raw_step(raw, layer, 1, "", {} of String => {String, Int64?})
+    raw.close
+
+    db = DataDungeon::DB.new(path, cache_root: File.join(dir, "store"), consumer: "overlore")
+    stored = db.recipe(old).not_nil!
+    pg = wording("rating", "overlore:pg", "Kept clean.")
+    # Its style is an app's, from before 0.14, so the recipe as a whole isn't one a store takes now.
+    expect_raises(ArgumentError, /a picture's style is DataDungeon's words/) { db.set_recipe(old, stored, replace: true) }
+    db.add_wordings(old, [pg, pg]).should eq 1
+    db.recipe(old).not_nil!.wordings.should eq stored.wordings + [wording("rating", "overlore:pg@#{version("Kept clean.")}", "Kept clean.")]
+    db.with_text("rating", "overlore:pg").should eq [old]
+    db.add_wordings(old, [pg]).should eq 0 # named already
+    expect_raises(ArgumentError, /isn't in what was sent/) { db.add_wordings(old, [wording("rating", "overlore:r", "Gory.")]) }
+    expect_raises(ArgumentError, /a picture's style is DataDungeon's words/) do
+      db.add_wordings(old, [wording("style", "overlore:silver-comic", "Silver Age comic art.")])
+    end
+    expect_raises(ArgumentError, /is owl's/) { db.add_wordings(old, [wording("rating", "owl:pg", "Kept clean.")]) }
+    db.add_wordings(layer, [wording("subject", "overlore:street", "A street.")]).should eq 1
+    expect_raises(ArgumentError, /a step without a form/) { db.add_wordings(layer, [pg], step: 1) }
+    expect_raises(ArgumentError, /has no recipe step 2/) { db.add_wordings(layer, [pg], step: 2) }
+    expect_raises(ArgumentError, /has no recipe step 0/) { db.add_wordings(store_panel(db, "c").id, [pg]) }
   ensure
     db.try(&.close)
     FileUtils.rm_rf(dir) if dir

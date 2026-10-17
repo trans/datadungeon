@@ -226,7 +226,7 @@ same names ("Art Style", "Fantasy Cover", "16-Bit Pixel"; Thomas,
 2026-10-15). A value can name its family (`pixel` for `pixel-16`), and an
 art style has DataDungeon's words for it, the wording `dd:<style>` a
 picture's prompt takes as its style (DESIGN-recipes.md, "The style and its
-flavor"). For now a tag or a
+flavor"), and a rating has its words too (`dd:pg`). For now a tag or a
 value is added in a DataDungeon release, by agreement: every store opened
 read-write takes the vocabulary its release has, and keeps a value a later
 release drops.
@@ -262,7 +262,17 @@ release drops.
   shareable (Thomas, 2026-10-16).
 - **`rating`** is in the first vocabulary (`@owl`): `g`, `pg`, `r`, `x`,
   meaning the same in every app, since Owl's library skips `r` and `x`
-  from other stores.
+  from other stores. Each has DataDungeon's words, one wording for every
+  form, saying what's suitable rather than listing what's forbidden
+  (Thomas, 2026-10-16; the words 2026-10-17), `dd:<rating>` from
+  `db.rating_text`:
+
+  | Value | DataDungeon's words |
+  |---|---|
+  | `g` | Family-friendly and wholesome, suitable for all ages. |
+  | `pg` | Suitable for older children: mild peril and action, kept clean. |
+  | `r` | For mature audiences: violence, blood and risqué scenes may be shown. |
+  | `x` | For adults only. |
 
 ### First vocabulary: `art-style` (Thomas, 2026-10-13; in the store since 0.14)
 

@@ -44,7 +44,8 @@ that several apps share.
   and a prompt starts there and may depart from it (`@overlore`, 2026-10-16:
   the ideas stay, the fields don't). Four groups, each from one source:
   - **the spec**, set by code from the kind of picture: the **rules**, the
-    fixed ones every picture obeys (the rating's limits, no signature),
+    fixed ones every picture obeys (the rating's words, DataDungeon's
+    `dd:pg`, saying what's suitable; no signature),
     first; and the **framing**, how much is in frame and its shape ("a wide
     landscape", "full body, head to toe"). A fixed rule mustn't contradict
     a description (Thomas): some pictures need words in them, so "no text
@@ -358,8 +359,8 @@ wordings.
   stored, so it has no hash. A reference to an earlier step would record
   it. Nothing breaks without it.
 - **Release:** 0.13, on its own; the prompt as sent, the wordings, the
-  style and its flavor in 0.14 with the vocabulary (Thomas, 2026-10-15
-  and 2026-10-16); the embeddings registry (`DESIGN-embeddings.md`) in
+  style and its flavor in 0.14 with the vocabulary and the ratings' words
+  (Thomas, 2026-10-15 to 2026-10-17); the embeddings registry (`DESIGN-embeddings.md`) in
   0.16.
 - **Compression** of stored prompts, if size comes to matter: zlib took
   Overlore's prompts from 659 to 399 bytes on average, and it can come

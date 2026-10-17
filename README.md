@@ -226,13 +226,15 @@ that, and what's its own: seed, cost, when, and the files it was made from,
 by hash.
 
 ```crystal
+rating = db.rating_text("pg")              # "Suitable for older children: …", named dd:pg@<version>
 rules = DataDungeon::Recipe.wording("rules", "overlore:house", "No text unless the description asks for it.")
 style = db.style_text("silver-comic")      # "Silver Age comic.", named dd:silver-comic@<version>
 flavor = DataDungeon::Recipe.wording("flavor", "overlore:silver-comic/figure", "Bold inks, flat colour.")
-prompt = [rules.text, "Full body, head to toe.", style.text, flavor.text, "A tall elf with red braids."].join(" ")
+prompt = [rating.text, rules.text, "Full body, head to toe.", style.text, flavor.text,
+          "A tall elf with red braids."].join(" ")
 recipe = DataDungeon::Recipe.new("picture",
   settings: {"camera" => "mj:camera:flare", "model" => "flux-dev", "steps" => 4},
-  prompt: prompt, wordings: [rules, style, flavor],
+  prompt: prompt, wordings: [rating, rules, style, flavor],
   seed: 7, cost: 0.04, cost_basis: "reported: runware", generated_at: Time.utc,
   references: [portrait.file_hash.not_nil!])
 db.store("panel", tags, bytes: png, content_type: "image/png", recipe: recipe)
@@ -248,6 +250,7 @@ db.with_text("style", "dd:silver-comic")         # every picture given DataDunge
 db.list_assets(texts: {"flavor" => "overlore:silver-comic"})  # the same as a listing filter
 db.named_texts("flavor", "overlore")  # [{name, version, text}], the name as "silver-comic/figure"
 db.set_recipe(id, recipe)             # give an asset made before 0.13 its recipe
+db.add_wordings(id, [rating])         # name words a stored recipe was sent but didn't name
 db.vocabulary                         # the shared tags (art-style, rating) and their values
 ```
 
@@ -276,6 +279,11 @@ db.vocabulary                         # the shared tags (art-style, rating) and 
   `db.style_text("silver-comic")`, and the app's own words for it are a
   `flavor` named for the same style. A store refuses a picture otherwise.
   Recipes stored before 0.14 aren't checked.
+- **A rating's words are DataDungeon's too,** one wording for every form,
+  saying what's suitable rather than listing what's forbidden:
+  `db.rating_text("pg")`. A picture takes them with its rules, a chat text
+  with its instructions; speech needs none, since its rating applies when
+  its text is written.
 - **A prompt's parts,** in the order we recommend (advice, not a schema:
   each prompt is the app's): the rules (the fixed ones, the same for every
   picture, such as the rating's), framing (how much is in frame), the style
@@ -310,14 +318,18 @@ field becomes one of its wordings, versioned by its words. Every step is
 compared with its fields before a column goes; if any differs the open
 fails and leaves the store as it was. The fields themselves stay, in
 `recipe_fields`, no longer written. It adds the vocabulary, with
-DataDungeon's words for each art style (`dd:silver-comic`). It's one way:
+DataDungeon's words for each art style (`dd:silver-comic`) and rating
+(`dd:pg`). It's one way:
 upgrade every program that opens a store (an app and its `dd-serve`)
 together.
 
 `set_recipe` keeps what an asset has: it refuses to replace a recipe
 without `replace: true`, and keeps the old `generation` record unless given
 `drop_generation: true`, once the app is sure the recipe holds everything
-it said. A text an asset or a recipe uses can't be deleted (a foreign key
+it said. `add_wordings(id, wordings, step: 0)` names words a stored step
+was sent but didn't name, such as an app's rating words on pictures made
+before it named them. Only the new wordings are checked, as a new recipe's
+are, and what the step named stays as it was stored. A text an asset or a recipe uses can't be deleted (a foreign key
 refuses it), and DataDungeon deletes none.
 
 ## Image fields
@@ -497,7 +509,7 @@ HTTP::Server.new([api, app_handler])
 | `GET /assets/:id`, `/assets/:id/object`, `/assets/:id/links` | an asset with its tags, metadata and links; its bytes; its links |
 | `POST /maintenance/check` | the consistency report |
 | `GET /objects` | every object key the store's rows use, for clearing a shared bucket |
-| `GET /vocabulary` | the shared tags and their values, with their titles; each art style's with DataDungeon's words for it |
+| `GET /vocabulary` | the shared tags and their values, with their titles; each art style and rating with DataDungeon's words for it |
 | `PATCH`, `DELETE /assets/:id` | edit (with `image` fields, views readably, and `everywhere` for a shared description) or delete (write token) |
 | `PUT /assets/:id/keyframes` | an animation's checkpoints (write token) |
 | `POST`, `DELETE /assets/:id/links` | link (with `data`) or unlink (write token) |

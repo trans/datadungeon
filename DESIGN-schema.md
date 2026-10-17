@@ -220,7 +220,7 @@ erDiagram
     TEXT title
     TEXT description
     TEXT family
-    INTEGER style_id FK
+    INTEGER wording_id FK
     INTEGER position
   }
   asset_indexes ||--o{ asset_keys : index_id
@@ -245,6 +245,6 @@ erDiagram
   assets ||--o{ recipes : asset_id
   assets ||--o{ text_meta : asset_id
   assets ||--o{ video_meta : asset_id
-  named_texts ||--o{ vocabulary_values : style_id
+  named_texts ||--o{ vocabulary_values : wording_id
   vocabulary_tags ||--o{ vocabulary_values : tag
 ```

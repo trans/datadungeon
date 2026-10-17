@@ -147,6 +147,44 @@ module DataDungeon
       @indexer.try(&.enqueue_asset(id))
     end
 
+    # Names wordings a stored recipe's step was sent but doesn't name, for
+    # an app naming its words after the fact (its rating's words, on
+    # pictures made before it named them); `step` is 0 for a recipe without
+    # steps. Only the new wordings are checked, as a new recipe's are: their
+    # words in the step's prompt or instructions, word for word, and theirs
+    # to add. What the step names already stays as it was stored, and a
+    # wording it names already is skipped. Returns how many were added.
+    def add_wordings(id : Int64, wordings : Array(Recipe::Wording), step : Int32 = 0) : Int32
+      writable!
+      stored = recipe(id).try { |whole| whole.steps.empty? ? (whole if step == 0) : whole.steps[step]? }
+      raise ArgumentError.new("Asset #{id} has no recipe step #{step}") unless stored
+      named = stored.wordings.map { |wording| wording_key(wording) }
+      added = wordings.uniq { |wording| wording_key(wording) }.reject { |wording| named.includes?(wording_key(wording)) }
+      Recipe.new(stored.form, prompt: stored.prompt, instructions: stored.instructions, wordings: added).check
+      check_wordings(Recipe.new(stored.form, prompt: stored.prompt, instructions: stored.instructions,
+        wordings: stored.wordings + added), added)
+      return 0 if added.empty?
+      write_transaction do |conn|
+        position = conn.scalar("SELECT ifnull(max(position) + 1, 0) FROM recipe_wordings WHERE asset_id = ? AND step = ?",
+          id, step).as(Int64)
+        added.each_with_index do |wording, i|
+          owner, name, purpose, _ = wording.handle
+          named_id = put_named(conn, wording.kind, owner, name, purpose, put_text(conn, wording.text))
+          conn.exec("INSERT INTO recipe_wordings (asset_id, step, position, named_id) VALUES (?, ?, ?, ?)",
+            id, step, position + i, named_id)
+        end
+      end
+      @indexer.try(&.enqueue_asset(id))
+      added.size
+    end
+
+    # A wording as the store tells it apart: its kind, owner, name, purpose
+    # and version.
+    private def wording_key(wording : Recipe::Wording) : {String, String, String, String, String}
+      owner, name, purpose, _ = wording.handle
+      {wording.kind, owner, name, purpose, Recipe.version(wording.text)}
+    end
+
     # The assets whose recipes used a named wording of a kind, retired ones
     # included, oldest first: `with_text("flavor", "overlore:silver-comic")`
     # for any of its wordings, whatever their purpose,
@@ -229,7 +267,7 @@ module DataDungeon
 
     # The named_texts row for this wording of an owner's name and purpose,
     # its version the start of its words' SHA-256. Only the owner adds a
-    # wording (DataDungeon adds its own, the art styles' words, with
+    # wording (DataDungeon adds its own, the vocabulary's words, with
     # `owned: true`); two wordings of one name whose versions are the same
     # (a 1 in a trillion chance) are refused rather than confused.
     private def put_named(conn : ::DB::Connection, kind : String, owner : String, name : String,
@@ -270,32 +308,35 @@ module DataDungeon
     # named for that style (`overlore:silver-comic/place` with
     # `dd:silver-comic`). Recipes stored before 0.14 aren't checked.
     private def check_wordings(recipe : Recipe) : Nil
-      (recipe.steps.empty? ? [recipe] : recipe.steps).each do |step|
-        step.wordings.each do |wording|
-          owner, name, purpose, _ = wording.handle
-          next if wording?(wording.kind, owner, name, purpose, wording.text)
-          if owner == VOCABULARY_OWNER
-            raise ArgumentError.new("#{wording.name} isn't DataDungeon's words: a dd wording comes from the " \
-                                    "store (db.style_text)")
-          end
-          unless owner == @consumer
-            raise ArgumentError.new("#{wording.name} is #{owner}'s: a store adds its consumer's own wordings " \
-                                    "(this DB's consumer is #{@consumer.inspect})")
-          end
+      (recipe.steps.empty? ? [recipe] : recipe.steps).each { |step| check_wordings(step, step.wordings) }
+    end
+
+    # Checks the wordings a step adds (`added`), among all it names.
+    private def check_wordings(step : Recipe, added : Array(Recipe::Wording)) : Nil
+      added.each do |wording|
+        owner, name, purpose, _ = wording.handle
+        next if wording?(wording.kind, owner, name, purpose, wording.text)
+        if owner == VOCABULARY_OWNER
+          raise ArgumentError.new("#{wording.name} isn't DataDungeon's words: a dd wording comes from the " \
+                                  "store (db.style_text, db.rating_text)")
         end
-        next unless step.form == "picture"
-        styles = step.wordings.select(&.kind.==("style"))
-        styles.each do |style|
-          next if style.handle[0] == VOCABULARY_OWNER
-          raise ArgumentError.new("a picture's style is DataDungeon's words for its art style, from " \
-                                  "db.style_text(art_style); the app's own words are its flavor (#{style.name})")
+        unless owner == @consumer
+          raise ArgumentError.new("#{wording.name} is #{owner}'s: a store adds its consumer's own wordings " \
+                                  "(this DB's consumer is #{@consumer.inspect})")
         end
-        step.wordings.select(&.kind.==("flavor")).each do |flavor|
-          raise ArgumentError.new("a flavor adds to a style: give the picture its style too (db.style_text)") if styles.empty?
-          named = styles.map(&.handle[1])
-          unless named.includes?(flavor.handle[1])
-            raise ArgumentError.new("#{flavor.name} is a flavor of #{flavor.handle[1]}, but this picture's style is #{named.join(" and ")}")
-          end
+      end
+      return unless step.form == "picture"
+      added.select(&.kind.==("style")).each do |style|
+        next if style.handle[0] == VOCABULARY_OWNER
+        raise ArgumentError.new("a picture's style is DataDungeon's words for its art style, from " \
+                                "db.style_text(art_style); the app's own words are its flavor (#{style.name})")
+      end
+      styles = step.wordings.select(&.kind.==("style"))
+      added.select(&.kind.==("flavor")).each do |flavor|
+        raise ArgumentError.new("a flavor adds to a style: give the picture its style too (db.style_text)") if styles.empty?
+        named = styles.map(&.handle[1])
+        unless named.includes?(flavor.handle[1])
+          raise ArgumentError.new("#{flavor.name} is a flavor of #{flavor.handle[1]}, but this picture's style is #{named.join(" and ")}")
         end
       end
     end

@@ -49,8 +49,8 @@ module DataDungeon
   #     GET    /objects                    every object key the store's rows use (object_keys),
   #                                          for clearing a shared bucket
   #     GET    /vocabulary                 the shared tags and their values, with their titles
-  #                                          (DB#vocabulary), an art style's with DataDungeon's words
-  #                                          for it
+  #                                          (DB#vocabulary), each art style and rating with
+  #                                          DataDungeon's words for it
   #     GET    /types/:type/matches        best matches, given a matcher (MatchIndex):
   #                                          ?trait.<k>=<v> &field.<f>=<v> (view=back-left,
   #                                          dominant-color=#aa3311) &require=a,b &weight.<k>=<n> &limit=
