@@ -70,8 +70,9 @@ over-engineered in places (about 2,500-3,000 of 7,300 lines serving no
 caller). Keep what exists, extend nothing no app uses yet: MatchIndex,
 per-consumer indexes, views/light/keyframes beyond what's there, the 0.15
 types and several values per tag. SemanticIndex stays live: players will
-find characters matching their customization prompts with it. Removing
-the pre-0.12 migrations waits until we've checked no store is missed. When
+find characters matching their customization prompts with it. The pre-0.12
+migrations went in 0.15 (2026-10-17), after checking every store on this
+machine: only old backups were older, and 0.14 brings one forward. When
 a consumer asks for something new, build the smallest thing that serves
 that call.
 

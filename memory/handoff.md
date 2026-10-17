@@ -157,8 +157,8 @@ either). The `0.14` branch and its scratchpad worktree can go once
 Overlore installs from GitHub (its `dd-0.14` pins the local `0.14` branch).
 
 **0.15.0, a small cleanup (Thomas, 2026-10-17; plan
-`~/.claude/plans/delegated-doodling-hippo.md`, approved): committed
-`7cf4743`** on branch `0.15` (scratchpad worktree `dd015`, not pushed). Standard types and
+`~/.claude/plans/delegated-doodling-hippo.md`, approved): released as
+v0.15.0** (`58f1fa6`). Standard types and
 tags aren't in it; they wait for a later decision. It's 0.15.0 and not
 0.14.1, since apps on `~> 0.14.0` would take a patch unasked.
 - The purpose removed: names are `owner:name[@version]`, `/` refused;
@@ -228,7 +228,11 @@ tags aren't in it; they wait for a later decision. It's 0.15.0 and not
   same). Checked on a fresh copy with 0.15 (`p015/run2`): 27 → 17 named
   texts, the 10 gone, 916 recipes the same as on 0.14, Overlore's styles
   one version each (`silver-comic@2dbf21cd78`, …), integrity and fk ok.
-  **0.15 is ready to tag on Thomas's go-ahead.**
+  **Released v0.15.0 (Thomas: "tag", 2026-10-17):** `main` fast-forwarded
+  to `58f1fa6` and pushed, tag pushed, a fresh `~> 0.15.0` install
+  resolves it; notice sent to all six (`mail/sent/*-@all--v0.15.0.md`).
+  The `0.14` branch and its worktree are removed (merged; nothing pinned
+  it). Apps bump to `~> 0.15.0` when ready.
 
 **Next (as of the 0.14 tag; every app has since moved):** the apps move (Overlore switches to GitHub `~> 0.14.0`; Owl moves
 its prompt and narrator code; Cattacula, Pirateship and the park bump, the
