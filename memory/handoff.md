@@ -2,7 +2,7 @@
 
 *Updated 2026-10-16*
 
-## 0.14: the prompt as sent, the wordings in it, the vocabulary (committed `4426581`, 2026-10-16)
+## 0.14: the prompt as sent, the wordings in it, the vocabulary (committed `4426581`, 2026-10-16; `98ed629`, 2026-10-17)
 
 **Simplified (Thomas, 2026-10-16; plan `~/.claude/plans/delegated-doodling-hippo.md`,
 approved), after an independent review** found DD over-engineered in places:
@@ -58,8 +58,8 @@ parts (the held template-parts draft is superseded and deleted);
 (nothing to change).
 
 **Rating words approved (Thomas, 2026-10-17),** r in his words, with "scenes" added
-("For mature audiences: violence, blood and risqué scenes may be shown."); built,
-not committed: `dd:g`, `dd:pg`, `dd:r`, `dd:x`, kind `rating`,
+("For mature audiences: violence, blood and risqué scenes may be shown."); committed
+in `98ed629`: `dd:g`, `dd:pg`, `dd:r`, `dd:x`, kind `rating`,
 `db.rating_text`; the vocabulary value's `style` is now `wording`
 (`vocabulary_values.wording_id`; nothing read it). 171 specs pass.
 
@@ -72,15 +72,15 @@ it. Thomas wants Overlore's own rating words named in its store as its own
 (`overlore:g` … kind `rating`), DD's to be adopted later or not. 24 stored
 pictures have them in their prompts, but `set_recipe(replace: true)`
 refuses those recipes, whose pre-0.14 style wordings fail the `dd:` rule.
-**Built, not committed:** `db.add_wordings(id, wordings, step: 0)` names
+**Committed in `98ed629`:** `db.add_wordings(id, wordings, step: 0)` names
 words a stored step was sent, checking only the new ones and skipping
 those it names already (172 specs pass). Overlore also asks whether to name
 its fixed rules (kind `rules`) and whether DD plans standard rules or a
-check on `rules`: none planned (the freeze). Reply drafted, held for
-Thomas.
+check on `rules`: none planned (the freeze). Reply sent 2026-10-17
+(`mail/sent/*-@overlore--naming-stored-words.md`): name them kind `rules`,
+one wording per rule that changes on its own.
 
-**Next:** commit the rating words and `add_wordings` when Thomas says,
-send the reply to Overlore, and tell everyone of `rating_text`; painted-animation waits on Thomas asking Owl; then merge,
+**Next:** no separate notice of `rating_text` (Thomas, 2026-10-17); painted-animation waits on Thomas asking Owl; then merge,
 tag (ask first), release notes.
 
 **Prompt as one template (`@mj` with Thomas, 2026-10-16; proposal in
