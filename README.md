@@ -70,7 +70,7 @@ record = db.store("portrait", traits, custom: %w[race],
   generated: true,
   generator: "runware:flux-dev-v1",
   recipe: DataDungeon::Recipe.new("picture", settings: {"model" => "flux-dev", "size" => "512x512"},
-    fields: {"subject" => DataDungeon::Recipe.text(image_prompt)}),
+    prompt: image_prompt),
   image: DataDungeon::ImageMeta.new(compression: "normalize", target_format: "webp")
 )
 record.key                                          # "portrait.silver.pg.f.ape.purple-skin.red-hair"
@@ -221,74 +221,75 @@ end
 A recipe says how an asset was made, in one shape every app shares, so an
 asset one app made can be read by another (`DESIGN-recipes.md`): its form
 (`picture`, `speech`, or `text` from a chat model), the settings it was
-made with, the words it was given by prompt field, and what's its own:
-seed, cost, when, and the files it was made from, by hash.
+made with, what its provider was sent, the named wordings that went into
+that, and what's its own: seed, cost, when, and the files it was made from,
+by hash.
 
 ```crystal
+rules = DataDungeon::Recipe.wording("rules", "overlore:house", "No text unless the description asks for it.")
+style = db.style_text("silver-comic")      # "Silver Age comic.", named dd:silver-comic@<version>
+flavor = DataDungeon::Recipe.wording("flavor", "overlore:silver-comic/figure", "Bold inks, flat colour.")
+prompt = [rules.text, "Full body, head to toe.", style.text, flavor.text, "A tall elf with red braids."].join(" ")
 recipe = DataDungeon::Recipe.new("picture",
   settings: {"camera" => "mj:camera:flare", "model" => "flux-dev", "steps" => 4},
-  fields: {"rules"   => DataDungeon::Recipe.named("overlore:house", "No text unless the description asks for it."),
-           "framing" => DataDungeon::Recipe.text("Full body, head to toe."),
-           "style"   => db.style_text("silver-comic"),  # "Silver Age comic.", datadungeon:silver-comic@1
-           "flavor"  => DataDungeon::Recipe.named("overlore:silver-comic/figure", "Bold inks, flat colour."),
-           "subject" => DataDungeon::Recipe.text("A tall elf with red braids.")},
-  prompt_sent: sent, seed: 7, cost: 0.04, cost_basis: "reported: runware", generated_at: Time.utc,
+  prompt: prompt, wordings: [rules, style, flavor],
+  seed: 7, cost: 0.04, cost_basis: "reported: runware", generated_at: Time.utc,
   references: [portrait.file_hash.not_nil!])
-recipe.joined                     # the prompt: its fields in order; raises for a field it hasn't
 db.store("panel", tags, bytes: png, content_type: "image/png", recipe: recipe)
 
-db.recipe(id)                     # => Recipe?, named texts read back as "overlore:silver-comic/figure@2"
+narrator = DataDungeon::Recipe.wording("style", "owl:narrator", "Warm, unhurried, a storyteller by a fire.")
+spoken = DataDungeon::Recipe.new("speech", settings: {"model" => "gpt-4o-mini-tts", "voice" => "fable"},
+  prompt: "Once, there was a castle.", instructions: narrator.text, wordings: [narrator])
+
+db.recipe(id)                     # => Recipe?, wordings read back as "overlore:silver-comic/figure@3f9a2c71b0"
 db.with_text("flavor", "overlore:silver-comic")  # the assets using any of its wordings, any purpose;
-                                                 # "…/figure" for one purpose, "…/figure@2" one wording
-db.with_text("style", "datadungeon:silver-comic")  # every picture given DataDungeon's words for it
+                                                 # "…/figure" for one purpose, "…/figure@3f9a2c71b0" one wording
+db.with_text("style", "dd:silver-comic")         # every picture given DataDungeon's words for it
 db.list_assets(texts: {"flavor" => "overlore:silver-comic"})  # the same as a listing filter
 db.named_texts("flavor", "overlore")  # [{name, version, text}], the name as "silver-comic/figure"
-db.set_recipe(id, recipe)                   # give an asset made before 0.13 its recipe
-db.vocabulary                     # the shared tags (art-style, rating) and their values
+db.set_recipe(id, recipe)             # give an asset made before 0.13 its recipe
+db.vocabulary                         # the shared tags (art-style, rating) and their values
 ```
 
-- **Fields,** in the order they're joined: a picture's rules (the fixed
-  ones, the same for every picture), framing (how much is in frame), style
-  (DataDungeon's words for its art style), flavor (the app's own words for
-  it), theme (mood included), subject, description, staging (where each
-  figure is, and the view), light (the standing light, from the place) and
-  directives (this picture's own: its kind's rules, and what an edit or a
-  shot from a reference changes and keeps), last, where the end holds what
-  the picture is for; speech's style (the speaking instructions) and text;
-  a chat text's instructions and description (the part that changes). A
-  step without a prompt (a matte, a depth map) has the form `""`, and an
-  asset made in steps `Recipe.in_steps([edit, matte])`.
-- **Each recipe keeps the field order it was made in** (`Recipe#order`):
-  2 since 0.14, and 1 for 0.13's (framing, subject, description, staging,
-  theme, style, rules), which every recipe stored before 0.14 keeps, so
-  what it says was sent reads back the same. `order: 1` converts an old
-  prompt made that way. A field the order doesn't have is refused, by
-  `joined` too, so a prompt never silently loses words it was given.
+- **What was sent:** `prompt` is the text the provider got: a picture's
+  prompt, the words a voice speaks, a chat model's input. `instructions` is
+  the provider's second input beside it, a voice's or a chat model's
+  instructions; a picture has none. The app writes them, and DataDungeon
+  keeps them word for word. A step without a prompt (a matte, a depth map)
+  has the form `""`, and an asset made in steps `Recipe.in_steps([edit, matte])`.
+- **Wordings** are the words an app reuses, kept once in the store: each has
+  a kind (`style`, `flavor`, `rating`, `framing`, `character`, `theme`, …),
+  a name, `owner:name`, the owner being the app (`DB.new(…, consumer:)`) or
+  `dd` for DataDungeon's own, and its words. A recipe lists the wordings it
+  used, and the store refuses one whose words aren't in its prompt or
+  instructions word for word, before anything is written. Only the owner
+  adds a wording under its name; any app uses the wordings as they are.
+- **A version is the words' hash,** the first 10 hex characters of their
+  SHA-256, so `overlore:silver-comic@3f9a2c71b0` is the same words in every
+  store. A wording is never changed or deleted (the store refuses it, in
+  the sqlite3 shell too): new words are a new version, a rename a new name.
+- **A purpose** says what a wording is for, when one name has several in use
+  at once: `overlore:silver-comic/figure` and `overlore:silver-comic/place`.
+  It's optional.
 - **The style is the vocabulary's** (no custom top-level styles): a
-  picture's `style` is DataDungeon's words for a standard art style,
-  `db.style_text("silver-comic")`, any of its versions, and the app's own
-  words go in `flavor`. A flavor needs a style, and a named one is named
-  for the same style. A store refuses a picture otherwise, before anything
-  is written. Recipes in 0.13's order, where the app's wording was the
-  style, aren't checked.
-- **Named texts** are wordings an app reuses: `owner:name`, the owner being
-  the app (`DB.new(…, consumer:)`). Only the owner adds a wording under its
-  name; any app uses the wordings as they are. Each new wording is the
-  next version, and one seen before keeps its old one.
-- **A purpose** says what a wording is for, when one name has several in
-  use at once: `overlore:silver-comic/figure` and
-  `overlore:silver-comic/place`, each numbering its own versions. A style
-  wording is named for its standard style (no style of its own), and the
-  purpose tells its wordings apart. It's optional.
-- **What a picture's provider was sent** is compared with its fields joined
-  by one space (empty ones skipped) and kept only if it differs. An old
-  record whose parts are lost can be its settings and `prompt_sent` alone.
+  picture's `style` wording is DataDungeon's words for a standard art style,
+  `db.style_text("silver-comic")`, and the app's own words for it are a
+  `flavor` named for the same style. A store refuses a picture otherwise.
+  Recipes stored before 0.14 aren't checked.
+- **A prompt's parts,** in the order we recommend (advice, not a schema:
+  each prompt is the app's): the rules (the fixed ones, the same for every
+  picture, such as the rating's), framing (how much is in frame), the style
+  and its flavor, theme (mood included), subject, description, staging
+  (where each figure is, and the view), light (the standing light, from the
+  place), and last the directives (this picture's own: its kind's rules,
+  and what an edit or a shot from a reference changes and keeps), where the
+  end holds what the picture is for. `ViewWords` (below) puts a view or a
+  light in words.
 - **Cost** is in US dollars, and `cost_basis` says how it was reached: the
   service's own bill (`reported: runware`), a rate table
   (`priced: arcana-ai 0.5.2`), or `estimated`.
-- **Every wording is stored once,** in one table of texts, the asset's own
-  description included: a portrait's description and the subject of every
-  panel showing it are one row. Settings are stored once too.
+- **Every text is stored once,** in one table: a prompt sent twice, a
+  wording, an asset's description. Settings are stored once too.
 - `AssetRecord#has_recipe?` (JSON `has_recipe`) says whether there's one to
   ask for; `GET /assets/:id/recipe` returns it over HTTP.
 
@@ -301,15 +302,17 @@ every value is checked to read back the same from where it went; otherwise
 the open fails and leaves the store as it was. It's one way: an older
 DataDungeon can't open the store afterwards.
 
-The first read-write open by 0.14 gives every recipe stored before it 0.13's
-field order and renames its `preamble` fields and named preambles
-`framing`, counted before and after; if any count differs the open fails
-and leaves the store as it was. It adds the vocabulary, with
-DataDungeon's words for each art style as named texts
-(`datadungeon:silver-comic@1`). It's one way, and a store opened by 0.14
-mustn't be opened by 0.13 again, which would leave `framing` out of the
-prompts it rebuilds: upgrade every program that opens a store (an app and
-its `dd-serve`) together.
+The first read-write open by 0.14 turns every recipe stored before it into
+what was sent: a step's `prompt_sent`, or else a picture's fields joined in
+0.13's order (rules last); speech's text, with its style as the
+instructions; a chat text's description, with its instructions. Each named
+field becomes one of its wordings, versioned by its words. Every step is
+compared with its fields before a column goes; if any differs the open
+fails and leaves the store as it was. The fields themselves stay, in
+`recipe_fields`, no longer written. It adds the vocabulary, with
+DataDungeon's words for each art style (`dd:silver-comic`). It's one way:
+upgrade every program that opens a store (an app and its `dd-serve`)
+together.
 
 `set_recipe` keeps what an asset has: it refuses to replace a recipe
 without `replace: true`, and keeps the old `generation` record unless given
@@ -413,6 +416,11 @@ Clearing objects no store uses is for a program that asks every store for
 `object_keys` (`GET /objects`) and keeps whatever any of them names, and
 anything written since it began.
 
+Each store is one owner's: the app that opens it (`consumer:`) and its
+`dd-serve` (Thomas, 2026-10-16). An app that wants another store's assets
+copies the records into its own, with a `copied-from` link saying where
+from, and the bytes stay one object in the shared bucket.
+
 Run the specs with `crystal spec`. The S3 specs need a server:
 `scripts/garage-test` runs them against a throwaway single-node
 [Garage](https://garagehq.deuxfleurs.fr) (the `garage` binary on PATH).
@@ -485,7 +493,7 @@ HTTP::Server.new([api, app_handler])
 | `GET /assets?type=&q=&tag.<key>=&link.<rel>=&unlinked=&limit=&page=&before=&count=1` | a page of assets with their tags, and `next` (`&meta=1`: each picture's fields and view too) |
 | `…?retired=only` or `=include` | retired assets, or all, in listings and counts |
 | `…?field.<name>=<low>..<high>&view=back-left&view.side=&view.yaw=&view.pitch=&view.within=` | by picture fields (and `light.` alike) |
-| `…?file_hash=&description_hash=&text.<field>=<owner:name>[/<purpose>][@<version>]` | by file, by shared description, by a recipe's named text |
+| `…?file_hash=&description_hash=&text.<kind>=<owner:name>[/<purpose>][@<version>]` | by file, by shared description, by a wording a recipe used |
 | `GET /assets/:id`, `/assets/:id/object`, `/assets/:id/links` | an asset with its tags, metadata and links; its bytes; its links |
 | `POST /maintenance/check` | the consistency report |
 | `GET /objects` | every object key the store's rows use, for clearing a shared bucket |

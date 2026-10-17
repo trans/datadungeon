@@ -23,8 +23,8 @@ module DataDungeon
   # One value of a shared tag: its title for people ("16-Bit Pixel"), what
   # counts as it, the family a filter on it finds it by (`pixel` for
   # `pixel-16`; empty for none), and for an art style, DataDungeon's words
-  # for it, the text a picture's style field holds and the model is sent
-  # (`datadungeon:silver-comic@1`).
+  # for it, the wording a picture's prompt takes its style from
+  # (`dd:silver-comic@<version>`).
   struct VocabularyValue
     include JSON::Serializable
 
@@ -32,15 +32,15 @@ module DataDungeon
     getter title : String
     getter description : String
     getter family : String
-    getter style : Recipe::Text?
+    getter style : Recipe::Wording?
 
     def initialize(@value, @title, @description, @family, @style)
     end
   end
 
   class DB
-    # The owner of the art styles' words, as a named text's owner.
-    VOCABULARY_OWNER = "datadungeon"
+    # The owner of DataDungeon's own wordings, the art styles' words.
+    VOCABULARY_OWNER = "dd"
 
     VOCABULARY_SCHEMAS = <<-SQL
       CREATE TABLE IF NOT EXISTS vocabulary_tags (
@@ -124,7 +124,7 @@ module DataDungeon
         SQL
         tag[:values].each_with_index do |value, position|
           style_id = value[:style].try do |words|
-            put_named(conn, "style", VOCABULARY_OWNER, value[:value], "", nil, put_text(conn, words), owned: true)
+            put_named(conn, "style", VOCABULARY_OWNER, value[:value], "", put_text(conn, words), owned: true)
           end
           conn.exec(<<-SQL, tag[:name], value[:value], value[:title], value[:description], value[:family], style_id, position)
             INSERT INTO vocabulary_values (tag, value, title, description, family, style_id, position)
@@ -139,14 +139,14 @@ module DataDungeon
     # The shared tags by name, each with its values in the agreed order.
     def vocabulary : Array(VocabularyTag)
       values = Hash(String, Array(VocabularyValue)).new { |hash, tag| hash[tag] = [] of VocabularyValue }
-      @db.query_all(<<-SQL, as: {String, String, String, String, String, Int32?, String?}).each do |(tag, value, title, description, family, version, text)|
+      @db.query_all(<<-SQL, as: {String, String, String, String, String, String?, String?}).each do |(tag, value, title, description, family, version, text)|
         SELECT v.tag, v.value, v.title, v.description, v.family, n.version, t.text
         FROM vocabulary_values v
         LEFT JOIN named_texts n ON n.id = v.style_id
         LEFT JOIN texts t ON t.id = n.text_id
         ORDER BY v.tag, v.position, v.value
       SQL
-        style = text.try { |words| Recipe::Text.new(words, Recipe::Text.handle(VOCABULARY_OWNER, value, "", version)) }
+        style = text.try { |words| Recipe::Wording.new("style", Recipe::Wording.handle(VOCABULARY_OWNER, value, "", version), words) }
         values[tag] << VocabularyValue.new(value, title, description, family, style)
       end
       @db.query_all("SELECT name, title, label, kind, description FROM vocabulary_tags ORDER BY name",
@@ -155,58 +155,19 @@ module DataDungeon
       end
     end
 
-    # DataDungeon's words for an art style, for a picture's style field:
-    # `datadungeon:silver-comic@1`, "Silver Age comic.". The app's own
-    # wording of it goes in `flavor`. Raises for a value that isn't a
-    # standard art style.
-    def style_text(art_style : String) : Recipe::Text
-      row = @db.query_one?(<<-SQL, art_style, as: {Int32, String})
+    # DataDungeon's words for an art style, the wording a picture's prompt
+    # takes its style from: `dd:silver-comic@<version>`, "Silver Age
+    # comic.". The app's own wording of it is its flavor. Raises for a value
+    # that isn't a standard art style.
+    def style_text(art_style : String) : Recipe::Wording
+      row = @db.query_one?(<<-SQL, art_style, as: {String, String})
         SELECT n.version, t.text FROM vocabulary_values v
         JOIN named_texts n ON n.id = v.style_id JOIN texts t ON t.id = n.text_id
         WHERE v.tag = 'art-style' AND v.value = ?
       SQL
       raise ArgumentError.new("#{art_style.inspect} isn't a standard art style (vocabulary)") unless row
       version, words = row
-      Recipe::Text.new(words, Recipe::Text.handle(VOCABULARY_OWNER, art_style, "", version))
-    end
-
-    # A picture made in the field order since 0.14 takes its style from the
-    # vocabulary and its app's words in flavor: no custom top-level styles
-    # (Thomas). Its style is DataDungeon's words for a standard art style,
-    # any version; a flavor needs a style, and a named one is named for the
-    # same style (`overlore:silver-comic/place` with `datadungeon:silver-comic`).
-    # Checked before anything is written. Recipes made in 0.13's order
-    # aren't checked.
-    private def check_styles(recipe : Recipe) : Nil
-      (recipe.steps.empty? ? [recipe] : recipe.steps).each do |step|
-        next unless step.form == "picture" && step.order >= 2
-        style, flavor = step.fields["style"]?, step.fields["flavor"]?
-        if style
-          owner, name, purpose, version = style.handle || {"", "", "", nil}
-          unless owner == VOCABULARY_OWNER && purpose.empty? && style_words?(name, version, style.text)
-            raise ArgumentError.new("a picture's style is DataDungeon's words for its art style, from " \
-                                    "db.style_text(art_style); the app's own words go in flavor " \
-                                    "(#{style.name || style.text.inspect})")
-          end
-          if flavor && (named = flavor.handle) && named[1] != name
-            raise ArgumentError.new("#{flavor.name} is a flavor of #{named[1]}, but this picture's style is #{name}")
-          end
-        elsif flavor
-          raise ArgumentError.new("a flavor adds to a style: give the picture its style too (db.style_text)")
-        end
-      end
-    end
-
-    # Whether these are DataDungeon's words for an art style in the
-    # vocabulary: its current wording or an earlier one, and that version
-    # when one is given.
-    private def style_words?(art_style : String, version : Int32?, words : String) : Bool
-      found = @db.query_one?(<<-SQL, VOCABULARY_OWNER, art_style, words, as: Int32)
-        SELECT n.version FROM named_texts n JOIN texts t ON t.id = n.text_id
-        WHERE n.field = 'style' AND n.owner = ? AND n.name = ? AND n.purpose = '' AND t.text = ?
-          AND EXISTS (SELECT 1 FROM vocabulary_values v WHERE v.tag = 'art-style' AND v.value = n.name)
-      SQL
-      !found.nil? && (version.nil? || version == found)
+      Recipe::Wording.new("style", Recipe::Wording.handle(VOCABULARY_OWNER, art_style, "", version), words)
     end
   end
 end

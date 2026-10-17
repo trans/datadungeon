@@ -1,7 +1,12 @@
 # Standard asset types
 
 *Draft 2026-10-13, from Thomas and `@overlore`; reviewed the same day by
-`@curio`, `@overlore`, `@owl` and `@mj`. Nothing here is built yet.*
+`@curio`, `@overlore`, `@owl` and `@mj`. The vocabulary is built (0.14);
+the rest waits for an app that needs it. **Each store is one owner's**
+(Thomas, 2026-10-16): an app that wants another store's assets copies the
+records into its own, so what was here for several apps sharing one store
+(uses, owner tags, refusing a delete while another app uses an asset) is
+dropped, and the hub is deferred.*
 
 ## Why
 
@@ -28,7 +33,8 @@ How one app uses it is that app's business.
 3. **Uses:** how an app uses the asset, written `overlore:room`. A use is
    the app's own marker, so it finds its own quickly. It is never part of a
    key (Thomas, 2026-10-13): a room is just a drop, and the facts about it
-   are the same whoever uses it.
+   are the same whoever uses it. (Dropped 2026-10-16, with one owner per
+   store: an app's own tag says it.)
 
 ## The types
 
@@ -218,8 +224,9 @@ means, and its values each with one too, seeded with the agreed tags
 /vocabulary`). Tags and values have titles for people, so apps show the
 same names ("Art Style", "Fantasy Cover", "16-Bit Pixel"; Thomas,
 2026-10-15). A value can name its family (`pixel` for `pixel-16`), and an
-art style has DataDungeon's words for it, the text a picture's style field
-holds (DESIGN-recipes.md, "The style and its flavor"). For now a tag or a
+art style has DataDungeon's words for it, the wording `dd:<style>` a
+picture's prompt takes as its style (DESIGN-recipes.md, "The style and its
+flavor"). For now a tag or a
 value is added in a DataDungeon release, by agreement: every store opened
 read-write takes the vocabulary its release has, and keeps a value a later
 release drops.
@@ -237,9 +244,9 @@ release drops.
   than the picture: Overlore's room id in the game (`kitchen`), a hero
   shot's `moment` and the `portrait` it was drawn from, a comic's
   `session`. They're searchable like any tag and can be in the app's
-  indexes. Each is kept as two fields, owner and name, and written
-  `overlore:room-id`, as a named text is (Thomas: yes, two fields, so apps
-  that share are prepared); a shared tag has no owner.
+  indexes. (An owner field for them, `overlore:room-id`, was planned so
+  apps sharing a store were prepared; dropped 2026-10-16, since a store is
+  one owner's.)
 - **The description's hash in a key** (`@overlore`, from Thomas): texts
   are content-addressed, so an index can key on an asset's description
   hash beside its tags. A voice clip is found by its words' hash and its
@@ -248,9 +255,11 @@ release drops.
 - **Custom values: later** (Thomas, 2026-10-14, through `@owl`), perhaps
   in a paid 2.0. Art style decides what can be shared, and sharing is what
   makes the pictures affordable, so Owl uses the standard values. An Owl
-  world sets its art style, theme and rating apart, as the recipe's style
-  and theme fields are: a player's "kiddy cartoon" is a kids theme, `g`,
-  and `golden-comic`, `3d-cartoon` or `pixel`.
+  world sets its art style, theme and rating apart, as a recipe's style
+  and theme are: a player's "kiddy cartoon" is a kids theme, `g`, and
+  `golden-comic`, `3d-cartoon` or `pixel`. Custom styles would be the
+  store owner's (`owl:kiddy-cartoon`), so `dd:` keeps meaning standard and
+  shareable (Thomas, 2026-10-16).
 - **`rating`** is in the first vocabulary (`@owl`): `g`, `pg`, `r`, `x`,
   meaning the same in every app, since Owl's library skips `r` and `x`
   from other stores.
@@ -307,6 +316,9 @@ alone could be another's, as `red` could be hair, skin or a coat.
 DataDungeon's and changes in a release, by agreement.
 
 ## Uses
+
+*Dropped 2026-10-16 (Thomas): a store is one owner's, so an app's own tags
+say how it uses an asset. Kept here for the record.*
 
 A use is written `consumer:name`: `overlore:room`, `overlore:door-view`,
 `owl:scene`. Several apps can each mark the same asset, and one app can
@@ -378,9 +390,9 @@ asset only when no app uses it and it's retired, or unused and evictable,
 as a stored file is deleted only when no asset refers to it. With a store
 per app, this matters most for the common store.
 
-**Deleting what's in use** (`@curio`): an app is refused, with the uses
-listed (HTTP 409). `@curio`, as the curator, may delete it anyway, but a
-person decides: it shows "used by overlore:room" and asks first.
+**Deleting what's in use** (`@curio`): an app was to be refused, with
+the uses listed (HTTP 409). Dropped 2026-10-16 with uses: a store's owner
+decides what it deletes, and other stores hold copies of their own.
 
 **Shared files** (Thomas, 2026-10-13): stores share one bucket, each file
 kept once by its hash, so a copy costs no storage. A store can't see
@@ -394,7 +406,8 @@ asks every store for its list, then lists the bucket, and deletes only
 what no list names and nothing wrote since it began, and clears nothing
 while any store can't be reached.
 
-**The hub** (Thomas's idea, 2026-10-14, through `@owl`) is that service: a
+**The hub** (Thomas's idea, 2026-10-14, through `@owl`; deferred
+2026-10-16, until stores connect to each other) is that service: a
 DataDungeon service on the bus that knows every store. It searches them as
 one, merges duplicates by hash, filters by rating and art style, counts use
 across stores, and clears the shared bucket, deleting a file only when no
@@ -405,8 +418,8 @@ the store it came from goes down, and the bytes are still one file in the
 bucket. Owl's library code is a small version and would be its first
 user. **`@curio` builds it** (Thomas, 2026-10-14): curio already reads
 every store, so the hub is a service on top of it. DataDungeon's part is
-what each store offers: its search and use counts over HTTP, its uses
-(0.15), `GET /objects` and shared storage (0.13). Clearing the bucket must
+what each store offers: its search over HTTP, `GET /objects` and shared
+storage (0.13). Clearing the bucket must
 follow the order above (every store's list first, then the bucket, keeping
 anything written since the run began), since stores rely on it. A copy
 could later skip sending the bytes again: a call that records a row for a
@@ -454,5 +467,7 @@ vocabulary. Apps keep `register_index` for their own fast lookups (Thomas,
   pictures by words, and Overlore's drops have none in their tags),
   before 0.16's semantic search.
 - Release (Thomas, 2026-10-15): the vocabulary, `art-style` and `rating`,
-  in 0.14 with the new picture prompts; the types, several values per
-  tag, an app's own tags, keys as the apps' indexes and uses in 0.15.
+  in 0.14 with the new picture prompts. The types, several values per tag
+  and keys as the apps' indexes wait for an app that needs them (Thomas,
+  2026-10-16: a freeze on what no app uses yet); uses and owner tags are
+  dropped.

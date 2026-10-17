@@ -1,6 +1,6 @@
 # Recipes: a shared standard for how assets were made
 
-*Draft 2026-10-12, with Thomas, `@overlore` and `@mj`; updated 2026-10-13. Nothing here is built yet. The types it applies to are in `DESIGN-types.md`.*
+*Draft 2026-10-12, with Thomas, `@overlore` and `@mj`; built in 0.13, and in 0.14 a recipe keeps the prompt as sent with the wordings in it (2026-10-16). The types it applies to are in `DESIGN-types.md`.*
 
 ## Why
 
@@ -35,11 +35,14 @@ that several apps share.
 
 - **A picture:** camera and its version, model, size, format, the camera's
   own settings (`klein`'s steps and CFG, `dhero`'s input fidelity), seed;
-  the prompt in fields: **rules · framing · style · flavor · theme ·
-  subject · description · staging · light · directives** (0.14, `@mj` with
-  Thomas, 2026-10-14, from how Overlore makes pictures during play; mj's
-  `notes/picture-prompt-design-v1.md`); and `prompt_sent`, what the
-  provider received. Four groups, each from one source:
+  the **prompt**, exactly as the provider received it; and the **wordings**
+  in it, the named words it reused (its style, its rules, a character).
+  The prompt is the app's: DataDungeon recommends its parts and their
+  order, **rules · framing · style · flavor · theme · subject · description
+  · staging · light · directives** (`@mj` with Thomas, 2026-10-14, from how
+  Overlore makes pictures during play; mj's `notes/picture-prompt-design-v1.md`),
+  and a prompt starts there and may depart from it (`@overlore`, 2026-10-16:
+  the ideas stay, the fields don't). Four groups, each from one source:
   - **the spec**, set by code from the kind of picture: the **rules**, the
     fixed ones every picture obeys (the rating's limits, no signature),
     first; and the **framing**, how much is in frame and its shape ("a wide
@@ -62,7 +65,7 @@ that several apps share.
     `@owl`) is a directive.
 
   The kind of picture (a portrait, a room, a panel) is no setting of its
-  own: the asset's type and the app's tag say it, and the recipe keeps the
+  own: the asset's type and the app's tag say it, and the prompt holds the
   words it produced. 0.13's order, preamble · subject · description ·
   staging · theme · style · rules, was `@mj`'s habit of ending with "nothing
   else in frame", not measured; its slot-order test came back null on
@@ -70,8 +73,9 @@ that several apps share.
   on `klein` and `flare` a positive mention beats a "don't" either way
   round (mj's cow tests, 2026-10-14).
 - **Speech:** model, voice, speed, format and the processing settings
-  (`playback-rate`, `leveled-to`, …); the **style** (the speaking
-  instructions); the **text** spoken.
+  (`playback-rate`, `leveled-to`, …); the **instructions**, how it's
+  spoken (a voice's style, often a wording such as `owl:narrator`); and the
+  **prompt**, the words spoken.
 - **Per asset:** cost in US dollars, and how it was reached (its basis:
   the service's own bill, `reported: runware`; a rate table,
   `priced: arcana-ai 0.5.2`; or `estimated`), since a cost without it can't
@@ -83,10 +87,10 @@ that several apps share.
 
 Shapes still to add (`@overlore`, 2026-10-13):
 
-- **Text from a chat model** (banter scripts, decrees): model and settings;
-  the instructions as a named text (`overlore:banter@1`); the part that
-  changes (a decree's quest title; nothing, for a banter script); and the
-  output's format.
+- **Text from a chat model** (banter scripts, decrees; built in 0.13):
+  model and settings; the instructions, often a wording
+  (`overlore:banter`); the prompt, the part that changes (a decree's quest
+  title); and the output's format.
 - **A dialogue** spoken in one take (ElevenLabs's Text to Dialogue): the
   script by reference, a cast (each speaker's voice and settings), and the
   provider's own settings. Overlore would keep each take and cut it into a
@@ -133,189 +137,147 @@ the CPU, one 8-bit grayscale PNG per picture, kept as an `owl_depth` asset.
 
 ## How it's stored
 
-Every wording, named or not, is one row of one table of texts (id, hash,
-text), stored once; the rows aren't typed. Around it:
+Every text, a prompt, a wording, an asset's description, is one row of one
+table of texts (id, hash, text), stored once; the rows aren't typed. Around
+it:
 
 - **Settings:** a parameter set (camera, version, model, size, the camera's
   settings), stored once by hash; a few hundred at most, since programs reuse
   what works.
-- **Named texts:** the short prompt fields that repeat (rules, framing,
-  flavor, theme; speech's style), each named by its owner: a row with **field,
+- **What was sent:** each step's prompt and instructions, references into
+  texts. Each prompt is a text of its own, since almost every one is new:
+  on Overlore's store (2026-10-16), keeping the prompts whole took 295 KB
+  where its 0.13 fields and their indexes took 426 KB, the hashes and
+  their index costing more than the words they saved.
+- **Wordings:** the words an app reuses (rules, framing, flavor, a
+  character; a voice's style), each named by its owner: a row with **kind,
   owner, name, purpose, version** pointing at its text (Thomas,
-  2026-10-12: fields, not one string; the purpose 2026-10-14). The owner is the app that made it,
-  its consumer name (`DB.new(…, consumer: "overlore")`); only it adds
-  wordings under its names. DataDungeon numbers a name's wordings by their
-  hash, in the order first seen: the first is version 1, a changed one 2,
-  and the old wording again is 1, so nobody bumps a version by hand.
-  `overlore:silver-comic@2` is how one is written and shown, and taken apart on
-  the way in, as a view is shown as `back-left` and kept as numbers. Names
-  are shared: any app uses `overlore:silver-comic` as it is, which is what makes
-  its pictures comparable to Overlore's; nobody renames another's (no
-  aliases, until a need shows). Searchable like tags: every picture of one
-  style, any version, or one version. Versions are for a wording that
-  changes over time. **No custom top-level styles** (Thomas, 2026-10-14,
-  through `@overlore`): a variant of a style is the same style, so an app's
-  style wording is named for its standard style (DESIGN-types.md), and two
-  wordings in use at once differ by **purpose**, what each is for:
-  `overlore:silver-comic/figure` and `overlore:silver-comic/place`. Each
-  purpose numbers its own versions, so nothing flips back and forth, and
-  the picture's style tag stays the standard one. The purpose is optional
-  (`owl:narrator` has none). The row is also the label a person sees
-  ("Silver Age comic, Overlore's figure wording, v2", the style's label
-  from the vocabulary): no second table, and no supersedes link, since
-  versions already say which wording came after which.
+  2026-10-12: fields, not one string; the purpose 2026-10-14). The owner is
+  the app that made it, its consumer name (`DB.new(…, consumer:
+  "overlore")`), or `dd` for DataDungeon's own; only it adds wordings under
+  its names. A recipe lists the wordings in its prompt and instructions, in
+  `recipe_wordings`, and the store refuses one whose words aren't there
+  word for word: that is the guarantee a picture got its style, rating and
+  character, without DataDungeon parsing prompts (Thomas, 2026-10-16:
+  consistency comes from every picture taking the same words from one
+  registry). Names are shared: any app uses `overlore:silver-comic` as it
+  is, which is what makes its pictures comparable to Overlore's; nobody
+  renames another's. Searchable like tags: every picture of one style, any
+  version, or one version. **No custom top-level styles** (Thomas,
+  2026-10-14, through `@overlore`): a variant of a style is the same style,
+  so an app's style wording is named for its standard style
+  (DESIGN-types.md), and two wordings in use at once differ by **purpose**,
+  what each is for: `overlore:silver-comic/figure` and
+  `overlore:silver-comic/place`. The purpose is optional (`owl:narrator`
+  has none).
+- **A version is the words' hash** (`@mj` with Thomas, 2026-10-16): the
+  first 10 hex characters of their SHA-256 (`texts.hash`), so
+  `overlore:silver-comic@3f9a2c71b0` means the same words in every store,
+  and nobody hands out numbers. Each store had numbered a name's wordings
+  in the order it saw them, so `@2` could be different words in two stores,
+  and a record moved between them would point at the wrong ones. The words
+  are hashed exactly, so a stray space is a new version, as it is to the
+  model. Two versions of one name sharing those 40 bits (about 1 in 200
+  million for a wording with 100 versions) are refused, not confused. The
+  row id says which came first. A wording is never changed or deleted:
+  triggers refuse it, in the sqlite3 shell too, so a rename is a new name
+  and the old one stays, since prompts that name it are stored.
 - **The style and its flavor** (0.14; Thomas, 2026-10-14): the standard
   is always in the prompt, not left to each app's wording to repeat.
-  Each art style in the vocabulary has DataDungeon's words for it, a named
-  text of DataDungeon's own (`datadungeon:silver-comic@1`, "Silver Age
-  comic."), and a picture's `style` field holds them
-  (`db.style_text("silver-comic")`); the app's wording goes in `flavor`,
-  which only narrows the style or serves its purpose, never asks for
-  another. The words stay short, adding a style's key differentiators only
-  where a model may not know it. An improved wording is the style's next
-  version, so earlier pictures keep the words they were given, and an
-  app's flavor versions don't change with it. DataDungeon checks a
-  picture made in 0.14's order before anything is written: its style is
-  one of its words for a standard art style, a flavor needs a style, and
-  a named flavor is named for the same style. (Thomas turned down
-  checking that each app's wording starts with the standard, word for
-  word: brittle, and it repeats the base.)
+  Each art style in the vocabulary has DataDungeon's words for it, a
+  wording of DataDungeon's own (`dd:silver-comic`, "Silver Age comic."),
+  which a picture's prompt takes as its `style` (`db.style_text("silver-comic")`);
+  the app's wording is a `flavor`, which only narrows the style or serves
+  its purpose, never asks for another. The words stay short, adding a
+  style's key differentiators only where a model may not know it. An
+  improved wording is the style's next version; earlier pictures keep the
+  words they were given, and a change only refines (Thomas, 2026-10-16), so
+  apps aren't told. A picture's `style` wordings must be DataDungeon's, and
+  a flavor needs a style and is named for it, checked before anything is
+  written. (Thomas turned down checking that each app's wording starts
+  with the standard, word for word: brittle, and it repeats the base.)
 - **Staging:** the DM's words since 0.14. Before, it was `@mj`'s camera's
-  words for `view` and `light`, kept as they were: rebuilding old records
-  in today's phrasing would make `prompt_sent`'s check pass or fail for
-  reasons that aren't the record's. Nobody should search its words: the
+  words for `view` and `light`. Nobody should search its words: the
   vectors are the truth (within 20° of a view is one dot product), and
   words get a picture's left and right backwards. DataDungeon owns turning
   its vectors into words (`ViewWords`, from mj's camera; Thomas,
-  2026-10-14), for an app that has a measured light or view to say.
-- **Descriptions:** the long texts that are mostly new (a room's LOOK text,
-  a character's description, a spoken line), unnamed texts in the same
-  table. "Subject" and "description" are prompt fields, as "style" is: where an
-  asset uses a text, its row says in which field (`(900, subject, 123)`), not
-  the text. So a portrait (`(356, description, 123)`) and every panel of that
-  character (`(900, subject, 123)`) point at one text, which ties them
-  together in the data. A room's LOOK text is shared by its pictures in
-  every style, theme and rating.
+  2026-10-14), for an app that has a measured light or view to say; the
+  words go into the prompt as the app's own, and the vectors stay on the
+  asset.
+- **Descriptions:** an asset's description is a text in the same table,
+  shared by every asset with the same words (a room's LOOK text by its
+  pictures in every style, theme and rating).
 
-Each asset with a recipe has one small row for what's its own (its
-settings, seed, cost, `generated_at`, references), plus one row for each
-prompt field it uses (asset, field, text), whether the text is named or
-not. `@overlore` asked which was meant (2026-10-13); this is it. Reading a record back is one query; a drift audit (every
-picture from one camera with one parameter set, by `made_at`) is plain SQL.
-
-Prompt fields are joined with one space, an empty one skipped; each is whole
-sentences with their own end punctuation (`@overlore` and Thomas,
-2026-10-12). `prompt_sent` is checked, not stored: if it equals the fields joined, nothing
-more is kept; if not, it's kept whole, so a camera that added words of its
-own shows up (`@mj` returns it in every result so this can be checked rather
-than trusted).
-
-**The description is the fallback field** (Thomas, through `@overlore`,
-2026-10-14). An app fills what fields it can, from the front (rules to
-subject) and from the back (staging, light, directives), and leaves the
-rest in the description, in its order. An empty field (say, theme) means the
-description covered it, as far as it mattered. Since the description sits
-in the middle, the fields joined are exactly the prompt that was sent, so
-no prompt is kept whole: one that fills no field is all description. Old
-records are split this way as far as each goes.
-
-Size: a few dozen bytes per asset, the distinct settings and named texts
-(hundreds), and the descriptions. On a million pictures, about 50 MB besides
-the descriptions; descriptions are the one part worth compressing, if they
-grow large (a shared zstd dictionary measured 4.7x on single records; see
-below).
+Each asset with a recipe has one small row per step for what's its own (its
+settings, prompt, instructions, seed, cost, `generated_at`, references),
+plus one row for each wording it used. Reading a record back is one query;
+a drift audit (every picture from one camera with one parameter set, by
+`made_at`) is plain SQL.
 
 ### Filling it
 
-- `store(…, recipe:)` takes the standard shape, with each prompt field's text
-  given whole (named texts with their name). `generation:` is accepted for a
-  release and kept as the old free-form record until moved.
-- `@mj`'s `shoot` returns its prompt in labelled parts (`prompt_parts`, roles
-  matching the fields) beside `prompt_sent`, since only it knows where its
-  seams are; a preamble it might add later then arrives labelled.
-- Overlore composes every picture prompt from named parts already, so it
-  passes the fields and sends the joined string. Its `description` on an
-  asset becomes only the part that changes.
+- `store(…, recipe:)` takes the standard shape: the prompt and
+  instructions as sent, and each wording with its kind, name and words.
+  `generation:` is accepted for a release and kept as the old free-form
+  record until moved.
+- An app composes a prompt from its parts and its wordings, joins them as
+  it likes, sends it, and stores what it sent. `@mj`'s `shoot` returns
+  `prompt_sent`, so a camera that added words of its own shows in the
+  prompt kept.
 
 ## The calls
 
 ```crystal
+style = db.style_text("silver-comic")    # DataDungeon's words for the style: dd:silver-comic@<version>
+flavor = DataDungeon::Recipe.wording("flavor", "overlore:silver-comic/figure", "Bold inks …")
 recipe = DataDungeon::Recipe.new("picture",
   settings: {"camera" => "mj:camera:flare", "camera-version" => 1, "model" => "flux-dev",
              "size" => "1024x1024", "steps" => 4},             # stored once by hash
-  fields: {"rules"   => DataDungeon::Recipe.named("overlore:house", "No text unless …"),
-           "style"   => db.style_text("silver-comic"),   # DataDungeon's words for the style
-           "flavor"  => DataDungeon::Recipe.named("overlore:silver-comic/figure", "Bold inks …"),
-           "subject" => DataDungeon::Recipe.text("A tall elf with red braids.")},
-  prompt_sent: sent,                  # kept only if it differs from the fields joined
+  prompt: sent,                       # exactly what the provider received
+  wordings: [style, flavor],          # each word for word in the prompt
   seed: 1234, cost: 0.04, cost_basis: "reported: runware", generated_at: time,
   references: [portrait.file_hash.not_nil!])
 db.store("panel", tags, bytes: png, content_type: "image/png", recipe: recipe)
 
-db.recipe(id)                         # => Recipe?, named texts as handles: "overlore:silver-comic/figure@2"
+db.recipe(id)                         # => Recipe?, wordings named "overlore:silver-comic/figure@3f9a2c71b0"
 db.set_recipe(id, recipe)             # give an asset its recipe later (moving old records);
                                       # replace: true to replace one, drop_generation: true
                                       # to let the old record go
 db.with_text("flavor", "overlore:silver-comic")        # asset ids, any purpose or version;
-                                                       # "…/figure" for one purpose, "…/figure@2" one version
-db.with_text("style", "datadungeon:silver-comic")      # every picture given the style's words
+                                                       # "…/figure" for one purpose, "…/figure@3f9a2c71b0" one version
+db.with_text("style", "dd:silver-comic")               # every picture given the style's words
 db.list_assets(texts: {"flavor" => "overlore:silver-comic"})  # the same, with the other filters
+db.named_texts("flavor", "overlore")  # an owner's wordings of a kind: {name, version, text}
 db.vocabulary                         # the shared tags and values (GET /vocabulary)
 db.list_assets(file_hash: hash)       # the assets holding a recipe's reference
 db.update_asset(id, description: "…", everywhere: true)  # for every asset sharing it
 ```
 
-- **Forms and their fields,** in joining order. A field another form
-  doesn't have is refused, by `joined` too, so a prompt never silently
-  loses words before it's sent.
-  - `picture`: rules, framing, style, flavor, theme, subject, description,
-    staging, light, directives.
-  - `speech`: style (the speaking instructions), text (what's spoken).
-  - `text` (from a chat model): instructions, description (the part that
-    changes).
-  - A step with no prompt (a matte, a depth map) has settings and
-    references only.
-- **Steps:** `Recipe.new(…, steps: [edit, matte])` for an asset made in
-  steps, each a recipe of its own; a single recipe is one step.
-- **Named texts:** written `owner:name`, or `owner:name/purpose`, with
-  `@version` when reading one back. The owner is the app (its `consumer:`),
-  and only it adds wordings under its names; any app uses them as they
-  are. A wording seen before gets its old version; a new one the next
-  number for its name and purpose. A search by `owner:name` finds every
-  purpose; `/purpose` narrows it to one.
-- **The purpose (0.13.1):** a store made by 0.13.0 gets the column by
-  rebuilding `named_texts` once, since its unique constraints change: the
-  rows are copied with their ids, so recipes still point at them, and the
-  copy is checked (row counts, foreign keys) before the old table goes.
-  Only Owl's store held a named text then (`owl:narrator`, 11 records).
-- **The field order (0.14):** each recipe says which order its fields
-  were joined in (`Recipe#order`, `Recipe::ORDERS`), so what it says was
-  sent is rebuilt in that order. The first open by 0.14 gives every recipe
-  stored before 0.13's order (1) and renames its preamble fields and named
-  preambles `framing`, counted before and after; it adds nothing else to
-  a recipe and deletes nothing. `order: 1` converts a prompt made in
-  0.13's order. On copies of the five live stores (2026-10-14), every
-  recipe read back the same: Overlore's 916 and Owl's 97, 45 of them
-  rebuilt from their fields.
-- **`prompt_sent`:** for a picture, compared with its fields joined by one
-  space, empty ones skipped, and kept only if it differs. For speech and
-  text it's kept as given, if given. An old record whose parts are lost
-  (`@owl`'s whole prompts) is its settings and `prompt_sent`, no fields.
+- **Forms:** `picture` (a prompt), `speech` (instructions, and the prompt
+  spoken), `text` from a chat model (instructions, and the prompt, the part
+  that changes). A step with no prompt (a matte, a depth map) has the form
+  `""`, settings and references only.
+- **Steps:** `Recipe.in_steps([edit, matte])` for an asset made in steps,
+  each a recipe of its own; a single recipe is one step.
+- **Wordings:** `Recipe.wording(kind, name, words)`, the name `owner:name`
+  or `owner:name/purpose`, with `@version` when reading one back (a version
+  given going in must be the words'). The kind is free: `style`, `flavor`,
+  `rating`, `framing`, `character`, `theme`, … A search by `owner:name`
+  finds every purpose; `/purpose` narrows it to one.
 - **The asset's `description`** is a text in the same table (decided
   2026-10-13). `store(…, description:)` and `AssetRecord#description` stay
-  as they are; a recipe's `description` field and the asset's description
-  are one row when the words are the same. A blank description clears it.
-  The JSON carries `description_hash`, the same in every store, and
+  as they are. A blank description clears it. The JSON carries
+  `description_hash`, the same in every store, and
   `list_assets(description_hash:)` finds every asset sharing one. A typo is
   fixed for all of them with `update_asset(…, everywhere: true)` (`@curio`;
   Overlore's sharing is about to grow, Thomas): a new text, with every
   asset that pointed at the old one pointed at it. The old text stays,
-  since a recipe may record it as what a provider was sent.
+  since a recipe may hold it as what a provider was sent.
 - **Rows and HTTP:** `AssetRecord#has_recipe?` (JSON `has_recipe`), the
   cheap flag `@curio` asked for; `GET /assets/:id/recipe` returns the
-  recipe, steps and handles included; `GET /assets` filters by
-  `file_hash`, `description_hash` and
-  `text.<field>=owner:name[/purpose][@version]`.
+  recipe, `{form, settings, prompt, instructions, wordings: [{kind, name,
+  text}], …}`, steps included; `GET /assets` filters by `file_hash`,
+  `description_hash` and `text.<kind>=owner:name[/purpose][@version]`.
 - **Dialogue and assembled recipes** (a cast, a timeline) come when an app
   stores the first one.
 
@@ -337,6 +299,18 @@ recipe unless told to. Before Overlore opens its store with
 0.13, it drops or rewrites its start-up migrations that read `generation`
 in SQL (`voices_to_mp3`, `level_voices`).
 
+The first open by 0.14 turns 0.13's prompt fields into what was sent
+(2026-10-16): a step's `prompt_sent` where it kept one, or else a
+picture's fields joined in 0.13's order with one space, empty ones skipped,
+as 0.13's `joined` said was sent; speech's text, with its style as the
+instructions; a chat text's description, with its instructions. Each named
+field becomes one of its wordings, the field its kind, the version its
+words' hash; `named_texts` is rebuilt once for that, its rows copied with
+their ids and compared before the old table goes. Every step is compared
+with its fields before a column goes, and the fields stay, in
+`recipe_fields`, no longer written, until the apps have moved. A 0.13.0
+store, whose named texts had no purpose, converts the same way.
+
 ## Considered first: compressed segments
 
 Recipes kept whole, recent ones in a table, older ones rolled up monthly into
@@ -354,6 +328,21 @@ Measured on 458 of Overlore's records:
 On transfs (Thomas's versioned store, which chunks files and zstd-compresses
 each chunk) the database's pages are compressed when stored anyway.
 
+## Considered next: prompt fields, then templates
+
+0.13 stored a prompt as its fields, each a reference into texts, so the
+words a picture shared with others were kept once; 0.14 first kept a field
+order per record so changing the order wouldn't rewrite what old records
+said was sent. Then (`@mj` with Thomas, 2026-10-16) a prompt as one
+template, the app's words with tags for registered wordings, pinned when
+expanded. Both were dropped the same day for the prompt as sent with the
+wordings in it, after an independent review: prompts don't split into
+fields (the Bard pictures were one running sentence), nothing reads the
+fields back, the byte case failed on Overlore's own store (above), and a
+template language inside a storage library is the app's business. What the
+fields were for stays: the recommended parts and order, and one registry of
+wordings.
+
 ## Open
 
 - **The asset's `description`: decided, a reference into the texts table**
@@ -368,7 +357,10 @@ each chunk) the database's pages are compressed when stored anyway.
   in the player's browser (a crop, the view bent by its depth map), never
   stored, so it has no hash. A reference to an earlier step would record
   it. Nothing breaks without it.
-- **Release:** 0.13, on its own; the field order, the style and its
-  flavor, light and directives in 0.14 with the vocabulary (Thomas chose
-  the scope, 2026-10-15); the embeddings registry (`DESIGN-embeddings.md`)
-  in 0.16, after the standard types in 0.15.
+- **Release:** 0.13, on its own; the prompt as sent, the wordings, the
+  style and its flavor in 0.14 with the vocabulary (Thomas, 2026-10-15
+  and 2026-10-16); the embeddings registry (`DESIGN-embeddings.md`) in
+  0.16.
+- **Compression** of stored prompts, if size comes to matter: zlib took
+  Overlore's prompts from 659 to 399 bytes on average, and it can come
+  later without changing anything apps write.

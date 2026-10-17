@@ -1,75 +1,60 @@
+require "digest/sha256"
 require "json"
 
 module DataDungeon
   # How an asset was made, in the shape every app shares (DESIGN-recipes.md):
-  # its form, the settings it was made with, the words it was given by
-  # prompt field, and what's its own (seed, cost, when, the files it was
-  # made from). An asset made in steps has a recipe per step (`steps`).
+  # its form, the settings it was made with, what its provider was sent (the
+  # prompt, and for speech and text the instructions beside it), the named
+  # wordings that went into that, and what's its own (seed, cost, when, the
+  # files it was made from). An asset made in steps has a recipe per step
+  # (`steps`).
   struct Recipe
     include JSON::Serializable
 
-    # Each form's prompt fields in the order they're joined, by field order.
-    # A recipe keeps the order it was made in, so what it says was sent
-    # reads back the same. Order 1 is 0.13's, which every recipe stored
-    # before 0.14 keeps (its preamble renamed framing). Order 2, since 0.14
-    # (`@mj` with Thomas, DESIGN-recipes.md): the fixed rules first, then
-    # how much is in frame, the look (DataDungeon's words for the art style,
-    # the app's flavor of it, the theme), the object (subject, description,
-    # staging), and what relates it to pictures that exist: their light, and
-    # the directives for this picture last, where the end holds what it's for.
-    ORDERS = {
-      1 => {
-        "picture" => %w[framing subject description staging theme style rules],
-        "speech"  => %w[style text],
-        "text"    => %w[instructions description],
-      },
-      2 => {
-        "picture" => %w[rules framing style flavor theme subject description staging light directives],
-        "speech"  => %w[style text],
-        "text"    => %w[instructions description],
-      },
-    }
+    # What a recipe makes; empty for a step without a prompt (a matte, a
+    # depth map) or for a recipe made of `steps`.
+    FORMS = %w[picture speech text]
 
-    # The order a new recipe is made in.
-    ORDER = 2
+    # A wording's version is this many hex characters of its words'
+    # SHA-256 (40 bits), so it names the same words in every store.
+    VERSION_SIZE = 10
 
-    # Each form's prompt fields, in the order new recipes are joined.
-    FIELDS = ORDERS[ORDER]
-
-    # The words of one prompt field: a text of its own, or a named one. A
-    # name is `owner:name` going in and `owner:name@version` coming back;
-    # the owner is the app that wrote the wording (its consumer name). A
-    # name may add what the wording is for, `owner:name/purpose`, so two
-    # wordings of one style in use at once share its name
+    # A named wording a recipe used, from the store's registry: what kind of
+    # wording it is (`style`, `flavor`, `rating`, `framing`, `character`,
+    # `theme`, ...), its name and its words. A name is `owner:name` going in
+    # and `owner:name@version` coming back; the owner is the app that wrote
+    # the wording (its consumer name), or `dd` for DataDungeon's own. A name
+    # may add what the wording is for, `owner:name/purpose`, so two wordings
+    # of one style in use at once share its name
     # (`overlore:silver-comic/figure`, `overlore:silver-comic/place`).
-    struct Text
+    struct Wording
       include JSON::Serializable
 
+      getter kind : String
+      getter name : String
       getter text : String
-      getter name : String?
 
-      def initialize(@text : String, @name : String? = nil)
+      def initialize(@kind : String, @name : String, @text : String)
       end
 
       # {owner, name, purpose, version}: the purpose empty when there's
       # none, the version nil when not given.
-      def handle : {String, String, String, Int32?}?
-        return nil unless full = @name
-        base, _, version = full.partition('@')
+      def handle : {String, String, String, String?}
+        base, at, version = @name.partition('@')
         owner, colon, rest = base.partition(':')
         name, slash, purpose = rest.partition('/')
         unless colon == ":" && DB::LABEL.matches?(owner) && DB::LABEL.matches?(name) &&
-               (slash.empty? || DB::LABEL.matches?(purpose)) &&
-               (version.empty? || version.to_i?.try(&.positive?))
-          raise ArgumentError.new("a named text is owner:name or owner:name/purpose, " \
-                                  "with @version to name one wording (#{full.inspect})")
+               (slash.empty? || DB::LABEL.matches?(purpose)) && (at.empty? || Recipe.version?(version))
+          raise ArgumentError.new("a wording's name is owner:name or owner:name/purpose, with @version " \
+                                  "(#{VERSION_SIZE} hex characters of its words' SHA-256) to name one wording " \
+                                  "(#{@name.inspect})")
         end
-        {owner, name, purpose, version.empty? ? nil : version.to_i}
+        {owner, name, purpose, at.empty? ? nil : version}
       end
 
-      # How a named text is written: `owner:name`, `/purpose` when it has
-      # one, and `@version` when there is one.
-      def self.handle(owner : String, name : String, purpose : String, version : Int32? = nil) : String
+      # How a wording is named: `owner:name`, `/purpose` when it has one,
+      # and `@version` when there is one.
+      def self.handle(owner : String, name : String, purpose : String, version : String? = nil) : String
         String.build do |io|
           io << owner << ':' << name
           io << '/' << purpose unless purpose.empty?
@@ -78,14 +63,17 @@ module DataDungeon
       end
     end
 
-    # "picture", "speech" or "text"; empty for a step without a prompt (a
-    # matte, a depth map) or for a recipe made of `steps`.
     getter form : String
     getter settings : Hash(String, JSON::Any)
-    getter fields : Hash(String, Text)
-    # What the provider received. For a picture it's kept only where it
-    # differs from the fields joined (`joined`).
-    getter prompt_sent : String?
+    # What the provider was sent: a picture's prompt, the words a speech
+    # step speaks, a text step's input.
+    getter prompt : String?
+    # The provider's second input, beside the prompt: a voice's
+    # instructions, a text step's instructions. A picture has none.
+    getter instructions : String?
+    # The named wordings that went into the prompt and instructions, each
+    # word for word.
+    getter wordings : Array(Wording)
     getter seed : Int64?
     # In US dollars.
     getter cost : Float64?
@@ -96,23 +84,15 @@ module DataDungeon
     # The files it was made from, by hash.
     getter references : Array(String)
     getter steps : Array(Recipe)
-    # The field order its prompt was joined in (ORDERS): 2 for a new
-    # recipe; 1 converts a prompt made in 0.13's order.
-    getter order : Int32 = ORDER
 
-    def initialize(@form : String, settings : Hash = {} of String => JSON::Any,
-                   @fields : Hash(String, Text) = {} of String => Text, @prompt_sent : String? = nil,
+    def initialize(@form : String, settings : Hash = {} of String => JSON::Any, @prompt : String? = nil,
+                   @instructions : String? = nil, @wordings : Array(Wording) = [] of Wording,
                    seed : Int? = nil, cost : Number? = nil, @cost_basis : String? = nil,
                    @generated_at : Time? = nil, @references : Array(String) = [] of String,
-                   @steps : Array(Recipe) = [] of Recipe, @order : Int32 = ORDER)
+                   @steps : Array(Recipe) = [] of Recipe)
       @settings = JSON.parse(settings.to_json).as_h
       @seed = seed.try(&.to_i64)
       @cost = cost.try(&.to_f64)
-    end
-
-    # This recipe with what the provider was sent.
-    def with_prompt_sent(sent : String?) : Recipe
-      Recipe.new(@form, @settings, @fields, sent, @seed, @cost, @cost_basis, @generated_at, @references, @steps, @order)
     end
 
     # A recipe made of steps, each a recipe of its own, in order.
@@ -120,59 +100,56 @@ module DataDungeon
       new("", steps: steps)
     end
 
-    # A prompt field's words, of their own.
-    def self.text(text : String) : Text
-      Text.new(text)
+    # A named wording of some kind, `owner:name` or `owner:name/purpose`.
+    def self.wording(kind : String, name : String, text : String) : Wording
+      Wording.new(kind, name, text)
     end
 
-    # A prompt field's words under a name, `owner:name` or
-    # `owner:name/purpose`.
-    def self.named(name : String, text : String) : Text
-      Text.new(text, name)
+    # The version of these words: the start of their SHA-256, in hex.
+    def self.version(text : String) : String
+      Digest::SHA256.hexdigest(text)[0, VERSION_SIZE]
     end
 
-    # The prompt fields that have words, joined by one space in the form's
-    # order: what a picture's provider is sent, unless `prompt_sent` says
-    # otherwise. A field the order doesn't have raises, so a prompt never
-    # leaves out words it was given, before anything is paid for.
-    def joined : String
-      field_names.compact_map { |field| @fields[field]?.try(&.text).presence }.join(" ")
+    # Whether this is written as a version is.
+    def self.version?(version : String) : Bool
+      version.size == VERSION_SIZE && version.each_char.all? { |char| char.ascii_number? || ('a'..'f').includes?(char) }
     end
 
-    # The form's fields in this recipe's order; raises for a field it
-    # doesn't have.
-    private def field_names : Array(String)
-      unless forms = ORDERS[@order]?
-        raise ArgumentError.new("a recipe's field order is #{ORDERS.keys.join(" or ")}, not #{@order}")
-      end
-      return [] of String if @fields.empty? && (@form.empty? || !@steps.empty?)
-      allowed = forms[@form]?
-      if allowed.nil?
-        raise ArgumentError.new("a step without a form has no prompt fields") if @form.empty?
-        raise ArgumentError.new("a recipe's form is #{forms.keys.join(", ")}, or empty for a step without a prompt")
-      end
-      unless (unknown = @fields.keys - allowed).empty?
-        renamed = unknown.includes?("preamble") ? " (0.14 renamed preamble framing)" : ""
-        raise ArgumentError.new("a #{@form} recipe's fields are #{allowed.join(", ")}, not #{unknown.join(", ")}#{renamed}")
-      end
-      allowed
-    end
-
-    # Raises ArgumentError for a recipe that isn't in the standard shape.
+    # Raises ArgumentError for a recipe that isn't in the standard shape:
+    # among others, a wording whose words aren't in what was sent, word for
+    # word.
     def check : Nil
       unless @steps.empty?
-        unless @form.empty? && @fields.empty? && @settings.empty? && @prompt_sent.nil? && @seed.nil? &&
-               @cost.nil? && @cost_basis.nil? && @generated_at.nil? && @references.empty?
+        unless @form.empty? && @settings.empty? && @prompt.nil? && @instructions.nil? && @wordings.empty? &&
+               @seed.nil? && @cost.nil? && @cost_basis.nil? && @generated_at.nil? && @references.empty?
           raise ArgumentError.new("a recipe made of steps has nothing of its own: each step says it")
         end
         raise ArgumentError.new("a recipe's steps are recipes without steps") unless @steps.all?(&.steps.empty?)
         @steps.each(&.check)
         return
       end
-      field_names
-      @fields.each do |field, text|
-        raise ArgumentError.new("the #{field} field has no words") if text.text.empty?
-        text.handle
+      unless @form.empty? || FORMS.includes?(@form)
+        raise ArgumentError.new("a recipe's form is #{FORMS.join(", ")}, or empty for a step without a prompt")
+      end
+      if @form.empty? && !(@prompt.nil? && @instructions.nil? && @wordings.empty?)
+        raise ArgumentError.new("a step without a form has no prompt, instructions or wordings")
+      end
+      if @form == "picture" && @instructions
+        raise ArgumentError.new("a picture's provider is sent one prompt: instructions are speech's and text's")
+      end
+      raise ArgumentError.new("the prompt has no words") if @prompt.try(&.empty?)
+      raise ArgumentError.new("the instructions have no words") if @instructions.try(&.empty?)
+      @wordings.each do |wording|
+        raise ArgumentError.new("a wording's kind is lowercase words joined by '-' (#{wording.kind.inspect})") unless DB::LABEL.matches?(wording.kind)
+        raise ArgumentError.new("the #{wording.kind} wording #{wording.name} has no words") if wording.text.empty?
+        _, _, _, version = wording.handle
+        if version && version != Recipe.version(wording.text)
+          raise ArgumentError.new("#{wording.name}'s words are version #{Recipe.version(wording.text)}, not #{version}")
+        end
+        unless @prompt.try(&.includes?(wording.text)) || @instructions.try(&.includes?(wording.text))
+          raise ArgumentError.new("the #{wording.kind} wording #{wording.name} isn't in what was sent: a recipe's " \
+                                  "wordings are words its prompt or instructions hold word for word")
+        end
       end
       raise ArgumentError.new("a cost basis says how a cost was reached; this recipe has no cost") if @cost_basis && @cost.nil?
       raise ArgumentError.new("a cost basis has words") if @cost_basis.try(&.blank?)
