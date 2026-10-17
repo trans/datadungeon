@@ -192,7 +192,13 @@ tags aren't in it; they wait for a later decision. It's 0.15.0 and not
   backups (0.14 brings one forward).
 - **Sent 2026-10-17:** the confirmation request to Overlore and Owl
   (`mail/sent/*-@overlore--0.15-confirm.md`). The tag waits on their
-  answers and Thomas's go-ahead.
+  answers and Thomas's go-ahead. **Both confirmed (2026-10-17):** Overlore
+  (`…-204045Z-…-46777079.md`): 230 specs pass on `7cf4743`, a copy of its
+  live store opened as its app starts (10 purposes folded, e.g.
+  `overlore:silver-comic@860f00fedb`, 916 recipes, `recipe_fields` gone,
+  `recipe_legacy` kept, which its startup reads). Owl (`…-203656Z-…-14636230.md`):
+  no purposes, nothing reads `recipe_fields`, its two old backups stay
+  backups; it bumps to `~> 0.15.0` once tagged.
 
 **Next (as of the 0.14 tag; every app has since moved):** the apps move (Overlore switches to GitHub `~> 0.14.0`; Owl moves
 its prompt and narrator code; Cattacula, Pirateship and the park bump, the
