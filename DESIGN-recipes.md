@@ -1,6 +1,6 @@
 # Recipes: a shared standard for how assets were made
 
-*Draft 2026-10-12, with Thomas, `@overlore` and `@mj`; built in 0.13, and in 0.14 a recipe keeps the prompt as sent with the wordings in it (2026-10-16), each app words its own styles, and a wording's purpose is deprecated (2026-10-17). The types it applies to are in `DESIGN-types.md`.*
+*Draft 2026-10-12, with Thomas, `@overlore` and `@mj`; built in 0.13, and in 0.14 a recipe keeps the prompt as sent with the wordings in it (2026-10-16), each app names and words its own styles, with no standard ones, and a wording's purpose is deprecated (2026-10-17). The types it applies to are in `DESIGN-types.md`.*
 
 ## Why
 
@@ -50,9 +50,8 @@ that several apps share.
     landscape", "full body, head to toe"). A fixed rule mustn't contradict
     a description (Thomas): some pictures need words in them, so "no text
     unless the description asks for it".
-  - **the look**, from the game's state: the **style**, the app's words for
-    the art style (its own, or DataDungeon's from the vocabulary), and the
-    **theme**, mood included. Mood and staged light belong in the theme and
+  - **the look**, from the game's state: the **style**, the app's own
+    words for its art style, and the **theme**, mood included. Mood and staged light belong in the theme and
     the light, not the style (`@overlore`, 2026-10-17).
   - **the object**, from the DM: **subject**, **description** and
     **staging** (where each figure is, which way it faces, and the view, in
@@ -165,10 +164,7 @@ it:
   registry). Names are shared: any app uses `overlore:silver-comic` as it
   is, which is what makes its pictures comparable to Overlore's; nobody
   renames another's. Searchable like tags: every picture of one style, any
-  version, or one version. An app's style wording is named for the
-  standard art style its pictures are tagged with (Thomas, 2026-10-14,
-  through `@overlore`: a variant of a style is the same style;
-  DESIGN-types.md). A **purpose**, what a wording is for
+  version, or one version. A **purpose**, what a wording is for
   (`overlore:silver-comic/place`), came in on 2026-10-14 so one style
   could be worded once for figures and once for places. It is deprecated
   (Thomas, 2026-10-17): that difference is framing, which has its own
@@ -199,16 +195,21 @@ it:
   Overlore needed it only because it mixed framing into its styles, one
   wording for figures and another for places, which is also why the
   purpose came in. With framing in its own part, one style wording serves
-  both. So a picture's `style` wording is the app's
-  own (`overlore:silver-comic`) or DataDungeon's (`db.style_text`), and the
-  store doesn't check which; `flavor` is no longer a part. The
-  vocabulary's art styles stay what pictures are tagged with, so they fall
-  into the same categories in every app. DataDungeon's words for each style
-  (`dd:silver-comic`, "Silver Age comic.") stay short, a style's key
-  differentiators, for any app that takes them; Overlore's own open with
-  them. An improved
-  wording of DataDungeon's is the style's next version, and earlier
-  pictures keep the words they were given.
+  both. So a picture's `style` wording is the app's own
+  (`overlore:silver-comic`), and `flavor` is no longer a part.
+- **No standard styles** (Thomas, 2026-10-17). 0.14 was first built with
+  a vocabulary of 14 art styles, each with DataDungeon's words
+  (`dd:silver-comic`, "Silver Age comic.", from `db.style_text`), for
+  pictures in every app to be tagged with. With pictures staying in their
+  app (one owner per store) and each app wording its own styles, a
+  standard list had nothing left to do, so each app names, words and tags
+  its own styles, and 0.14 ships with no art styles in its vocabulary. A
+  store opened by a 0.14 build before the tag loses them on its next open;
+  their words stay in `named_texts`, as every wording does. **Styles shared
+  between apps fall to the hub** (Thomas, 2026-10-17; deferred), the one
+  thing that can coordinate sharing: a lookup of the styles each store
+  uses, so a store can adopt another's style, its name and words, and
+  share from then on.
 - **Staging:** the DM's words since 0.14. Before, it was `@mj`'s camera's
   words for `view` and `light`. Nobody should search its words: the
   vectors are the truth (within 20° of a view is one dot product), and
@@ -242,7 +243,6 @@ a drift audit (every picture from one camera with one parameter set, by
 
 ```crystal
 style = DataDungeon::Recipe.wording("style", "overlore:silver-comic", "Silver Age comic: bold black ink outlines, …")
-                                         # or DataDungeon's words: db.style_text("silver-comic")
 rating = db.rating_text("pg")            # DataDungeon's words for the rating: dd:pg@<version>
 recipe = DataDungeon::Recipe.new("picture",
   settings: {"camera" => "mj:camera:flare", "camera-version" => 1, "model" => "flux-dev",
@@ -260,7 +260,7 @@ db.set_recipe(id, recipe)             # give an asset its recipe later (moving o
 db.add_wordings(id, [rating])         # name words a stored recipe was sent but didn't name
 db.with_text("style", "overlore:silver-comic")         # asset ids, any version;
                                                        # "…@3f9a2c71b0" for one version
-db.with_text("style", "dd:silver-comic")               # every picture given the style's words
+db.with_text("rating", "dd:pg")                        # everything given the rating's words
 db.list_assets(texts: {"style" => "overlore:silver-comic"})  # the same, with the other filters
 db.named_texts("style", "overlore")   # an owner's wordings of a kind: {name, version, text}
 db.vocabulary                         # the shared tags and values (GET /vocabulary)
@@ -373,8 +373,8 @@ wordings.
   stored, so it has no hash. A reference to an earlier step would record
   it. Nothing breaks without it.
 - **Release:** 0.13, on its own; the prompt as sent, the wordings, the
-  apps' own styles in 0.14 with the vocabulary and the ratings' words, and
-  the purpose deprecated (Thomas, 2026-10-15 to 2026-10-17); the purpose
+  apps' own styles in 0.14 with the vocabulary of ratings and their words,
+  and the purpose deprecated (Thomas, 2026-10-15 to 2026-10-17); the purpose
   removed, and `recipe_fields` dropped, once Overlore and Owl have moved
   off them; the embeddings registry (`DESIGN-embeddings.md`) in 0.16.
 - **Compression** of stored prompts, if size comes to matter: zlib took

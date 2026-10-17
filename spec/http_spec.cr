@@ -186,9 +186,9 @@ describe DataDungeon::API do
 
   it "shows an asset's recipe, and marks an asset permanent" do
     with_api("dd-api-recipe") do |api, db|
-      style = db.style_text("pixel-16")
+      rating = db.rating_text("g")
       recipe = DataDungeon::Recipe.new("picture", settings: {"model" => "flux-dev"},
-        prompt: "#{style.text} A pier at dusk.", wordings: [style], seed: 3)
+        prompt: "#{rating.text} A pier at dusk.", wordings: [rating], seed: 3)
       made = db.store("backdrop", {"art-style" => "pixel", "rating" => "g"}, bytes: "m".to_slice,
         content_type: "image/webp", recipe: recipe)
       plain = store_backdrop(db, "golden", "p")
@@ -196,12 +196,12 @@ describe DataDungeon::API do
       json(call(api, "GET", "/dd/assets/#{made.id}", "r"))["asset"]["has_recipe"].should eq true
       shown = json(call(api, "GET", "/dd/assets/#{made.id}/recipe", "r"))["recipe"]
       shown["form"].should eq "picture"
-      shown["prompt"].should eq "Chunky early to mid 16-bit pixel art. A pier at dusk."
+      shown["prompt"].should eq "Family-friendly and wholesome, suitable for all ages. A pier at dusk."
       shown["settings"].should eq({"model" => "flux-dev"})
       shown["seed"].should eq 3
-      words = "Chunky early to mid 16-bit pixel art."
-      shown["wordings"].should eq([{"kind" => "style", "name" => "dd:pixel-16@#{DataDungeon::Recipe.version(words)}", "text" => words}])
-      json(call(api, "GET", "/dd/assets?text.style=dd:pixel-16", "r"))["assets"].as_a.map(&.["asset"]["id"]).should eq [made.id]
+      words = "Family-friendly and wholesome, suitable for all ages."
+      shown["wordings"].should eq([{"kind" => "rating", "name" => "dd:g@#{DataDungeon::Recipe.version(words)}", "text" => words}])
+      json(call(api, "GET", "/dd/assets?text.rating=dd:g", "r"))["assets"].as_a.map(&.["asset"]["id"]).should eq [made.id]
       call(api, "GET", "/dd/assets/#{plain.id}/recipe", "r").status_code.should eq 404
       call(api, "GET", "/dd/assets/999/recipe", "r").status_code.should eq 404
 
@@ -235,15 +235,10 @@ describe DataDungeon::API do
   it "shows the shared vocabulary" do
     with_api("dd-api-vocabulary") do |api|
       tags = json(call(api, "GET", "/dd/vocabulary", "r"))["tags"].as_a
-      tags.map(&.["name"]).should eq ["art-style", "rating"]
-      silver = tags[0]["values"].as_a.find!(&.["value"].==("silver-comic"))
-      silver["title"].should eq "Silver Age Comic"
-      silver["description"].should eq "Silver Age comics"
-      silver["wording"].should eq({"kind" => "style", "name" => "dd:silver-comic@#{DataDungeon::Recipe.version("Silver Age comic.")}",
-                                 "text" => "Silver Age comic."})
-      tags[0]["values"].as_a.find!(&.["value"].==("pixel-8"))["family"].should eq "pixel"
-      tags[1]["values"].as_a.map(&.["value"]).should eq ["g", "pg", "r", "x"]
-      tags[1]["values"][3]["wording"].should eq({"kind" => "rating", "name" => "dd:x@#{DataDungeon::Recipe.version("For adults only.")}",
+      tags.map(&.["name"]).should eq ["rating"] # no standard styles (Thomas, 2026-10-17)
+      tags[0]["values"].as_a.map(&.["value"]).should eq ["g", "pg", "r", "x"]
+      tags[0]["values"][1]["title"].should eq "PG"
+      tags[0]["values"][3]["wording"].should eq({"kind" => "rating", "name" => "dd:x@#{DataDungeon::Recipe.version("For adults only.")}",
                                                  "text" => "For adults only."})
       call(api, "GET", "/dd/vocabulary").status_code.should eq 401
     end

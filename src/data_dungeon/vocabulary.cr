@@ -3,7 +3,7 @@ require "./recipe"
 
 module DataDungeon
   # A tag every app means the same by (DESIGN-types.md): its name, its
-  # title for people ("Art Style"), the label its values take in a key
+  # title for people ("Rating"), the label its values take in a key
   # (empty when its values say what they are), its kind (`scale` for an
   # ordered one, empty for plain values), what it means, and its values.
   struct VocabularyTag
@@ -20,12 +20,10 @@ module DataDungeon
     end
   end
 
-  # One value of a shared tag: its title for people ("16-Bit Pixel"), what
-  # counts as it, the family a filter on it finds it by (`pixel` for
-  # `pixel-16`; empty for none), and DataDungeon's words for it, where it
-  # has them: an art style's, for a picture whose app takes its style from
-  # them (`dd:silver-comic@<version>`), and a rating's, what's suitable for
-  # it (`dd:pg@<version>`).
+  # One value of a shared tag: its title for people ("PG"), what counts as
+  # it, the family a filter on it finds it by (empty for none), and
+  # DataDungeon's words for it, where it has them: a rating's, what's
+  # suitable for it (`dd:pg@<version>`).
   struct VocabularyValue
     include JSON::Serializable
 
@@ -40,8 +38,7 @@ module DataDungeon
   end
 
   class DB
-    # The owner of DataDungeon's own wordings, the art styles' and the
-    # ratings' words.
+    # The owner of DataDungeon's own wordings, the ratings' words.
     VOCABULARY_OWNER = "dd"
 
     VOCABULARY_SCHEMAS = <<-SQL
@@ -70,41 +67,6 @@ module DataDungeon
     # it, of the tag's kind of wording; changed words are the wording's next
     # version, and recipes keep the one they were made with.
     VOCABULARY = [
-      {name: "art-style", title: "Art Style", label: "", kind: "", description: "how a picture is drawn or rendered",
-       wording: "style", values: [
-         {value: "golden-comic", title: "Golden Age Comic", description: "Golden Age comics", family: "",
-          words: "Golden Age comic."},
-         {value: "silver-comic", title: "Silver Age Comic", description: "Silver Age comics", family: "",
-          words: "Silver Age comic."},
-         {value: "modern-comic", title: "Modern Comic", description: "modern comics: detailed inks, digital coloring",
-          family: "", words: "Modern comic book art, detailed inks, digital coloring."},
-         {value: "dark-manga", title: "Dark Manga", description: "dark manga", family: "", words: "Dark manga."},
-         {value: "fantasy", title: "Fantasy Cover", description: "classic fantasy cover art, slightly painterly",
-          family: "", words: "Classic fantasy cover art, slightly painterly."},
-         {value: "photorealism", title: "Photorealism",
-          description: "looks real, however it was made, near-real 3D included", family: "", words: "Photorealistic."},
-         {value: "pixel", title: "Pixel",
-          description: "pixel art of no stated tier; a filter on pixel finds every pixel tier", family: "",
-          words: "Pixel art."},
-         {value: "pixel-32", title: "32-Bit Pixel",
-          description: "detailed late 16-bit / early 32-bit pixel art, Silicon Circus's usual", family: "pixel",
-          words: "Detailed late 16-bit / early 32-bit pixel art."},
-         {value: "pixel-16", title: "16-Bit Pixel", description: "chunky early to mid 16-bit pixel art", family: "pixel",
-          words: "Chunky early to mid 16-bit pixel art."},
-         {value: "pixel-8", title: "8-Bit Pixel", description: "the coarsest pixel art", family: "pixel",
-          words: "Coarse 8-bit pixel art."},
-         {value: "3d-cartoon", title: "3D Cartoon",
-          description: "3D that looks sculpted and lit, rounded and exaggerated: the Toy Story middle ground",
-          family: "", words: "3D cartoon, sculpted and lit, rounded and exaggerated."},
-         {value: "watercolor", title: "Storybook Watercolor",
-          description: "storybook watercolour: soft washes, fine ink outlines", family: "",
-          words: "Storybook watercolor, soft washes, fine ink outlines."},
-         {value: "painted-animation", title: "Painted Animation",
-          description: "hand-painted animation backgrounds: lush colour, soft cel shading", family: "",
-          words: "Hand-painted animation, lush color, soft cel shading."},
-         {value: "ascii", title: "ASCII", description: "text-mode art, ASCII made dynamic and modern", family: "",
-          words: "ASCII art."},
-       ]},
       {name: "rating", title: "Rating", label: "", kind: "scale",
        description: "who a thing is suitable for, the same in every app", wording: "rating", values: [
          {value: "g", title: "G", description: "general audiences", family: "",
@@ -125,6 +87,13 @@ module DataDungeon
         conn.exec("ALTER TABLE vocabulary_values RENAME COLUMN style_id TO wording_id")
       end
       VOCABULARY_SCHEMAS.split(";").each { |sql| conn.exec(sql.strip) unless sql.strip.empty? }
+      # A store opened by a 0.14 build before the tag has standard art
+      # styles, which 0.14 doesn't keep (Thomas, 2026-10-17: each app names,
+      # words and tags its own). No released store has them, and no asset's
+      # tags are touched; their words stay in named_texts, as every
+      # wording does.
+      conn.exec("DELETE FROM vocabulary_values WHERE tag = 'art-style'")
+      conn.exec("DELETE FROM vocabulary_tags WHERE name = 'art-style'")
       VOCABULARY.each do |tag|
         conn.exec(<<-SQL, tag[:name], tag[:title], tag[:label], tag[:kind], tag[:description])
           INSERT INTO vocabulary_tags (name, title, label, kind, description) VALUES (?, ?, ?, ?, ?)
@@ -160,14 +129,6 @@ module DataDungeon
         as: {String, String, String, String, String}).map do |(name, title, label, kind, description)|
         VocabularyTag.new(name, title, label, kind, description, values[name]? || [] of VocabularyValue)
       end
-    end
-
-    # DataDungeon's words for an art style, for an app that takes its
-    # style from them: `dd:silver-comic@<version>`, "Silver Age comic.". An
-    # app may word its styles its own way instead (`overlore:silver-comic`).
-    # Raises for a value that isn't a standard art style.
-    def style_text(art_style : String) : Recipe::Wording
-      vocabulary_text("art-style", art_style) || raise ArgumentError.new("#{art_style.inspect} isn't a standard art style (vocabulary)")
     end
 
     # DataDungeon's words for a rating, the same for every form: what's

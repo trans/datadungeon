@@ -229,7 +229,6 @@ by hash.
 rating = db.rating_text("pg")              # "Suitable for older children: …", named dd:pg@<version>
 rules = DataDungeon::Recipe.wording("rules", "overlore:house", "No text unless the description asks for it.")
 style = DataDungeon::Recipe.wording("style", "overlore:silver-comic", "Silver Age comic: bold black ink outlines.")
-                                           # or DataDungeon's words for it: db.style_text("silver-comic")
 prompt = [rating.text, rules.text, "Full body, head to toe.", style.text, "A tall elf with red braids."].join(" ")
 recipe = DataDungeon::Recipe.new("picture",
   settings: {"camera" => "mj:camera:flare", "model" => "flux-dev", "steps" => 4},
@@ -245,12 +244,12 @@ spoken = DataDungeon::Recipe.new("speech", settings: {"model" => "gpt-4o-mini-tt
 db.recipe(id)                     # => Recipe?, wordings read back as "overlore:silver-comic@3f9a2c71b0"
 db.with_text("style", "overlore:silver-comic")  # the assets using any of its wordings;
                                                 # "…@3f9a2c71b0" for one wording
-db.with_text("style", "dd:silver-comic")        # every picture given DataDungeon's words for it
+db.with_text("rating", "dd:pg")                 # everything given DataDungeon's words for PG
 db.list_assets(texts: {"style" => "overlore:silver-comic"})  # the same as a listing filter
 db.named_texts("style", "overlore")  # [{name, version, text}]
 db.set_recipe(id, recipe)             # give an asset made before 0.13 its recipe
 db.add_wordings(id, [rating])         # name words a stored recipe was sent but didn't name
-db.vocabulary                         # the shared tags (art-style, rating) and their values
+db.vocabulary                         # the shared tags (rating) and their values
 ```
 
 - **What was sent:** `prompt` is the text the provider got: a picture's
@@ -275,12 +274,10 @@ db.vocabulary                         # the shared tags (art-style, rating) and 
   for figures and once for places, but that difference is framing, which
   has its own part, so one style wording serves both. Wordings stored with
   a purpose keep working until then.
-- **Each app words its own styles** (Thomas, 2026-10-17): a picture's
-  `style` wording is the app's, named for the standard art style its
-  pictures are tagged with (`overlore:silver-comic`), or DataDungeon's
-  words for it, `db.style_text("silver-comic")`. The vocabulary's art
-  styles are what pictures are tagged with, so pictures fall into the same
-  categories in every app; only the words differ.
+- **There are no standard styles** (Thomas, 2026-10-17): each app names,
+  words and tags its own (`overlore:silver-comic`, kind `style`). Styles
+  shared between apps will be the hub's to coordinate, later: a lookup of
+  what each store uses, so one app can adopt another's style and share.
 - **A rating's words are DataDungeon's too,** one wording for every form,
   saying what's suitable rather than listing what's forbidden:
   `db.rating_text("pg")`. A picture takes them with its rules, a chat text
@@ -319,9 +316,8 @@ instructions; a chat text's description, with its instructions. Each named
 field becomes one of its wordings, versioned by its words. Every step is
 compared with its fields before a column goes; if any differs the open
 fails and leaves the store as it was. The fields themselves stay, in
-`recipe_fields`, no longer written. It adds the vocabulary, with
-DataDungeon's words for each art style (`dd:silver-comic`) and rating
-(`dd:pg`). It's one way:
+`recipe_fields`, no longer written. It adds the vocabulary, the ratings
+with DataDungeon's words for each (`dd:pg`). It's one way:
 upgrade every program that opens a store (an app and its `dd-serve`)
 together.
 
@@ -434,9 +430,8 @@ Each store is one owner's: the app that opens it (`consumer:`) and its
 `dd-serve` (Thomas, 2026-10-16). An app that wants another store's assets
 copies the records into its own, with a `copied-from` link saying where
 from, and the bytes stay one object in the shared bucket. Pictures aren't
-expected to move between apps (Thomas, 2026-10-17): each app words its own
-styles for its own models, so one art style looks different from app to
-app, and reuse pays within an app.
+expected to move between apps (Thomas, 2026-10-17): each app names and
+words its own styles for its own models, and reuse pays within an app.
 
 Run the specs with `crystal spec`. The S3 specs need a server:
 `scripts/garage-test` runs them against a throwaway single-node
@@ -514,7 +509,7 @@ HTTP::Server.new([api, app_handler])
 | `GET /assets/:id`, `/assets/:id/object`, `/assets/:id/links` | an asset with its tags, metadata and links; its bytes; its links |
 | `POST /maintenance/check` | the consistency report |
 | `GET /objects` | every object key the store's rows use, for clearing a shared bucket |
-| `GET /vocabulary` | the shared tags and their values, with their titles; each art style and rating with DataDungeon's words for it |
+| `GET /vocabulary` | the shared tags and their values, with their titles; each rating with DataDungeon's words for it |
 | `PATCH`, `DELETE /assets/:id` | edit (with `image` fields, views readably, and `everywhere` for a shared description) or delete (write token) |
 | `PUT /assets/:id/keyframes` | an animation's checkpoints (write token) |
 | `POST`, `DELETE /assets/:id/links` | link (with `data`) or unlink (write token) |

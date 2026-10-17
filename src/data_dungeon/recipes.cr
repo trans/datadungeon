@@ -189,9 +189,8 @@ module DataDungeon
     # for any of its wordings, whatever their purpose,
     # `"overlore:silver-comic/figure"` for one purpose's (deprecated), and
     # `"overlore:silver-comic/figure@3f9a2c71b0"` for one wording;
-    # `with_text("style", "dd:silver-comic")` for every picture given
-    # DataDungeon's words for the style. (Before 0.14 an app's wording was
-    # the style.)
+    # `with_text("rating", "dd:pg")` for everything given DataDungeon's
+    # words for a rating.
     def with_text(kind : String, name : String) : Array(Int64)
       sql, args = using_text(kind, name)
       @db.query_all("SELECT DISTINCT asset_id FROM (#{sql}) ORDER BY asset_id", args: args, as: Int64)
@@ -314,7 +313,7 @@ module DataDungeon
         next if wording?(wording.kind, owner, name, purpose, wording.text)
         if owner == VOCABULARY_OWNER
           raise ArgumentError.new("#{wording.name} isn't DataDungeon's words: a dd wording comes from the " \
-                                  "store (db.style_text, db.rating_text)")
+                                  "store (db.rating_text)")
         end
         unless owner == @consumer
           raise ArgumentError.new("#{wording.name} is #{owner}'s: a store adds its consumer's own wordings " \

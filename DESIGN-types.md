@@ -6,9 +6,10 @@ the rest waits for an app that needs it. **Each store is one owner's**
 (Thomas, 2026-10-16): an app that wants another store's assets copies the
 records into its own, so what was here for several apps sharing one store
 (uses, owner tags, refusing a delete while another app uses an asset) is
-dropped, and the hub is deferred. Each app words its own styles (Thomas,
-2026-10-17), so one art style looks different from app to app, and
-pictures aren't expected to move between apps.*
+dropped, and the hub is deferred. **There are no standard styles**
+(Thomas, 2026-10-17): each app names, words and tags its own, pictures
+aren't expected to move between apps, and styles shared between apps fall
+to the hub, later.*
 
 ## Why
 
@@ -224,11 +225,10 @@ store, each tag with its label, kind and a one-line description of what it
 means, and its values each with one too, seeded with the agreed tags
 (`vocabulary_tags`, `vocabulary_values`; `DB#vocabulary`, `GET
 /vocabulary`). Tags and values have titles for people, so apps show the
-same names ("Art Style", "Fantasy Cover", "16-Bit Pixel"; Thomas,
-2026-10-15). A value can name its family (`pixel` for `pixel-16`), and an
-art style has DataDungeon's words for it, the wording `dd:<style>`, for an
-app that takes its style from them (DESIGN-recipes.md, "The style"), and a
-rating has its words too (`dd:pg`). For now a tag or a
+same names ("Rating", "PG"; Thomas, 2026-10-15). A value can name its
+family (none does yet), and a rating has DataDungeon's words for it
+(`dd:pg`). The standard art styles 0.14's builds seeded before the tag are
+gone (below). For now a tag or a
 value is added in a DataDungeon release, by agreement: every store opened
 read-write takes the vocabulary its release has, and keeps a value a later
 release drops.
@@ -254,16 +254,14 @@ release drops.
   hash beside its tags. A voice clip is found by its words' hash and its
   voice, a room picture by its LOOK text's hash and its art style, and
   Overlore's `content_hash` and `look` tags go.
-- **Custom values: later** (Thomas, 2026-10-14, through `@owl`), perhaps
-  in a paid 2.0. Art style decides what can be shared, and sharing is what
-  makes the pictures affordable, so Owl uses the standard values. (Since
-  2026-10-17 each app words its own styles, so the look isn't shared
-  across apps; the standard values stay what pictures are tagged with.) An Owl
-  world sets its art style, theme and rating apart, as a recipe's style
-  and theme are: a player's "kiddy cartoon" is a kids theme, `g`, and
-  `golden-comic`, `3d-cartoon` or `pixel`. Custom styles would be the
-  store owner's (`owl:kiddy-cartoon`), so `dd:` keeps meaning standard and
-  shareable (Thomas, 2026-10-16).
+- **Styles are each app's own** (Thomas, 2026-10-17). Custom values were
+  first put off to a paid 2.0, with Owl on the standard art styles, since
+  sharing was to make pictures affordable (Thomas, 2026-10-14, through
+  `@owl`). With pictures staying in their app and each app wording its own
+  styles, there are none to share, so each app names and tags its own. An
+  Owl world sets its art style, theme and rating apart, as a recipe's style
+  and theme are: a player's "kiddy cartoon" is a kids theme, `g`, and one
+  of Owl's styles.
 - **`rating`** is in the first vocabulary (`@owl`): `g`, `pg`, `r`, `x`,
   meaning the same in every app, since Owl's library skips `r` and `x`
   from other stores. Each has DataDungeon's words, one wording for every
@@ -278,7 +276,14 @@ release drops.
   | `r` | For mature audiences: violence, blood and risqué scenes may be shown. |
   | `x` | For adults only. |
 
-### First vocabulary: `art-style` (Thomas, 2026-10-13; in the store since 0.14)
+### Art styles: dropped before 0.14's tag
+
+*There are no standard styles (Thomas, 2026-10-17): each app names, words
+and tags its own, and styles shared between apps fall to the hub (below).
+What follows is the record of the `art-style` vocabulary agreed on
+2026-10-13, which 0.14's builds seeded before the tag (a store they opened
+loses it on its next open), and of what each app called its styles.*
+
 
 One tag, `art-style`, for how a picture is drawn or rendered (Overlore's
 `art_style`; the park store's and Owl's `style`). It has no label: its
@@ -423,7 +428,7 @@ while any store can't be reached.
 **The hub** (Thomas's idea, 2026-10-14, through `@owl`; deferred
 2026-10-16, until stores connect to each other) is that service: a
 DataDungeon service on the bus that knows every store. It searches them as
-one, merges duplicates by hash, filters by rating and art style, counts use
+one, merges duplicates by hash, filters by rating, counts use
 across stores, and clears the shared bucket, deleting a file only when no
 store uses it. An app asks the hub, then copies what it chooses into its
 own store, linked `copied-from` the file's hash. The copy is what makes
@@ -438,6 +443,12 @@ follow the order above (every store's list first, then the bucket, keeping
 anything written since the run began), since stores rely on it. A copy
 could later skip sending the bytes again: a call that records a row for a
 file already in the bucket and refreshes its date there.
+
+**Shared styles are the hub's** (Thomas, 2026-10-17; not needed yet). With
+no standard styles, the hub is the one thing that can coordinate sharing
+them: a lookup table of the styles each store uses, its name and words. A
+store can adopt another's style, using its name and words as they are,
+and from then on their pictures in that style can be shared.
 
 ## Moving existing stores
 
@@ -473,15 +484,15 @@ vocabulary. Apps keep `register_index` for their own fast lookups (Thomas,
 
 ## Open, collected
 
-- The first shared vocabulary beyond `art-style` and `rating`: the names
+- The first shared vocabulary beyond `rating`: the names
   `lighting` and `condition`, and the descriptions. A tag is added in a
   release for now (0.14).
 - The hub (`@curio`'s): what more it needs from each store.
 - `q` over descriptions and a recipe's subject (`@owl` finds other stores'
   pictures by words, and Overlore's drops have none in their tags),
   before 0.16's semantic search.
-- Release (Thomas, 2026-10-15): the vocabulary, `art-style` and `rating`,
-  in 0.14 with the new picture prompts. The types, several values per tag
+- Release (Thomas, 2026-10-15): the vocabulary in 0.14 with the new
+  picture prompts, `rating` only (no standard styles, Thomas, 2026-10-17). The types, several values per tag
   and keys as the apps' indexes wait for an app that needs them (Thomas,
   2026-10-16: a freeze on what no app uses yet); uses and owner tags are
   dropped.

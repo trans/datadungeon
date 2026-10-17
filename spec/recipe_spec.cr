@@ -29,9 +29,9 @@ private def version(words : String) : String
   DataDungeon::Recipe.version(words)
 end
 
-# DataDungeon's words for silver-comic, as the vocabulary seeds them.
+# Overlore's words for its silver-comic style, read back with their version.
 SILVER_WORDS = "Silver Age comic."
-SILVER       = DataDungeon::Recipe.wording("style", "dd:silver-comic@#{DataDungeon::Recipe.version(SILVER_WORDS)}", SILVER_WORDS)
+SILVER       = DataDungeon::Recipe.wording("style", "overlore:silver-comic@#{DataDungeon::Recipe.version(SILVER_WORDS)}", SILVER_WORDS)
 
 # A picture as an app sends it: its prompt, and the wordings in it.
 private def picture(subject : String, style : String = "Silver Age comic art.",
@@ -300,19 +300,14 @@ describe DataDungeon::Recipe do
     end
   end
 
-  it "takes a picture's style as the app words it, its own or the vocabulary's" do
+  it "takes a picture's style as the app words it, with no standard styles" do
     with_db("dd-recipe-styles") do |db|
       own = store_panel(db, "a", picture("A dwarf.")) # overlore:silver-comic
-      db.style_text("silver-comic").should eq SILVER
-      ours = store_panel(db, "b", DataDungeon::Recipe.new("picture", prompt: "#{SILVER_WORDS} A dwarf.",
-        wordings: [db.style_text("silver-comic")]))
       db.with_text("style", "overlore:silver-comic").should eq [own.id]
-      db.with_text("style", "dd:silver-comic").should eq [ours.id]
-      borrowed = DataDungeon::Recipe.new("picture", prompt: "Silver Age comic, more or less. A dwarf.",
-        wordings: [wording("style", "dd:silver-comic", "Silver Age comic, more or less.")])
+      borrowed = DataDungeon::Recipe.new("picture", prompt: "Silver Age comic. A dwarf.",
+        wordings: [wording("style", "dd:silver-comic", "Silver Age comic.")])
       expect_raises(ArgumentError, /isn't DataDungeon's words/) { store_panel(db, "d", borrowed) }
-      expect_raises(ArgumentError, /isn't a standard art style/) { db.style_text("kiddy-cartoon") }
-      # A voice's style is its own: the art styles are pictures'.
+      # A voice's style is its own too.
       speech = DataDungeon::Recipe.new("speech", prompt: "Hello.", instructions: "Warm.",
         wordings: [wording("style", "overlore:host", "Warm.")])
       db.store("line", {"voice" => "fable"}, bytes: "mp3".to_slice, content_type: "audio/mpeg", recipe: speech).has_recipe?.should be_true
@@ -438,19 +433,12 @@ describe DataDungeon::Recipe do
     end
   end
 
-  it "seeds the shared vocabulary once, with each art style's and rating's words" do
+  it "seeds the shared vocabulary once, with each rating's words" do
     with_db("dd-recipe-vocabulary") do |db, dir|
       vocabulary = db.vocabulary
-      vocabulary.map(&.name).should eq %w[art-style rating]
-      vocabulary.map(&.title).should eq ["Art Style", "Rating"]
-      styles = vocabulary[0].values
-      styles.map(&.value).first(3).should eq %w[golden-comic silver-comic modern-comic]
-      styles.size.should eq 14
-      pixel = styles.find!(&.value.==("pixel-16"))
-      pixel.title.should eq "16-Bit Pixel"
-      pixel.family.should eq "pixel"
-      styles.find!(&.value.==("silver-comic")).wording.should eq SILVER
-      rating = vocabulary[1]
+      vocabulary.map(&.name).should eq %w[rating] # no standard styles (Thomas, 2026-10-17)
+      vocabulary.map(&.title).should eq ["Rating"]
+      rating = vocabulary[0]
       rating.kind.should eq "scale"
       rating.values.map(&.value).should eq %w[g pg r x]
       rating.values.map(&.wording.not_nil!.kind).uniq.should eq ["rating"]
@@ -461,18 +449,25 @@ describe DataDungeon::Recipe do
       db.close
       db = DataDungeon::DB.new(File.join(dir, "assets.db"), cache_root: File.join(dir, "store"), consumer: "overlore")
       count(db, "named_texts").should eq named # nothing new on a second open
-      db.style_text("silver-comic").name.should eq SILVER.name
+      db.rating_text("x").text.should eq "For adults only."
       read_only = DataDungeon::DB.new(File.join(dir, "assets.db"), read_only: true)
-      read_only.vocabulary.size.should eq 2
+      read_only.vocabulary.size.should eq 1
       read_only.close
 
-      # A store the first 0.14 build opened called a value's words style_id.
+      # A store the first 0.14 build opened called a value's words style_id,
+      # and every 0.14 build before the tag seeded standard art styles. Both
+      # open, without the styles, and an asset's own art-style tag stays.
+      tagged = store_panel(db, "a")
       db.close
       raw = ::DB.open("sqlite3://#{File.join(dir, "assets.db")}")
       raw.exec("ALTER TABLE vocabulary_values RENAME COLUMN wording_id TO style_id")
+      raw.exec("INSERT INTO vocabulary_tags (name, title, label, kind, description) VALUES ('art-style', 'Art Style', '', '', 'how a picture is drawn')")
+      raw.exec("INSERT INTO vocabulary_values (tag, value, title, description, family, style_id, position) " \
+               "VALUES ('art-style', 'silver-comic', 'Silver Age Comic', 'Silver Age comics', '', NULL, 0)")
       raw.close
       db = DataDungeon::DB.new(File.join(dir, "assets.db"), cache_root: File.join(dir, "store"), consumer: "overlore")
-      db.style_text("silver-comic").should eq SILVER
+      db.vocabulary.map(&.name).should eq %w[rating]
+      db.load_tags(tagged.id).should eq({"art-style" => "silver-comic"})
       db.connection.query_all("SELECT name FROM pragma_table_info('vocabulary_values')", as: String).should_not contain "style_id"
       db.close
     end
@@ -538,7 +533,7 @@ describe DataDungeon::Recipe do
     columns.should_not contain "prompt_sent_id"
     count(db, "recipe_fields").should eq 13 # kept as they were
     db.connection.query_all("PRAGMA foreign_key_check", &.read(::DB::Any)).should be_empty
-    db.style_text("silver-comic").should eq SILVER # the vocabulary, seeded after
+    db.rating_text("pg").name.should start_with "dd:pg@" # the vocabulary, seeded after
     db.recipe(store_panel(db, "f", picture("An orc.")).id).not_nil!.wordings.size.should eq 2
   ensure
     db.try(&.close)
