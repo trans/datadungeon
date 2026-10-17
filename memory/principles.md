@@ -46,6 +46,18 @@ bucket, which no store deletes from. So nothing is built for several apps
 sharing one store: uses, owner tags and refusing a delete while another
 app uses an asset were dropped, and the hub waits until stores connect.
 
+**Pictures stay in their app** (Thomas, 2026-10-17: "you are probably
+correct"). Each app words its own styles for its own models, so one art
+style looks different from app to app; Owl starts from what a player asks
+for and Overlore from what its game needs; and style, theme and rating
+multiply the misses. On the store copies (2026-10-17) Owl and Overlore
+shared no art style at all (Owl's are watercolor), and the one overlap was
+photorealism, Overlore's 83 and the park's 61. So nothing more is built
+for sharing pictures across apps until a real case shows up: photorealism
+between Overlore and the park, or assets with no style (sound effects).
+Reuse pays within an app (Overlore's heads on bodies, Owl serving one
+player's picture to another), which semantic search is for.
+
 ## Freeze what no app uses
 
 Thomas, 2026-10-16, after an independent review found DataDungeon

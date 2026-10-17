@@ -80,6 +80,23 @@ check on `rules`: none planned (the freeze). Reply sent 2026-10-17
 (`mail/sent/*-@overlore--naming-stored-words.md`): name them kind `rules`,
 one wording per rule that changes on its own.
 
+**Apps word their own styles (Thomas, 2026-10-17, through `@overlore`;
+`mail/received/20261017-094046Z-@overlore--apps-make-their-own-styles-thomas-2026-10-17-f261bbae.md`).**
+Overlore's same-seed comparison (64 pictures, klein, 8 styles): DD's words
+alone held every style, both together looked best, but per-app flavors
+make the "same" style differ anyway, and flavors were mostly mood, light
+and framing. So a picture's `style` may be the app's own
+(`overlore:silver-comic`); the `dd:` style check and the flavor rules are
+gone, and flavor leaves the recommended order. Art-style tags stay
+standard; `style_text` stays for apps that want DD's words. Overlore's
+eight style wordings, settled by Thomas:
+`mail/received/20261017-095151Z-@overlore--overlore-s-own-styles-as-thomas-settled-them-3479273a.md`.
+Also from Overlore (`…-074415Z-…-99e4db05.md`): `add_wordings` named 72
+wordings in its 24 pictures (`overlore:no-text`, `overlore:no-marks`, kind
+`rules`; `overlore:g`, `pg`, `r`), and a store opened by `4426581` failed
+to open with `98ed629` (the `style_id` rename); now renamed on open.
+**Built, not committed** (172 specs pass); reply drafted, held.
+
 **Next:** no separate notice of `rating_text` (Thomas, 2026-10-17); painted-animation waits on Thomas asking Owl; then merge,
 tag (ask first), release notes.
 
