@@ -233,6 +233,11 @@ tags aren't in it; they wait for a later decision. It's 0.15.0 and not
   resolves it; notice sent to all six (`mail/sent/*-@all--v0.15.0.md`).
   The `0.14` branch and its worktree are removed (merged; nothing pinned
   it). Apps bump to `~> 0.15.0` when ready.
+  **On 0.15 (2026-10-17):** Cattacula (`fc88509`), Overlore (`38d4190`;
+  its local store converted, 10 purposed wordings dropped leaving 17; the
+  deployed store moves when Thomas says deploy), Owl (`6d4aad9`), the park
+  store (assets `bad3c6a`, curio 0.7.0 unchanged). None needed code
+  changes. Not yet heard: Pirateship, mj.
 
 **Next (as of the 0.14 tag; every app has since moved):** the apps move (Overlore switches to GitHub `~> 0.14.0`; Owl moves
 its prompt and narrator code; Cattacula, Pirateship and the park bump, the
