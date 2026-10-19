@@ -248,7 +248,7 @@ tags aren't in it; they wait for a later decision. It's 0.15.0 and not
 - The prompt isn't the description. An asset added by hand has no recipe,
   `generated: false`, and its words as its `description`; no flag is
   needed. (Thomas first asked for a boolean marking a prompt as only a
-  description; agreed once he saw that a prompt exists only in a recipe.)
+  description; told a prompt exists only in a recipe: "Good thinking.")
 - Later, an AI's description of a picture is its own text asset, linked
   to the picture, with its own recipe (vision model, what it was asked, the
   picture as reference): "How the AI describes an image has a recipe too."
