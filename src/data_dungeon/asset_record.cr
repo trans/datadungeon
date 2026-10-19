@@ -99,6 +99,13 @@ module DataDungeon
     getter cycles : Hash(String, Array(String))
     getter match_fields : Array(String)
 
+    # Whether `other` derives keys differently: other traits, another
+    # order, group, labels or sets. Facets, scales, colors, cycles, weights
+    # and match fields change no keys.
+    def keyed_differently?(other : AssetType) : Bool
+      {pool_traits, group_traits, labels, sets} != {other.pool_traits, other.group_traits, other.labels, other.sets}
+    end
+
     # Image fields best matches can use: a view or light by direction, the
     # view's roll around a circle, the dominant colour by appearance.
     MATCH_FIELDS = %w[view light roll dominant-color]

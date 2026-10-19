@@ -253,11 +253,15 @@ describe DataDungeon::API do
   it "shows the shared vocabulary" do
     with_api("dd-api-vocabulary") do |api|
       tags = json(call(api, "GET", "/dd/vocabulary", "r"))["tags"].as_a
-      tags.map(&.["name"]).should eq ["rating"] # no standard styles (Thomas, 2026-10-17)
+      tags.map(&.["name"]).should eq ["rating", "subtype"] # no standard styles (Thomas, 2026-10-17)
       tags[0]["values"].as_a.map(&.["value"]).should eq ["g", "pg", "r", "x"]
       tags[0]["values"][1]["title"].should eq "PG"
       tags[0]["values"][3]["wording"].should eq({"kind" => "rating", "name" => "dd:x@#{DataDungeon::Recipe.version("For adults only.")}",
                                                  "text" => "For adults only."})
+      types = json(call(api, "GET", "/dd/vocabulary", "r"))["types"].as_a
+      types.size.should eq DataDungeon::DB::STANDARD_TYPES.size
+      types.find! { |type| type["name"] == "speech" }.should eq({"name" => "speech", "title" => "Speech", "media" => ["audio"],
+                                                                 "description" => "one voice saying something, words or not (a laugh, a grunt)"})
       call(api, "GET", "/dd/vocabulary").status_code.should eq 401
     end
   end

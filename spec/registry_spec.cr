@@ -53,6 +53,17 @@ private def store_legacy(db : DataDungeon::DB, asset_type : String, tags : Hash(
 end
 
 describe DataDungeon::TraitKey do
+  it "lists DataDungeon's asset types, each a name a type can have, in media a store knows" do
+    names = DataDungeon::DB::STANDARD_TYPES.map(&.name)
+    names.first(3).should eq %w[drop plug placard]
+    names.uniq.should eq names
+    names.each { |name| name.should match DataDungeon::DB::TYPE_NAME }
+    DataDungeon::DB::STANDARD_TYPES.flat_map(&.media).uniq.sort.should eq %w[audio data font image model text video]
+    DataDungeon::DB.standard_type?("speech").should be_true
+    DataDungeon::DB.standard_type?("automaton").should be_true # the Bard's graph (mj; Thomas, 2026-10-19)
+    DataDungeon::DB.standard_type?("owl_scene").should be_false
+  end
+
   it "starts with the type, then the trait values in order, with an empty segment for an absent trait" do
     traits = %w[art_style rating gender race]
     values = {"art_style" => "golden", "rating" => "pg", "gender" => "f", "race" => "human"}
@@ -381,6 +392,11 @@ describe "DataDungeon::DB type registry" do
       db.find_asset_by_id(rec.id).not_nil!.key.should eq rec.key
 
       db.register_type("portrait", pool_traits: %w[race art_style], rekey: true)
+      db.find_asset_by_id(rec.id).not_nil!.key.should eq "portrait.human.golden"
+
+      # What keys don't hold changes without re-keying.
+      db.register_type("portrait", pool_traits: %w[race art_style], scales: {"race" => %w[elf human orc]}, weights: {"race" => 2.0})
+      db.registration("portrait").not_nil!.weights.should eq({"race" => 2.0})
       db.find_asset_by_id(rec.id).not_nil!.key.should eq "portrait.human.golden"
     end
   end

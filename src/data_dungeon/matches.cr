@@ -69,6 +69,13 @@ module DataDungeon
         @lock.close
         raise InUse.new("#{@dir} is open in another process; one process owns a store's match index")
       end
+      # A type renamed, or joined to another (rename_type), leaves its files
+      # under its old name. They're only derived, rebuilt from the tags.
+      registered = @db.connection.query_all("SELECT asset_type FROM asset_types", as: String).to_set
+      Dir.children(@dir).each do |file|
+        next unless file.ends_with?(".usearch") || file.ends_with?(".usearch.checkpoint")
+        File.delete(File.join(@dir, file)) unless registered.includes?(file.split(".usearch").first)
+      end
     end
 
     # The assets of a registered type closest to `picks` (trait => value),

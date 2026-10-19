@@ -507,8 +507,9 @@ describe DataDungeon::Recipe do
   it "seeds the shared vocabulary once, with each rating's words" do
     with_db("dd-recipe-vocabulary") do |db, dir|
       vocabulary = db.vocabulary
-      vocabulary.map(&.name).should eq %w[rating] # no standard styles (Thomas, 2026-10-17)
-      vocabulary.map(&.title).should eq ["Rating"]
+      vocabulary.map(&.name).should eq %w[rating subtype] # no standard styles (Thomas, 2026-10-17)
+      vocabulary.map(&.title).should eq ["Rating", "Subtype"]
+      vocabulary[1].values.should be_empty # each app's own words
       rating = vocabulary[0]
       rating.kind.should eq "scale"
       rating.values.map(&.value).should eq %w[g pg r x]
@@ -522,7 +523,7 @@ describe DataDungeon::Recipe do
       count(db, "named_texts").should eq named # nothing new on a second open
       db.rating_text("x").text.should eq "For adults only."
       read_only = DataDungeon::DB.new(File.join(dir, "assets.db"), read_only: true)
-      read_only.vocabulary.size.should eq 1
+      read_only.vocabulary.size.should eq 2
       read_only.close
 
       # A store the first 0.14 build opened called a value's words style_id,
@@ -537,7 +538,7 @@ describe DataDungeon::Recipe do
                "VALUES ('art-style', 'silver-comic', 'Silver Age Comic', 'Silver Age comics', '', NULL, 0)")
       raw.close
       db = DataDungeon::DB.new(File.join(dir, "assets.db"), cache_root: File.join(dir, "store"), consumer: "overlore")
-      db.vocabulary.map(&.name).should eq %w[rating]
+      db.vocabulary.map(&.name).should eq %w[rating subtype]
       db.load_tags(tagged.id).should eq({"art-style" => "silver-comic"})
       db.connection.query_all("SELECT name FROM pragma_table_info('vocabulary_values')", as: String).should_not contain "style_id"
       db.close

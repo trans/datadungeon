@@ -37,7 +37,69 @@ module DataDungeon
     end
   end
 
+  # One of DataDungeon's asset types (DESIGN-types.md): what an asset is,
+  # by its role, from one list every app shares, so another app can tell
+  # what it is. An app tells its own kinds of one type apart with tags of
+  # its own. A type is a role and the media its form, so a type can come in
+  # several media: a drop can be a still picture or a moving one.
+  struct StandardType
+    include JSON::Serializable
+
+    getter name : String
+    getter title : String
+    getter media : Array(String)
+    getter description : String
+
+    def initialize(@name, @title, @media, @description)
+    end
+  end
+
   class DB
+    # DataDungeon's asset types, as agreed (Thomas with the apps,
+    # 2026-10-13). The list changes in a release, by agreement, never by
+    # an app. Apps move their own types onto it one at a time (rename_type);
+    # once all have, register_type takes only these.
+    STANDARD_TYPES = [
+      # Pictures, still or moving
+      StandardType.new("drop", "Drop", %w[image video], "a place, the set things stand in front of"),
+      StandardType.new("plug", "Plug", %w[image video], "a framed moment, shown as it is: a comic panel, a hero shot"),
+      StandardType.new("placard", "Placard", %w[image video], "words shown on their own, between scenes: an intro, a title card, end credits"),
+      StandardType.new("scrim", "Scrim", %w[image video], "a frame's whole size, laid over a drop or plug"),
+      StandardType.new("prop", "Prop", %w[image video model], "an object, placed by the app: a picture cropped close to its edges, or seen from outside in 3D"),
+      StandardType.new("texture", "Texture", %w[image video], "a material with no subject or edges, filling an area"),
+      StandardType.new("icon", "Icon", %w[image video], "a small indicator: a button, a rating"),
+      StandardType.new("map", "Map", %w[image video], "for programs, not people: a depth map, a mask, a matte"),
+      StandardType.new("automaton", "Automaton", %w[text data], "a character's moves as a graph of picture frames, which may follow which, " \
+                                                                "walked afresh each play; its frames are props linked from it"),
+      # Sound
+      StandardType.new("speech", "Speech", %w[audio], "one voice saying something, words or not (a laugh, a grunt)"),
+      StandardType.new("dialogue", "Dialogue", %w[audio], "voices in turns, a conversation"),
+      StandardType.new("music", "Music", %w[audio], "composed: a bed under a scene, or a cue (a fanfare, a sting)"),
+      StandardType.new("ambience", "Ambience", %w[audio], "a place's continuous sound (wind, a crowd, a hum)"),
+      StandardType.new("effect", "Effect", %w[audio], "one event's sound, trimmed close to it; interface sounds too"),
+      StandardType.new("recording", "Recording", %w[audio video], "anything captured or mixed, with no clear boundaries"),
+      # Text
+      StandardType.new("prose", "Prose", %w[text], "continuous writing in one voice: a description, a decree, a story"),
+      StandardType.new("script", "Script", %w[text], "lines for voices in turns"),
+      StandardType.new("transcript", "Transcript", %w[text], "the words of an audio or video asset, written down after it, with speakers and times when known"),
+      StandardType.new("log", "Log", %w[text], "a record of what happened, in order"),
+      # Documents and data
+      StandardType.new("document", "Document", %w[data text], "made to be read: pages laid out, text and pictures (PDF, EPUB)"),
+      StandardType.new("data", "Data", %w[data text], "made for programs: structured (JSON, CSV) or binary (a story file, a saved game); also the catch-all"),
+      # 3D (and prop, above)
+      StandardType.new("set", "Set", %w[model], "a place in 3D, to be inside or look into"),
+      StandardType.new("figure", "Figure", %w[model], "a character's body, usually rigged"),
+      StandardType.new("motion", "Motion", %w[model data], "movement for a skeleton, without geometry"),
+      # Across media
+      StandardType.new("sequence", "Sequence", %w[audio video], "parts arranged in time: shots cut together, clips put together into one file"),
+      StandardType.new("font", "Font", %w[font], "a typeface"),
+    ]
+
+    # Whether a type's name is one of DataDungeon's (STANDARD_TYPES).
+    def self.standard_type?(name : String) : Bool
+      STANDARD_TYPES.any? { |type| type.name == name }
+    end
+
     # The owner of DataDungeon's own wordings, the ratings' words.
     VOCABULARY_OWNER = "dd"
 
@@ -77,6 +139,12 @@ module DataDungeon
           words: "For mature audiences: violence, blood and risqué scenes may be shown."},
          {value: "x", title: "X", description: "adults only", family: "", words: "For adults only."},
        ]},
+      # One name for an app's own kinds of a standard type, so curio and a
+      # copy can tell which tag says the kind (Thomas, 2026-10-19). The
+      # values are each app's own words, so none is listed.
+      {name: "subtype", title: "Subtype", label: "", kind: "",
+       description: "an app's own kind of a standard type, in its own words: a room, a door view, a background",
+       wording: "", values: [] of {value: String, title: String, description: String, family: String, words: String}},
     ]
 
     # Takes the vocabulary as this release has it, inside setup_schema's

@@ -9,8 +9,20 @@ records into its own, so what was here for several apps sharing one store
 dropped, and the hub is deferred. **There are no standard styles**
 (Thomas, 2026-10-17): each app names, words and tags its own, pictures
 aren't expected to move between apps, and styles shared between apps fall
-to the hub, later. Standard types and tags aren't in 0.15, a small cleanup
-release first (Thomas, 2026-10-17); they wait for a later decision.*
+to the hub, later. **Standard types stay: without them sharing would be
+impossible** (Thomas, 2026-10-19). The list is in 0.15.2
+(`DB::STANDARD_TYPES`, `GET /vocabulary`), and the apps move onto it in
+pieces (Thomas, 2026-10-19): one type first, Pirateship's voices to
+`speech`; then a few more; then the rest, Overlore's. Once all have
+moved, `register_type` takes only the listed names (0.16).
+`register_type` stays: with one owner per store, the owner registers each
+type with the traits its own lookups need, so keys needn't become the
+apps' indexes. An app tells its own kinds of a type apart with one shared
+tag, `subtype`, its values the app's own words (`room`, `door-view`): a
+tag, so it can be in a key, and one name, so curio and a copy can tell
+which tag gives the kind (Thomas, 2026-10-19). Shared tags beyond `rating`, several values per tag, the
+see-through check and "anything that moves is video" wait, under the
+freeze.*
 
 ## Why
 
@@ -66,6 +78,7 @@ together, not the drop alone.
 | **texture** | a material with no subject or edges, filling an area | either |
 | **icon** | a small indicator: a button, a rating; mostly SVG, or Lottie when it moves | either |
 | **map** | for programs, not people: a depth map, a mask, a matte | n/a |
+| **automaton** | a character's moves as a graph of frames: which may follow which, walked afresh each play | n/a |
 
 - **Opacity is part of the type,** so it's checked when stored: a drop, a
   plug or a placard with transparent pixels, in any frame, is refused. It's
@@ -83,6 +96,15 @@ together, not the drop alone.
   area (below).
 - **A map of a place** (a game's world map) is a picture people read, so
   it's a plug or a drop, not a `map`.
+- **An automaton** (Thomas, 2026-10-19, from `@mj`'s Bard) is the graph
+  itself, a JSON file, not a picture: which body frames may follow which,
+  walked afresh on each play, so neither a `sequence` (one fixed timeline),
+  a sprite sheet (a fixed loop) nor a 3D `motion` (a skeleton's). Each
+  frame is a `prop` linked from it, its node and mouth shape in the link's
+  data, so copying the graph copies its frames; unusable frames are
+  `flagged`; the walker is the app's, named by the graph's format and
+  version. Not `puppet`: puppet and marionette are kept for rigs, a
+  character moved by controls, which are bound to come.
 - **Image fields stay with moving pictures** (`@curio`): view, light,
   anchor, real size and content box are a picture's, still or moving, so a
   program reads them by the fields, not the media.
@@ -479,9 +501,25 @@ changed too (`@curio`), to another on the list.
 - **Across stores, a link names the file's hash** (`@owl`): `copied-from`
   a hash, which is the same everywhere, rather than a store's name and an
   id, which aren't.
-`register_type` goes: types are DataDungeon's, and tags are defined in the
-vocabulary. Apps keep `register_index` for their own fast lookups (Thomas,
-2026-10-13).
+`register_type` was to go, types being DataDungeon's and tags defined in
+the vocabulary, with apps keeping `register_index` for their own fast
+lookups (Thomas, 2026-10-13). It stays (2026-10-19): a store is one
+owner's, so its owner registers each standard type with its own key.
+
+**In pieces** (Thomas, 2026-10-19), each app's agent moving its own store,
+rehearsed on a copy first: `rename_type` moves a type's assets, tags,
+registration and indexes, and joins them to the target's when it has
+assets already, so two of an app's types become one standard type. An app
+whose kinds share a standard type tags them first with `subtype`, and
+registers the standard type with the traits it looks them up by.
+
+| Piece | Store | Its types → standard types |
+|---|---|---|
+| 1 | Pirateship | voice → `speech` |
+| 2 | Cattacula | voice → `speech` |
+| 2 | the park | stage-standup → `speech`; prop is already `prop` |
+| 2 | Owl | owl_scene, owl_frame → `drop`; owl_depth → `map`; owl_voice → `speech`; owl_prop → `prop` |
+| 3 | Overlore | room, door_view, background, backdrop → `drop`; panel, heroshot, portrait → `plug`; banter, narration → `speech`; banter_script → `script`; decree → `prose`; its `transcript` assets go; `legacy`, to decide |
 
 ## Open, collected
 
@@ -497,3 +535,5 @@ vocabulary. Apps keep `register_index` for their own fast lookups (Thomas,
   and keys as the apps' indexes wait for an app that needs them (Thomas,
   2026-10-16: a freeze on what no app uses yet); uses and owner tags are
   dropped. 0.15 is a small cleanup, without them (Thomas, 2026-10-17).
+  The types' list is 0.15.2, the apps move in pieces, and 0.16 refuses
+  unlisted names (Thomas, 2026-10-19).

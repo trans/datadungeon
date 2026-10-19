@@ -2145,11 +2145,12 @@ module DataDungeon
     # several current assets can share one, and every store adds an asset.
     #
     # The registration is stored in the database. Registering a type again
-    # with the same definition changes nothing. A different definition,
-    # including a new order, raises unless `rekey: true`: changing it
-    # re-derives the keys of every asset of the type, so a process holding a
-    # stale definition (a shared store's venue, say) fails loudly instead of
-    # re-keying everyone's assets.
+    # with the same definition changes nothing, and one that changes only
+    # what keys don't hold (facets, scales, colors, cycles, weights, match
+    # fields) is saved as it is. Other traits, a new order, group, labels or
+    # sets raise unless `rekey: true`: changing them re-derives the keys of
+    # every asset of the type, so a process holding a stale definition fails
+    # loudly instead of re-keying every asset.
     def register_type(
       asset_type : String,
       *,
@@ -2174,7 +2175,7 @@ module DataDungeon
       changed = [] of Int64
       @object_lock.synchronize do
         stored = stored_type(asset_type)
-        if stored && stored[0] != definition && !rekey
+        if stored && stored[0].keyed_differently?(definition) && !rekey
           raise ArgumentError.new("#{asset_type} is registered differently: pass rekey: true to change it and re-key its assets")
         end
         unless stored == {definition, TraitKey::SCHEME} && own_index?(asset_type)

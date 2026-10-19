@@ -25,6 +25,20 @@ within. Because a trait's position says which trait it is, a lookup on
 leading traits is a prefix match (`portrait.golden.pg.f.`), one index range
 scan, at any depth.
 
+A type's name says what the asset is, from DataDungeon's list
+(`DB::STANDARD_TYPES`, served by `GET /vocabulary`), so another app can
+tell what it is: `drop` (a place, the set things stand in front of),
+`plug`, `placard`, `scrim`, `prop`, `texture`, `icon`, `map`,
+`automaton`; `speech`,
+`dialogue`, `music`, `ambience`, `effect`, `recording`; `prose`,
+`script`, `transcript`, `log`; `document`, `data`; `set`, `figure`,
+`motion`; `sequence`, `font` (see `DESIGN-types.md`). An app tells its own
+kinds of one type apart with the shared tag `subtype`, its values the app's
+own words (`room`, `door-view`), and registers each type it uses with the
+traits its lookups need, `subtype` among them where it looks up by kind. The list came in 0.15.2; apps move
+their own types onto it one at a time (`rename_type`), and once all have,
+`register_type` will take only these names.
+
 Keys are canonical: every trait is present, in the registered order, with an
 empty segment for a trait the asset lacks (`portrait.golden.pg..human`). Values are
 normalized for matching (Unicode case folding and NFC; letters and digits
@@ -117,8 +131,10 @@ re-deriving their keys; if `to` already has assets, they join it under its
 registration.
 
 The registration is stored in the database. Registering a type again with
-the same definition changes nothing; a different definition raises unless
-given `rekey: true`, which re-derives the keys of its assets from their tags.
+the same definition changes nothing, and so does changing only what keys
+don't hold (facets, scales, colors, cycles, weights, match fields) beyond
+saving it. Other traits, order, group, labels or sets raise unless given
+`rekey: true`, which re-derives the keys of its assets from their tags.
 A store shared by several applications should register its types in one
 place.
 
@@ -250,7 +266,8 @@ db.list_assets(texts: {"style" => "overlore:silver-comic"})  # the same as a lis
 db.named_texts("style", "overlore")  # [{name, version, text}]
 db.set_recipe(id, recipe)             # give an asset made before 0.13 its recipe
 db.add_wordings(id, [rating])         # name words a stored recipe was sent but didn't name
-db.vocabulary                         # the shared tags (rating) and their values
+db.vocabulary                         # the shared tags (rating, subtype) and their values
+DataDungeon::DB::STANDARD_TYPES       # DataDungeon's asset types: name, title, media, what it is
 ```
 
 - **What was sent:** `prompt` is the text the provider got: a picture's
@@ -515,7 +532,7 @@ HTTP::Server.new([api, app_handler])
 | `GET /assets/:id`, `/assets/:id/object`, `/assets/:id/links` | an asset with its tags, metadata and links; its bytes; its links |
 | `POST /maintenance/check` | the consistency report |
 | `GET /objects` | every object key the store's rows use, for clearing a shared bucket |
-| `GET /vocabulary` | the shared tags and their values, with their titles; each rating with DataDungeon's words for it |
+| `GET /vocabulary` | the shared tags and their values, with their titles; each rating with DataDungeon's words for it; DataDungeon's asset types |
 | `POST /assets` | a file added by hand, as `multipart/form-data`: `file` (its `Content-Type` the asset's) and `asset`, JSON `{type, tags, custom, description, permanent, made_at, supersedes}`; stored as not generated, with no recipe; 409 with `asset_id` when its type already holds the bytes (write token) |
 | `PATCH`, `DELETE /assets/:id` | edit (with `image` fields, views readably, and `everywhere` for a shared description) or delete (write token) |
 | `PUT /assets/:id/keyframes` | an animation's checkpoints (write token) |

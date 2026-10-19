@@ -50,7 +50,8 @@ module DataDungeon
   #                                          for clearing a shared bucket
   #     GET    /vocabulary                 the shared tags and their values, with their titles
   #                                          (DB#vocabulary), each rating with DataDungeon's
-  #                                          words for it
+  #                                          words for it; and DataDungeon's asset types
+  #                                          (DB::STANDARD_TYPES)
   #     GET    /types/:type/matches        best matches, given a matcher (MatchIndex):
   #                                          ?trait.<k>=<v> &field.<f>=<v> (view=back-left,
   #                                          dominant-color=#aa3311) &require=a,b &weight.<k>=<n> &limit=
@@ -136,7 +137,7 @@ module DataDungeon
       elsif method == "GET" && parts == ["objects"]
         respond(context, {objects: @db.object_keys})
       elsif method == "GET" && parts == ["vocabulary"]
-        respond(context, {tags: @db.vocabulary})
+        respond(context, {tags: @db.vocabulary, types: DB::STANDARD_TYPES})
       elsif parts.size == 2 && parts[0] == "assets" && id
         case method
         when "GET"    then show(context, id)

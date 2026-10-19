@@ -225,12 +225,34 @@ describe DataDungeon::MatchIndex do
         expect_raises(DataDungeon::MatchIndex::InUse) { DataDungeon::MatchIndex.new(db) }
         index.best_matches("portrait", {"rating" => "g"}).map(&.score).uniq.should eq [0.0] # words: no near values
 
-        db.register_type("portrait", pool_traits: %w[rating race], scales: {"rating" => %w[g pg r x]},
-          rekey: true)
+        db.register_type("portrait", pool_traits: %w[rating race], scales: {"rating" => %w[g pg r x]})
         ids(index.best_matches("portrait", {"rating" => "g"})).should eq [pg.id, r.id, x.id]
       ensure
         index.close
       end
+    end
+  end
+
+  it "follows a type renamed and another joined to it, and clears the old names' files when it opens" do
+    with_store("dd-match-rename") do |db|
+      %w[owl_scene owl_frame].each { |type| db.register_type(type, pool_traits: %w[rating race]) }
+      scene = db.store("owl_scene", {"rating" => "pg", "race" => "elf"}, bytes: "s".to_slice, content_type: "image/webp")
+      frame = db.store("owl_frame", {"rating" => "pg", "race" => "orc"}, bytes: "f".to_slice, content_type: "image/webp")
+      files = -> { Dir.children("#{db.path}.matches").select(&.ends_with?(".usearch")).sort }
+      index = DataDungeon::MatchIndex.new(db)
+      begin
+        ids(index.best_matches("owl_scene", {"race" => "elf"})).should eq [scene.id]
+        ids(index.best_matches("owl_frame", {"race" => "orc"})).should eq [frame.id]
+        db.rename_type("owl_scene", "drop")
+        ids(index.best_matches("drop", {"race" => "orc"})).should eq [scene.id]
+        db.rename_type("owl_frame", "drop") # joins: caught up from the changes logged
+        ids(index.best_matches("drop", {"race" => "orc"})).should eq [frame.id, scene.id]
+        files.call.should eq %w[drop.usearch owl_frame.usearch owl_scene.usearch]
+      ensure
+        index.close
+      end
+      DataDungeon::MatchIndex.new(db).close
+      files.call.should eq %w[drop.usearch]
     end
   end
 
