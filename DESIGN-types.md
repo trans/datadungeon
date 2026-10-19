@@ -103,7 +103,9 @@ together, not the drop alone.
   frame is a `prop` linked from it, its node and mouth shape in the link's
   data, so copying the graph copies its frames; unusable frames are
   `flagged`; the walker is the app's, named by the graph's format and
-  version. Not `puppet`: puppet and marionette are kept for rigs, a
+  version. There's one automaton per set of frames that connect
+  (`@mj`): the cartoon Bard and the realistic one are two, not one for the
+  character. Not `puppet`: puppet and marionette are kept for rigs, a
   character moved by controls, which are bound to come.
 - **Image fields stay with moving pictures** (`@curio`): view, light,
   anchor, real size and content box are a picture's, still or moving, so a
@@ -113,7 +115,7 @@ together, not the drop alone.
 
 | Type | What it is | Its own data |
 |---|---|---|
-| **speech** | one voice saying something, words or not (a laugh, a grunt) | the speaker; the words, by reference into texts |
+| **speech** | one voice saying something, words or not (a laugh, a grunt) | its tracks (0.15.3): when each word is spoken (`words`) and the mouth's shapes (`mouth`); the words, in its recipe; the speaker, open (below) |
 | **dialogue** | voices in turns, a conversation | the speakers; the script it performs; each turn's start and end |
 | **music** | composed: a bed under a scene, or a cue (a fanfare, a sting) | |
 | **ambience** | a place's continuous sound (wind, a crowd, a hum) | |
@@ -126,6 +128,20 @@ forest recording trimmed and looped to sit under a scene is a new asset, an
 ambience made from it. Cuts link back to their source: a dialogue cut at
 its turns gives speech clips.
 
+**A take's tracks** (Thomas, 2026-10-19; built in 0.15.3): what a tool
+measured of a recording over time, Whisper's word timings and Rhubarb's
+mouth cues (`@overlore`), go in with the speech as its own data, each
+naming its tool, version and the options that change its result. A
+`words` track holds each word as written, punctuation and all, when the
+tool aligns a known text, as Overlore's takes all have one, and as heard
+when it transcribes (`@overlore`: Whisper mishears names, and then the
+track no longer matches the script). Not with the script, since every take is
+paced differently, and not as assets of their own, since they're facts
+about one take, as a picture's content box is. The choreography an app
+makes from them and an automaton is its own, kept in its own database,
+not in DataDungeon (Thomas, the same day: poses named in a script would
+tie it to one automaton's).
+
 ### Text
 
 | Type | What it is |
@@ -136,14 +152,19 @@ its turns gives speech clips.
 | **log** | a record of what happened, in order (what interactive fiction calls a transcript) |
 
 A clip spoken from a text needs no transcript: its words are its recipe's
-text. Prompts aren't assets: they're named texts in the recipe tables.
+text, and when each is spoken is its `words` track. Prompts aren't assets: they're named texts in the recipe tables.
 
 **Scripts** use Yarn Spinner's line syntax (`@overlore`'s proposal; notes
 in Overlore's `docs/SCRIPT-FORMATS.md`): `Veteran: This isn't a stage,
 bard. Sit down. #kind:retort`, speaker, text and `#` tags, with optional
 `#line:` ids to key recordings, and directions for the voice in Yarn's
 markup (`[sighs/]`). There's no registered content type: `text/plain`, or a
-`text/x-yarn` of our own.
+`text/x-yarn` of our own. A script may pin a pose the body must strike, the
+bow at the end, as `[pose=bow/]`: `pose` is the one tag for the body, and
+every other tag is the voice's, which the app turns into its voice engine's
+own before asking for a take; a tag the app doesn't know is an error
+(`@overlore`'s proposal; Thomas: it makes sense, 2026-10-19). DataDungeon
+doesn't read the tags.
 
 ### Documents and data
 
@@ -512,6 +533,10 @@ registration and indexes, and joins them to the target's when it has
 assets already, so two of an app's types become one standard type. An app
 whose kinds share a standard type tags them first with `subtype`, and
 registers the standard type with the traits it looks them up by.
+Pirateship (piece 1, 2026-10-19) keeps the call in its start-up, so its
+deployed store moves on its first start; from 0.15.3 a call with nothing
+left to move changes nothing (in 0.15.2 it logged every asset of the type
+again and rewrote their search rows on each start).
 
 | Piece | Store | Its types → standard types |
 |---|---|---|
@@ -527,6 +552,11 @@ registers the standard type with the traits it looks them up by.
   `lighting` and `condition`, and the descriptions. A tag is added in a
   release for now (0.14).
 - The hub (`@curio`'s): what more it needs from each store.
+- Characters (`@mj`, 2026-10-19, reopening "tags are claims"' no
+  characters): a character as an asset, a sheet for making more of it,
+  that pictures, automata and speech link to (`depicts`, `voiced-by`).
+  Thomas leans to it, undecided. A speech's speaker waits on it: the
+  voice that spoke is in the recipe, but who is speaking is a character.
 - `q` over descriptions and a recipe's subject (`@owl` finds other stores'
   pictures by words, and Overlore's drops have none in their tags),
   before 0.16's semantic search.

@@ -531,6 +531,18 @@ describe "DataDungeon::DB type registry" do
       begin
         reopened.registration("banter-script").not_nil!.pool_traits.should eq %w[character line]
         reopened.registration("banter_script").should be_nil
+
+        # Done, it changes nothing however often it's called again, as an
+        # app keeping it in its start-up calls it (@pirateship).
+        state = -> {
+          {reopened.connection.query_all("SELECT seq, asset_id FROM asset_changes", as: {Int64, Int64}),
+           reopened.connection.query_all("SELECT asset_id, index_id, key FROM asset_keys", as: {Int64, Int64, String}),
+           reopened.connection.query_all("SELECT rowid, * FROM asset_search", as: {Int64, String}),
+           File.info(File.join(dir, "assets.db-wal")).modification_time}
+        }
+        before = state.call
+        reopened.rename_type("banter_script", "banter-script").should eq 0
+        state.call.should eq before
       ensure
         reopened.close
       end

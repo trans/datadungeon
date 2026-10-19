@@ -673,6 +673,7 @@ module DataDungeon
             conn.exec(AUDIO_META_SCHEMA)
             conn.exec(VIDEO_META_SCHEMA)
             conn.exec(TEXT_META_SCHEMA)
+            conn.exec(ASSET_TRACKS_SCHEMA)
             conn.exec(ASSET_TAGS_KV_INDEX)
             conn.exec(ASSET_LINKS_SCHEMA)
             ASSET_LINKS_INDEXES.split(";").each { |sql| conn.exec(sql.strip) unless sql.strip.empty? }
@@ -721,6 +722,8 @@ module DataDungeon
                     asset_indexes asset_keys asset_tag_counts texts recipe_settings named_texts recipes recipe_wordings
                     recipe_legacy vocabulary_tags vocabulary_values].none? { |table| table_columns(conn, table).empty? }
         raise ReadOnlyError.new("The database needs upgrading: open it read-write once first") unless current
+        # Added in 0.15.3, so a store not yet opened by it reads as having no tracks.
+        @tracks_kept = !table_columns(conn, "asset_tracks").empty?
       end
     end
 
@@ -2279,6 +2282,8 @@ module DataDungeon
     # to `to`. If `to` already has assets, these join them, under `to`'s
     # registration if it has one. A registered type's keys begin with its
     # name, so they're derived again. Returns the number of assets moved.
+    # Once nothing of `from` is left, it changes nothing, so an app can keep
+    # the call in its start-up (`@pirateship`).
     def rename_type(from : String, to : String) : Int32
       writable!
       return 0 if from == to
@@ -2291,6 +2296,9 @@ module DataDungeon
         target = @types[to]? || @types[from]?.try { |type| type.renamed(to) }
         write_transaction do |conn|
           moved = conn.query_all("SELECT id FROM assets WHERE asset_type = ?", from, as: Int64)
+          next if moved.empty? && %w[asset_types asset_indexes asset_tags].none? { |table|
+                    conn.query_one?("SELECT 1 FROM #{table} WHERE asset_type = ? LIMIT 1", from, as: Int64)
+                  }
           conn.exec("UPDATE assets SET asset_type = ? WHERE asset_type = ?", to, from)
           conn.exec("UPDATE asset_tags SET asset_type = ? WHERE asset_type = ?", to, from)
           conn.exec("DELETE FROM asset_types WHERE asset_type = ?", from)

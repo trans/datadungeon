@@ -45,13 +45,18 @@ module DataDungeon
   #                                          wordings it used (owner:name@version),
   #                                          steps included; 404 when it has none
   #     GET    /assets/:id/links           its links, and the links to it
+  #     GET    /assets/:id/tracks          what tools measured of a sound or video over time
+  #                                          (DB#tracks): each track's name, tool, made_at and
+  #                                          cues [{start_ms, end_ms, value}]
+  #     GET    /assets/:id/tracks/:name    one track; 404 when it has none of that name
   #     POST   /maintenance/check          check_consistency's report
   #     GET    /objects                    every object key the store's rows use (object_keys),
   #                                          for clearing a shared bucket
   #     GET    /vocabulary                 the shared tags and their values, with their titles
   #                                          (DB#vocabulary), each rating with DataDungeon's
-  #                                          words for it; and DataDungeon's asset types
-  #                                          (DB::STANDARD_TYPES)
+  #                                          words for it; DataDungeon's asset types
+  #                                          (DB::STANDARD_TYPES); and the shared tracks
+  #                                          (DB::STANDARD_TRACKS)
   #     GET    /types/:type/matches        best matches, given a matcher (MatchIndex):
   #                                          ?trait.<k>=<v> &field.<f>=<v> (view=back-left,
   #                                          dominant-color=#aa3311) &require=a,b &weight.<k>=<n> &limit=
@@ -77,6 +82,7 @@ module DataDungeon
   #     POST   /maintenance/measure        {type, all}: measure_images
   #     PUT    /assets/:id/keyframes       [{at_ms, held, view, light, anchor_x, anchor_y}]:
   #                                          set_keyframes (view and light readably)
+  #     PUT    /assets/:id/tracks/:name    {tool, cues}: set_track, replacing the track
   #     POST   /types/:type/promote        {trait, value}: promote
   #     POST   /maintenance/vacuum         {delete_missing_rows, delete_orphan_objects}
   class API
@@ -137,7 +143,7 @@ module DataDungeon
       elsif method == "GET" && parts == ["objects"]
         respond(context, {objects: @db.object_keys})
       elsif method == "GET" && parts == ["vocabulary"]
-        respond(context, {tags: @db.vocabulary, types: DB::STANDARD_TYPES})
+        respond(context, {tags: @db.vocabulary, types: DB::STANDARD_TYPES, tracks: DB::STANDARD_TRACKS})
       elsif parts.size == 2 && parts[0] == "assets" && id
         case method
         when "GET"    then show(context, id)
@@ -155,6 +161,23 @@ module DataDungeon
         @db.find_asset_by_id(id) || return error(context, 404, "No asset #{id}")
         given = JSON.parse(context.request.body.try(&.gets_to_end) || "[]").as_a
         respond(context, {keyframes: @db.set_keyframes(id, given.map { |keyframe| keyframe_fields(keyframe) })})
+      elsif method == "GET" && parts.size == 3 && parts[0] == "assets" && parts[2] == "tracks" && id
+        @db.find_asset_by_id(id) || return error(context, 404, "No asset #{id}")
+        respond(context, {tracks: @db.tracks(id)})
+      elsif parts.size == 4 && parts[0] == "assets" && parts[2] == "tracks" && id
+        @db.find_asset_by_id(id) || return error(context, 404, "No asset #{id}")
+        case method
+        when "GET"
+          track = @db.track(id, parts[3]) || return error(context, 404, "Asset #{id} has no #{parts[3]} track")
+          respond(context, {track: track})
+        when "PUT"
+          body = JSON.parse(context.request.body.try(&.gets_to_end) || "{}")
+          tool = body["tool"]?.try(&.as_s) || raise ArgumentError.new("tool is required: the tool that made the track, with its version")
+          cues = Array(TrackCue).from_json((body["cues"]? || raise ArgumentError.new("cues is required")).to_json)
+          respond(context, {track: @db.set_track(id, parts[3], cues, tool: tool)})
+        else
+          error(context, 405, "#{method} isn't allowed here")
+        end
       elsif method == "POST" && parts.size == 3 && parts[0] == "assets" && parts[2] == "retire" && id
         @db.find_asset_by_id(id) || return error(context, 404, "No asset #{id}")
         respond(context, {retired: @db.retire(id)})

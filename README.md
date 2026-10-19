@@ -128,7 +128,8 @@ loses those not yet written: they're a hint for eviction, not a record of plays.
 its registration; keys hold values, not names, so they normally stay the same.
 `rename_type(from, to)` moves a type's assets and registration to a new name,
 re-deriving their keys; if `to` already has assets, they join it under its
-registration.
+registration. Once nothing of `from` is left it changes nothing, so an app
+can keep the call in its start-up until every copy of its store has moved.
 
 The registration is stored in the database. Registering a type again with
 the same definition changes nothing, and so does changing only what keys
@@ -405,6 +406,36 @@ wherever something turns, so a filter matches a field at the first frame or
 at any checkpoint exactly ("does it ever show the back?"). DataDungeon
 measures the content box at each checkpoint of an animated WebP.
 
+## Tracks
+
+A track is what a tool measured of a sound or a video over time, kept with
+it: a take's word times and mouth cues, so they travel with the take and
+any app can lip-sync it without running the tools again (0.15.3). Each
+cue runs from `start_ms` to `end_ms`, in time order.
+
+```crystal
+cue = DataDungeon::TrackCue
+db.set_track(take.id, "words", [cue.new(0, 180, "My"), cue.new(180, 520, "friend!")], tool: "whisper-1")
+db.set_track(take.id, "mouth", [cue.new(0, 60, "X"), cue.new(60, 120, "B")], tool: "rhubarb 1.14.0 --dialogFile")
+db.tracks(take.id)            # each track's name, tool, made_at and cues
+db.track(take.id, "mouth")    # one, or nil
+DataDungeon::DB::STANDARD_TRACKS  # the shared names: words, mouth
+```
+
+- **`words` and `mouth` are shared:** when each word is spoken, its value
+  the word with its punctuation (`friend!`), as written when the tool
+  aligns a known text (a voice engine's own timings, a forced aligner) and
+  as heard when it transcribes (Whisper); and the mouth's shape, its values
+  the tool's (Rhubarb Lip Sync's A to H, and X at rest). Other names are an
+  app's own (`words-heard`, for a transcription kept beside the text's).
+- **A track names its tool,** with its version and any options that change
+  its result (`rhubarb 1.14.0 --dialogFile`), so a better one can redo it:
+  setting a track replaces the one of that name whole.
+- **Only the start order is checked:** a cue may last no time, and may run
+  past the next one's start.
+- **They're measured from the recording, not the script:** a retake has
+  its own. Tracks go when their asset does.
+
 ## Storage
 
 `cache_root:` stores objects on local disk (`LocalStorage`). For an
@@ -532,10 +563,12 @@ HTTP::Server.new([api, app_handler])
 | `GET /assets/:id`, `/assets/:id/object`, `/assets/:id/links` | an asset with its tags, metadata and links; its bytes; its links |
 | `POST /maintenance/check` | the consistency report |
 | `GET /objects` | every object key the store's rows use, for clearing a shared bucket |
-| `GET /vocabulary` | the shared tags and their values, with their titles; each rating with DataDungeon's words for it; DataDungeon's asset types |
+| `GET /vocabulary` | the shared tags and their values, with their titles; each rating with DataDungeon's words for it; DataDungeon's asset types; the shared tracks |
+| `GET /assets/:id/tracks[/:name]` | its tracks, or one (404 when it has none of that name) |
 | `POST /assets` | a file added by hand, as `multipart/form-data`: `file` (its `Content-Type` the asset's) and `asset`, JSON `{type, tags, custom, description, permanent, made_at, supersedes}`; stored as not generated, with no recipe; 409 with `asset_id` when its type already holds the bytes (write token) |
 | `PATCH`, `DELETE /assets/:id` | edit (with `image` fields, views readably, and `everywhere` for a shared description) or delete (write token) |
 | `PUT /assets/:id/keyframes` | an animation's checkpoints (write token) |
+| `PUT /assets/:id/tracks/:name` | `{tool, cues: [{start_ms, end_ms, value}]}`: a track, replacing the one of that name (write token) |
 | `POST`, `DELETE /assets/:id/links` | link (with `data`) or unlink (write token) |
 | `GET /assets/:id/recipe` | how it was made (404 when it has no recipe) |
 | `POST /assets/:id/retire`, `/assets/:id/reinstate` | retire or reinstate (write token) |

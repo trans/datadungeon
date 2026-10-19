@@ -262,7 +262,31 @@ describe DataDungeon::API do
       types.size.should eq DataDungeon::DB::STANDARD_TYPES.size
       types.find! { |type| type["name"] == "speech" }.should eq({"name" => "speech", "title" => "Speech", "media" => ["audio"],
                                                                  "description" => "one voice saying something, words or not (a laugh, a grunt)"})
+      json(call(api, "GET", "/dd/vocabulary", "r"))["tracks"].as_a.map(&.["name"]).should eq ["words", "mouth"]
       call(api, "GET", "/dd/vocabulary").status_code.should eq 401
+    end
+  end
+
+  it "keeps a take's tracks" do
+    with_api("dd-api-tracks") do |api, db|
+      db.register_type("speech", pool_traits: %w[line])
+      a = db.store("speech", {"line" => "l1"}, bytes: "take".to_slice, content_type: "audio/mpeg")
+      path = "/dd/assets/#{a.id}/tracks"
+      words = {tool: "whisper-1", cues: [{start_ms: 0, end_ms: 180, value: "My"}, {start_ms: 180, end_ms: 520, value: "friend!"}]}
+      set = json(call(api, "PUT", "#{path}/words", "w", words))["track"]
+      set["tool"].should eq "whisper-1"
+      set["cues"][1].should eq({"start_ms" => 180, "end_ms" => 520, "value" => "friend!"})
+      call(api, "PUT", "#{path}/mouth", "w", {tool: "rhubarb 1.13.0", cues: [{start_ms: 0, end_ms: 60, value: "X"}]})
+
+      json(call(api, "GET", path, "r"))["tracks"].as_a.map(&.["name"]).should eq ["mouth", "words"]
+      json(call(api, "GET", "#{path}/words", "r"))["track"]["cues"].size.should eq 2
+      call(api, "GET", "#{path}/turns", "r").status_code.should eq 404
+      call(api, "GET", "/dd/assets/999/tracks", "r").status_code.should eq 404
+      call(api, "PUT", "#{path}/words", "r", words).status_code.should eq 403
+      call(api, "PUT", "#{path}/words", "w", {cues: [] of Int32}).status_code.should eq 400
+      call(api, "PUT", "#{path}/words", "w", {tool: "whisper-1", cues: [{start_ms: 0.18, end_ms: 0.52, value: "My"}]}).status_code.should eq 400
+      call(api, "PUT", "#{path}/words", "w", {tool: "whisper-1", cues: [{start_ms: 520, end_ms: 180, value: "My"}]}).status_code.should eq 400
+      json(call(api, "GET", "#{path}/words", "r"))["track"]["cues"].size.should eq 2
     end
   end
 
