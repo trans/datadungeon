@@ -3,15 +3,15 @@
 *Updated 2026-10-19*
 
 **Today (Thomas, 2026-10-19): finish the remaining items and semantic
-search.** Remaining, from the 0.15.1 section below: the standard types and
-tags decision (the old questions under "To settle before 0.15"); the two
-freeze fixes (`register_type` wanting `rekey:` for weights/scales/facets
-only, `rename_type` leaving MatchIndex files); AI descriptions as linked
-text assets with their own recipe, and search reading them; hashes as
-blobs and prompt compression; a word to Owl on its depth maps' "depth of 1"
-descriptions. Waiting: Overlore's deploy (Thomas), curio's button.
-Semantic search: built but unused; see "Embeddings registry" below and
-`DESIGN-embeddings.md` (a draft, `a5febfd`) for where it stopped.
+search.** Done today: the types decided and listed (0.15.2, with both
+freeze fixes), piece 1 (Pirateship), a take's tracks (0.15.3, `7cca94a`),
+and the `#datadungeon` topic. Next: pieces 2 and 3 (below), then semantic
+search: built but unused; see "Embeddings registry" below and
+`DESIGN-embeddings.md` (a draft, `a5febfd`) for where it stopped. Still
+open: AI descriptions as linked text assets with their own recipe, and
+search reading them; hashes as blobs and prompt compression; a word to Owl
+on its depth maps' "depth of 1" descriptions; characters as assets
+(Thomas). Waiting: Overlore's deploy (Thomas), curio's button.
 
 ## 0.14: the prompt as sent, the wordings in it, the ratings' words (released v0.14.0 at `401dd4a`, 2026-10-17)
 
@@ -287,8 +287,8 @@ change log). 169 specs; dd-serve type-checks.
    Its `boot` registers `speech` then calls `rename_type`, kept so
    production converts on first deploy. **Not smooth:** a `rename_type`
    with nothing to move still logged all 14 to `asset_changes` and
-   rewrote search rows on every start. **Fixed on the `tracks` branch for
-   0.15.3:** it returns early when `from` has no assets, registration,
+   rewrote search rows on every start. **Fixed in 0.15.3 (`7cca94a`):**
+   it returns early when `from` has no assets, registration,
    indexes or tags (spec fails without it; Pirateship's boot run three
    times on a copy: dumps identical after the first). Opening a store
    still rewrites its triggers, so the file's bytes change but no rows.
@@ -307,8 +307,8 @@ after a talk with Thomas. Only the first is settled:
    `graph.json` (nodes of body frame plus mouth shape, weighted
    neighbours, a walk rule per pose, moves between poses). Matches
    `DESIGN-types.md`, and adds: **one automaton per set of frames that
-   connect**, so the cartoon and realistic Bards are two. Not yet in the
-   design doc.
+   connect**, so the cartoon and realistic Bards are two. In
+   DESIGN-types.md since 0.15.3.
 2. **Choreography is blocking in the script,** in Yarn markup on the word
    a pose starts (`[pose spread/]My friend!`), timed at play from the
    take's word timings; no new type. Thomas: "sounds like a good idea".
@@ -335,17 +335,19 @@ after a talk with Thomas, sent to mj too:
   perhaps varying at random each play, and keeps it in its own database.
   Thomas: "I am not sure we then need to store those in DD".
 - **A script may pin a required pose** (the bow at the end; Thomas). Body
-  directions mustn't reach the voice engine. Overlore's proposal, open:
+  directions mustn't reach the voice engine. Overlore's proposal:
   `pose` is the body's tag (`[pose=bow/]`), every other tag the voice's,
   turned into the engine's own syntax by the app; unknown tags are errors.
+  Thomas: "I think that makes sense" (2026-10-19). Written into
+  DESIGN-types' Scripts note in 0.15.3 as a convention DD doesn't read.
 - **For DD:** a script stays a `script`; no choreography type; `sequence`
   stays rendered media. **Asked of us:** a take's two tool-made tracks,
   word times (Whisper) and mouth cues (Rhubarb `.cues.json`), go with the
   speech, as fields, as small `data` assets linked to it, or left to the
   app. Word times aren't kept anywhere today. **Decided (Thomas,
   2026-10-19): in with the speech,** as its own data ("yes, go ahead and
-  let overlore know"). **Built as 0.15.3, not yet committed,** on branch
-  `tracks` (scratchpad worktree `tracks`): `asset_tracks` (asset, name,
+  let overlore know"). **Released as v0.15.3 at `7cca94a` (2026-10-19;
+  Thomas: "let's move forward with 0.15.3"):** `asset_tracks` (asset, name,
   tool, cues as `[start_ms, end_ms, value]` JSON, made_at), `set_track` /
   `tracks` / `track`, `STANDARD_TRACKS` (`words`, `mouth`), `GET|PUT
   /assets/:id/tracks[/:name]`, `/vocabulary` `tracks`. A read-only open
@@ -360,7 +362,9 @@ after a talk with Thomas, sent to mj too:
   as heard when it transcribes. Also written down: `tool` names the
   options that change the result (`rhubarb 1.14.0 --dialogFile`); only
   the start order is checked (zero-length words, ends past the next
-  start). 174 specs. **Ready to tag** on Thomas's word.
+  start). 174 specs; a fresh `~> 0.15.0` install resolves 0.15.3. The
+  notice is `#datadungeon` post 2; the `tracks` branch and worktree are
+  removed.
   The speaker is left out: who speaks is a character (open); the voice
   is in the recipe.
 - For mj: a line per pose on what it expresses, which poses are rests and
