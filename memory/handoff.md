@@ -238,7 +238,7 @@ tags aren't in it; they wait for a later decision. It's 0.15.0 and not
   deployed store moves when Thomas says deploy), Owl (`6d4aad9`), the park
   store (assets `bad3c6a`, curio 0.7.0 unchanged). None needed code
   changes. Pirateship too (`aaba8a1`, 2026-10-18; 14 voices play byte for
-  byte). Not heard: mj (it keeps no store).
+  byte). Not heard: mj.
 
 **Next (as of the 0.14 tag; every app has since moved):** the apps move (Overlore switches to GitHub `~> 0.14.0`; Owl moves
 its prompt and narrator code; Cattacula, Pirateship and the park bump, the
