@@ -11,7 +11,7 @@ search: built but unused; see "Embeddings registry" below and
 open: AI descriptions as linked text assets with their own recipe, and
 search reading them; hashes as blobs and prompt compression; a word to Owl
 on its depth maps' "depth of 1" descriptions; characters as assets
-(Thomas). Waiting: Overlore's deploy (Thomas), curio's button.
+(Thomas). Waiting: Overlore's deploy (Thomas); piece 2's three stores.
 
 ## 0.14: the prompt as sent, the wordings in it, the ratings' words (released v0.14.0 at `401dd4a`, 2026-10-17)
 
@@ -295,7 +295,28 @@ change log). 169 specs; dd-serve type-checks.
    The 0.15.2 notice went out as post 1 of the new `#datadungeon`
    topic (coordination.md), not as mail to each.
 2. Cattacula; the park (`stage-standup` → `speech`); Owl (two types join
-   into `drop`).
+   into `drop`). **Asked 2026-10-19** (Thomas: "go ahead with piece 2"),
+   each by direct note after a rehearsal here on `.backup` copies made at
+   23:49Z with 0.15.3 (scratchpad `piece2/`: `rehearse.cr` plus
+   `compare.py`):
+   - Cattacula `voice` → `speech`: 488 moved (`d54c150a`). It's on
+     0.15.0, so it takes 0.15.3 first.
+   - The park store goes to `@curio`, who keeps it until it's on the
+     standard types and then hands it to `@boardwalk` (Thomas, via
+     curio). `stage-standup` → `speech`: 488 moved; the 76 props are
+     untouched (`aa12e52b`). Its import script reads Cattacula's `voice`.
+   - Owl (`f3b980da`): first `subtype` `scene` and `frame` (38 tagged),
+     then `drop` keyed `world subtype`; 26 + 12 → `drop`, 47 → `map`,
+     11 → `speech`, 1 → `prop`. Its library also reads other stores'
+     `background`, `backdrop` and `room`, which become `drop` in piece 3.
+     After the join, a frame with a scene's bytes would get the scene's
+     id back through `AlreadyStored`; none share bytes today.
+
+   On each copy, nothing but the type, the keys, the search rows, the
+   change log (and Owl's new `subtype` tags) differed. Integrity and
+   foreign keys pass, and a second run changed nothing. **Waiting on all
+   three.** curio told siliconcircus that Thomas expects the move "done
+   with DataDungeon 0.15.4 and 0.15.5"; piece 2 needs no new release.
 3. Overlore (13 types into 6, subtypes, its transcripts go, `legacy` to
    decide).
 Then 0.16: unlisted names refused. Then semantic search, on the
@@ -406,6 +427,12 @@ install resolves 0.15.1. Sent to @curio only: the route and a request to
 plan the button (`mail/sent/*-@curio--datadungeon-v0.15.1-*`). The other
 apps weren't told; they need nothing, though a `dd-serve` serves the route
 only once rebuilt. The `upload` branch and its worktree are removed.
+**curio's button is out:** curio 0.8.0 (`f5ed8fb`, tag `v0.8.0`), built
+against `POST /assets`. curio passes the form through with its own write
+token, so the token never reaches the browser. curio tried it on a copy of
+the park store under 0.15.3: an add, a 409 for the same bytes with other
+tags, a repeat, and a new take
+(`mail/received/20261019-225928Z-@curio--…`, `…232718Z-@curio--…`).
 
 **Next (as of the 0.14 tag; every app has since moved):** the apps move (Overlore switches to GitHub `~> 0.14.0`; Owl moves
 its prompt and narrator code; Cattacula, Pirateship and the park bump, the
