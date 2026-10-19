@@ -331,7 +331,18 @@ after a talk with Thomas, sent to mj too:
   stays rendered media. **Asked of us:** a take's two tool-made tracks,
   word times (Whisper) and mouth cues (Rhubarb `.cues.json`), go with the
   speech, as fields, as small `data` assets linked to it, or left to the
-  app. Word times aren't kept anywhere today. **Open,** waiting on Thomas.
+  app. Word times aren't kept anywhere today. **Decided (Thomas,
+  2026-10-19): in with the speech,** as its own data ("yes, go ahead and
+  let overlore know"). **Built as 0.15.3, not yet committed,** on branch
+  `tracks` (scratchpad worktree `tracks`): `asset_tracks` (asset, name,
+  tool, cues as `[start_ms, end_ms, value]` JSON, made_at), `set_track` /
+  `tracks` / `track`, `STANDARD_TRACKS` (`words`, `mouth`), `GET|PUT
+  /assets/:id/tracks[/:name]`, `/vocabulary` `tracks`. A read-only open
+  of a store no 0.15.3 has opened reads no tracks rather than refusing.
+  174 specs; tried with dd-serve on a Pirateship copy with Overlore's
+  real Rhubarb cues. **Overlore told** (`mail/sent/20261019-191518Z-…`).
+  The speaker is left out: who speaks is a character (open); the voice
+  is in the recipe.
 - For mj: a line per pose on what it expresses, which poses are rests and
   endings; and whether one-way links in the graph are by design (all
   within-pose links go both ways today; moves between poses go one way).
