@@ -10,7 +10,8 @@ only, `rename_type` leaving MatchIndex files); AI descriptions as linked
 text assets with their own recipe, and search reading them; hashes as
 blobs and prompt compression; a word to Owl on its depth maps' "depth of 1"
 descriptions. Waiting: Overlore's deploy (Thomas), curio's button.
-Semantic search: built but unused, see "Semantic" below.
+Semantic search: built but unused; see "Embeddings registry" below and
+`DESIGN-embeddings.md` (a draft, `a5febfd`) for where it stopped.
 
 ## 0.14: the prompt as sent, the wordings in it, the ratings' words (released v0.14.0 at `401dd4a`, 2026-10-17)
 
