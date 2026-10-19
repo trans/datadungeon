@@ -280,9 +280,10 @@ type's files on open; it already followed renames and joins through the
 change log). 169 specs; dd-serve type-checks.
 
 **Pieces** (mapping in `DESIGN-types.md`, "Moving existing stores"):
-1. Pirateship `voice` → `speech`. **Drafted, held:**
-   `mail/drafts/@pirateship--2026-10-19-voice-to-speech.md`, with the
-   notice to all, `mail/drafts/@all--2026-10-19-v0.15.2.md`.
+1. Pirateship `voice` → `speech`. **Sent 2026-10-19** at Thomas's word
+   (`mail/sent/20261019-191820Z-@pirateship--…`); waiting on its report.
+   The notice to all is still held:
+   `mail/drafts/@all--2026-10-19-v0.15.2.md`.
 2. Cattacula; the park (`stage-standup` → `speech`); Owl (two types join
    into `drop`).
 3. Overlore (13 types into 6, subtypes, its transcripts go, `legacy` to
@@ -341,6 +342,9 @@ after a talk with Thomas, sent to mj too:
   of a store no 0.15.3 has opened reads no tracks rather than refusing.
   174 specs; tried with dd-serve on a Pirateship copy with Overlore's
   real Rhubarb cues. **Overlore told** (`mail/sent/20261019-191518Z-…`).
+  Thomas: "let's check with Overlore and then we can tag", so Overlore
+  was asked to check the shape (`mail/sent/20261019-191828Z-@overlore--before-0.15.3-is-tagged-does-the-tracks-shape-fit.md`);
+  **tag waits on its answer.**
   The speaker is left out: who speaks is a character (open); the voice
   is in the recipe.
 - For mj: a line per pose on what it expresses, which poses are rests and
