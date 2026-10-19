@@ -280,8 +280,18 @@ type's files on open; it already followed renames and joins through the
 change log). 169 specs; dd-serve type-checks.
 
 **Pieces** (mapping in `DESIGN-types.md`, "Moving existing stores"):
-1. Pirateship `voice` → `speech`. **Sent 2026-10-19** at Thomas's word
-   (`mail/sent/20261019-191820Z-@pirateship--…`); waiting on its report.
+1. Pirateship `voice` → `speech`. **Done 2026-10-19** (Pirateship
+   `4fb2fde`, live store converted after a backup; 14 voices byte for
+   byte; only type, keys, search rows and test-play counts differ;
+   integrity and foreign keys pass; `mail/received/20261019-200327Z-…`).
+   Its `boot` registers `speech` then calls `rename_type`, kept so
+   production converts on first deploy. **Not smooth:** a `rename_type`
+   with nothing to move still logged all 14 to `asset_changes` and
+   rewrote search rows on every start. **Fixed on the `tracks` branch for
+   0.15.3:** it returns early when `from` has no assets, registration,
+   indexes or tags (spec fails without it; Pirateship's boot run three
+   times on a copy: dumps identical after the first). Opening a store
+   still rewrites its triggers, so the file's bytes change but no rows.
    The notice to all is still held:
    `mail/drafts/@all--2026-10-19-v0.15.2.md`.
 2. Cattacula; the park (`stage-standup` → `speech`); Owl (two types join
