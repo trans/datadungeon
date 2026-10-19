@@ -305,7 +305,7 @@ after a talk with Thomas. Only the first is settled:
    direction (a moment `[sighs/]`; a state held until the next of its
    kind, like a pose; a span `[whisper]…[/whisper]`, ending at the line's
    end if unclosed), or leave each direction's meaning to the app.
-   **Open,** waiting on Thomas.
+   **Superseded** by Overlore's note below.
 3. **Characters as assets** reopens Thomas's 2026-10-13 "no character
    entities". A character asset holds a sheet (description wording,
    reference pictures, voice id), with others linked to it (`depicts`,
@@ -314,6 +314,27 @@ after a talk with Thomas. Only the first is settled:
    brings its kit along" needs a copy that follows links. A character's
    words are already a named wording (kind `character`, DESIGN-recipes),
    so a sheet should name that wording, not copy it. **Open.**
+
+**From `@overlore`, 2026-10-19 (`mail/received/20261019-174900Z-@overlore--…`),**
+after a talk with Thomas, sent to mj too:
+- **Choreography is the app's, not the script's, and not in DD**
+  (Thomas). Pose names would tie a script to one automaton (the cartoon
+  Bard has 5 poses, the fantasy one 19). Instead an app's agent reads an
+  automaton and a take (words with times) and makes its own, Rhubarb-like,
+  perhaps varying at random each play, and keeps it in its own database.
+  Thomas: "I am not sure we then need to store those in DD".
+- **A script may pin a required pose** (the bow at the end; Thomas). Body
+  directions mustn't reach the voice engine. Overlore's proposal, open:
+  `pose` is the body's tag (`[pose=bow/]`), every other tag the voice's,
+  turned into the engine's own syntax by the app; unknown tags are errors.
+- **For DD:** a script stays a `script`; no choreography type; `sequence`
+  stays rendered media. **Asked of us:** a take's two tool-made tracks,
+  word times (Whisper) and mouth cues (Rhubarb `.cues.json`), go with the
+  speech, as fields, as small `data` assets linked to it, or left to the
+  app. Word times aren't kept anywhere today. **Open,** waiting on Thomas.
+- For mj: a line per pose on what it expresses, which poses are rests and
+  endings; and whether one-way links in the graph are by design (all
+  within-pose links go both ways today; moves between poses go one way).
 
 ## 0.15.1: pictures added by hand (released v0.15.1 at `f9c4bc6`, 2026-10-19)
 
