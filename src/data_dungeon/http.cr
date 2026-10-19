@@ -1,4 +1,5 @@
 require "http/server"
+require "http/formdata"
 require "json"
 require "uri"
 require "crypto/subtle"
@@ -55,6 +56,12 @@ module DataDungeon
   #                                          dominant-color=#aa3311) &require=a,b &weight.<k>=<n> &limit=
   #     GET    /assets/:id/similar         the assets closest to this one: ?require= &weight.<k>= &limit=
   #
+  #     POST   /assets                     a file added by hand, as multipart/form-data: file
+  #                                          (its Content-Type the asset's) and asset, JSON
+  #                                          {type, tags, custom, description, permanent,
+  #                                          made_at, supersedes}; stored as not generated, with
+  #                                          no recipe; 409 with asset_id when its type already
+  #                                          holds the bytes
   #     PATCH  /assets/:id                 {tags, description, everywhere, flagged, rating,
   #                                          permanent, image}: update_asset;
   #                                          image holds the fields an application sets, view
@@ -124,6 +131,8 @@ module DataDungeon
         respond(context, {promoted: @db.promote(parts[1], body["trait"].as_s, body["value"].as_s)})
       elsif method == "GET" && parts == ["assets"]
         list(context)
+      elsif method == "POST" && parts == ["assets"]
+        upload(context)
       elsif method == "GET" && parts == ["objects"]
         respond(context, {objects: @db.object_keys})
       elsif method == "GET" && parts == ["vocabulary"]
@@ -162,7 +171,7 @@ module DataDungeon
         respond(context, @db.check_consistency)
       elsif method == "POST" && parts == ["maintenance", "prune"]
         body = JSON.parse(context.request.body.try(&.gets_to_end) || "{}")
-        before = body["retired_before"]?.try { |date| Time.parse_utc(date.as_s, date.as_s.size == 10 ? "%F" : DB::TIME_FORMAT) }
+        before = body["retired_before"]?.try { |date| time(date) }
         respond(context, {pruned: @db.prune(body["type"].as_s, keep_last: body["keep_last"]?.try(&.as_i) || 0,
           retired_before: before)})
       elsif method == "POST" && parts == ["maintenance", "measure"]
@@ -290,6 +299,40 @@ module DataDungeon
                         light: picture.try(&.light).try { |light| readable(light) },
                         keyframes: picture.try(&.animated) ? @db.load_keyframes(id) : nil,
                         links: {from: @db.links_from(id), to: @db.links_to(id)}})
+    end
+
+    # A file added by hand, with no prompt: not generated, so no recipe,
+    # and what it shows in words, if anything, as its description.
+    private def upload(context) : Nil
+      bytes, content_type, fields = nil, nil, nil
+      HTTP::FormData.parse(context.request) do |part|
+        case part.name
+        when "file"
+          bytes = part.body.getb_to_end
+          content_type = part.headers["Content-Type"]?
+        when "asset" then fields = JSON.parse(part.body.gets_to_end)
+        else              raise ArgumentError.new("an upload's parts are file and asset, not #{part.name}")
+        end
+      end
+      file = bytes || raise ArgumentError.new("an upload has a file part: the asset's bytes")
+      asset = fields || raise ArgumentError.new("an upload has an asset part: JSON with its type and tags")
+      given_type = content_type.presence || raise ArgumentError.new("the file part's Content-Type is the asset's, and it has none")
+      rec = @db.store(asset["type"].as_s, asset["tags"]?.try(&.as_h.transform_values(&.as_s)) || {} of String => String,
+        bytes: file, content_type: given_type, description: asset["description"]?.try(&.as_s),
+        custom: asset["custom"]?.try(&.as_a.map(&.as_s)) || [] of String, permanent: asset["permanent"]?.try(&.as_bool) || false,
+        made_at: asset["made_at"]?.try { |made| time(made) }, supersedes: asset["supersedes"]?.try(&.as_i64))
+      respond(context, {asset: rec, tags: @db.load_tags(rec.id)})
+    rescue ex : AlreadyStored
+      context.response.status_code = 409
+      respond(context, {error: ex.message, asset_id: ex.asset_id, retired: ex.retired?})
+    rescue ex : HTTP::FormData::Error | MIME::Multipart::Error
+      error(context, 400, "POST /assets takes multipart/form-data, a file part and an asset part (#{ex.message})")
+    end
+
+    # A time given as a date (2026-10-19) or as DataDungeon writes one.
+    private def time(value : JSON::Any) : Time
+      given = value.as_s
+      Time.parse_utc(given, given.size == 10 ? "%F" : DB::TIME_FORMAT)
     end
 
     private def update(context, id : Int64) : Nil

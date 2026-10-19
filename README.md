@@ -66,7 +66,7 @@ traits = {"art-style" => "silver", "rating" => "pg", "gender" => "f",
 record = db.store("portrait", traits, custom: %w[race],
   source_path: "portrait.png",
   content_type: "image/png",
-  description: image_prompt,
+  description: "A purple ape with red hair, facing left.",
   generated: true,
   generator: "runware:flux-dev-v1",
   recipe: DataDungeon::Recipe.new("picture", settings: {"model" => "flux-dev", "size" => "512x512"},
@@ -185,9 +185,12 @@ never builds one: it registers the types it stores, looks assets up by
 traits, and refers to one asset by its id. Before 0.12 a key was a column
 of the assets table (`pool_key:`). 0.15 no longer converts a store from
 before 0.12: open it read-write once with 0.14 first, which does.
-`description` is the text used to describe an asset; for a
-generated image, it holds the prompt. `generated` records whether the asset
-was generated, `generator` what made it, and its recipe (below) how.
+`description` is the asset in words, what a picture shows or a clip says,
+for people and for search. It's the asset's own and not its prompt: what a
+generator was sent is the recipe's (below). `generated` records whether the
+asset was generated, `generator` what made it, and its recipe how. An asset
+added by hand (`POST /assets`) isn't generated and has no recipe; its
+description is whatever words it's given.
 
 `DB#store` stores objects by content: each object's storage key is the SHA-256
 of its bytes under a directory named for the first two hex characters, with an
@@ -513,6 +516,7 @@ HTTP::Server.new([api, app_handler])
 | `POST /maintenance/check` | the consistency report |
 | `GET /objects` | every object key the store's rows use, for clearing a shared bucket |
 | `GET /vocabulary` | the shared tags and their values, with their titles; each rating with DataDungeon's words for it |
+| `POST /assets` | a file added by hand, as `multipart/form-data`: `file` (its `Content-Type` the asset's) and `asset`, JSON `{type, tags, custom, description, permanent, made_at, supersedes}`; stored as not generated, with no recipe; 409 with `asset_id` when its type already holds the bytes (write token) |
 | `PATCH`, `DELETE /assets/:id` | edit (with `image` fields, views readably, and `everywhere` for a shared description) or delete (write token) |
 | `PUT /assets/:id/keyframes` | an animation's checkpoints (write token) |
 | `POST`, `DELETE /assets/:id/links` | link (with `data`) or unlink (write token) |

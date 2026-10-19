@@ -18,7 +18,24 @@ end
 private def call(api, method : String, path : String, token : String? = nil, body = nil) : HTTP::Client::Response
   headers = HTTP::Headers.new
   headers["Authorization"] = "Bearer #{token}" if token
-  request = HTTP::Request.new(method, path, headers, body.try(&.to_json))
+  answer(api, HTTP::Request.new(method, path, headers, body.try(&.to_json)))
+end
+
+# A file sent to POST /assets as a form, the way an upload button sends it.
+private def upload(api, token : String?, asset, bytes : String, content_type : String? = "image/webp") : HTTP::Client::Response
+  io = IO::Memory.new
+  form = HTTP::FormData::Builder.new(io)
+  file_headers = HTTP::Headers.new
+  file_headers["Content-Type"] = content_type if content_type
+  form.file("file", IO::Memory.new(bytes), HTTP::FormData::FileMetadata.new(filename: "pier.webp"), file_headers)
+  form.field("asset", asset.to_json)
+  form.finish
+  headers = HTTP::Headers{"Content-Type" => form.content_type}
+  headers["Authorization"] = "Bearer #{token}" if token
+  answer(api, HTTP::Request.new("POST", "/dd/assets", headers, io.to_s))
+end
+
+private def answer(api, request : HTTP::Request) : HTTP::Client::Response
   io = IO::Memory.new
   response = HTTP::Server::Response.new(io)
   api.call(HTTP::Server::Context.new(request, response))
@@ -281,6 +298,35 @@ describe DataDungeon::API do
       json(call(api, "DELETE", "/dd/assets/#{rec.id}", "w"))["deleted"].should eq rec.id
       db.find_asset_by_id(rec.id).should be_nil
       call(api, "DELETE", "/dd/assets/#{rec.id}", "w").status_code.should eq 404
+    end
+  end
+
+  it "stores a file added by hand, as not generated and with no recipe" do
+    with_api("dd-api-upload") do |api, db|
+      asset = {type: "backdrop", tags: {"art-style" => "Golden", "rating" => "pg"}, description: "A pier at dusk, drawn by hand."}
+      added = json(upload(api, "w", asset, "u"))
+      id = added["asset"]["id"].as_i64
+      added["asset"]["generated"].should be_false
+      added["asset"]["has_recipe"].should be_false
+      added["asset"]["description"].should eq "A pier at dusk, drawn by hand."
+      added["tags"].should eq({"art-style" => "golden", "rating" => "pg"})
+      call(api, "GET", "/dd/assets/#{id}/recipe", "r").status_code.should eq 404
+      call(api, "GET", "/dd/assets/#{id}/object", "r").body.should eq "u"
+
+      json(upload(api, "w", asset, "u"))["asset"]["id"].should eq id # the same again is the same asset
+      held = upload(api, "w", {type: "backdrop", tags: {"art-style" => "silver", "rating" => "pg"}}, "u")
+      held.status_code.should eq 409
+      json(held)["asset_id"].should eq id
+
+      refused = ->(response : HTTP::Client::Response, reason : String) do
+        response.status_code.should eq 400
+        json(response)["error"].as_s.should contain reason
+      end
+      refused.call(upload(api, "w", {type: "portrait"}, "v"), "not a registered asset type")
+      refused.call(upload(api, "w", asset, "v", content_type: nil), "Content-Type is the asset's")
+      refused.call(call(api, "POST", "/dd/assets", "w", asset), "takes multipart/form-data") # JSON, not a form
+      upload(api, "r", asset, "v").status_code.should eq 403
+      db.asset_types.should eq({"backdrop" => 1})
     end
   end
 
