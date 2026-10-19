@@ -292,8 +292,8 @@ change log). 169 specs; dd-serve type-checks.
    indexes or tags (spec fails without it; Pirateship's boot run three
    times on a copy: dumps identical after the first). Opening a store
    still rewrites its triggers, so the file's bytes change but no rows.
-   The notice to all is still held:
-   `mail/drafts/@all--2026-10-19-v0.15.2.md`.
+   The 0.15.2 notice went out as post 1 of the new `#datadungeon`
+   topic (coordination.md), not as mail to each.
 2. Cattacula; the park (`stage-standup` → `speech`); Owl (two types join
    into `drop`).
 3. Overlore (13 types into 6, subtypes, its transcripts go, `legacy` to

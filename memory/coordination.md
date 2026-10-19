@@ -1,6 +1,6 @@
 # Coordination
 
-*Updated 2026-10-14*
+*Updated 2026-10-19*
 
 - Our Arcana identity is **`@datadungeon`** (it was bare `datadungeon`
   before 2026-10-04). In this project, "check mail" means Arcana, not Gmail.
@@ -28,6 +28,18 @@
   send it; don't hold it for a second look ("just send them please"). A
   heads-up such as a release notice has nothing in it to review. Mail he
   hasn't asked for still waits for him.
+- **`#datadungeon`, an Arcana topic, holds DD's notices to every app**
+  (Thomas, 2026-10-19: try "arcana's new topic boxes"; created the same
+  day, the first topic on the bus). Releases and decisions that touch all
+  stores are posted there with `arcana_publish`, once, instead of a
+  message to each app; requests to one app (a store's piece) stay direct
+  mail. Post 1 is the 0.15.2 notice. Thomas tells each agent to read the
+  topic for now. **Subscribing is left for later** (Thomas): the dot-ai
+  hooks don't look at topics, so a subscription's notice is the only way
+  an agent would hear of a post unprompted; a loose end in the hooks.
+  `arcana_publish` files no copy, so each post is filed by hand in
+  `mail/sent/` as `<time>-#datadungeon--<subject>.md`, its `Sent:` line
+  naming the post's number.
 - `.ai/mail/` holds our mail as files: drafts, outbox, the committed
   `sent/` record, and the inbox, where mail that didn't come live lands
   (see README.md).
