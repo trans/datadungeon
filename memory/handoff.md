@@ -251,6 +251,45 @@ tags aren't in it; they wait for a later decision. It's 0.15.0 and not
   changes. Pirateship too (`aaba8a1`, 2026-10-18; 14 voices play byte for
   byte). Not heard: mj.
 
+## Standard types, in pieces (0.15.2 released at `c7fb237`, 2026-10-19)
+
+**Decided (Thomas, 2026-10-19):**
+- **Standard types stay:** "we can't drop standard types -- sharing would
+  become completely impossible then." (I had recommended dropping them as
+  styles went; wrong for types.) Types come before semantic search, since
+  search records what's embedded in a type's registration.
+- **In pieces:** "do one type first, make sure that goes smoothly, then a
+  few more, and then the rest." So the strict check comes last: 0.16's
+  `register_type` refuses unlisted names once every store has moved.
+- **`register_type` stays** (one owner per store: the owner keys each
+  standard type for its own lookups); shared tags beyond `rating`, several
+  values per tag, the see-through check and "moving is video" wait.
+- **`subtype`:** one shared tag for an app's own kinds of a type, its
+  values the app's words. Thomas asked whether it should be a field; a tag,
+  since it can be in a key, with one name so curio and copies can find it.
+- **`automaton`:** a new type for a character's frame graph (mj's Bard,
+  in mj's `TODO.md`, never mailed to us). `puppet` was mj's floated name;
+  Thomas: marionette setups will come, so puppet and marionette are kept
+  for rigs.
+
+**Built in 0.15.2:** `DB::STANDARD_TYPES` (26 types, served by `GET
+/vocabulary` as `types`), `DB.standard_type?`, `subtype` in the
+vocabulary; the two freeze fixes, now needed by the moves (re-registering
+with only non-key changes needs no `rekey`; MatchIndex deletes a renamed
+type's files on open; it already followed renames and joins through the
+change log). 169 specs; dd-serve type-checks.
+
+**Pieces** (mapping in `DESIGN-types.md`, "Moving existing stores"):
+1. Pirateship `voice` → `speech`. **Drafted, held:**
+   `mail/drafts/@pirateship--2026-10-19-voice-to-speech.md`, with the
+   notice to all, `mail/drafts/@all--2026-10-19-v0.15.2.md`.
+2. Cattacula; the park (`stage-standup` → `speech`); Owl (two types join
+   into `drop`).
+3. Overlore (13 types into 6, subtypes, its transcripts go, `legacy` to
+   decide).
+Then 0.16: unlisted names refused. Then semantic search, on the
+registrations.
+
 ## 0.15.1: pictures added by hand (released v0.15.1 at `f9c4bc6`, 2026-10-19)
 
 **Decided (Thomas, 2026-10-19):**
