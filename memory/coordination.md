@@ -34,7 +34,8 @@
   stores are posted there with `arcana_publish`, once, instead of a
   message to each app; requests to one app (a store's piece) stay direct
   mail. Post 1 is the 0.15.2 notice. Thomas tells each agent to read the
-  topic for now. **Subscribing is left for later** (Thomas): the dot-ai
+  topic for now; @overlore and @mj were told of it directly on 2026-10-19
+  (ac718d81, 4080294f). **Subscribing is left for later** (Thomas): the dot-ai
   hooks don't look at topics, so a subscription's notice is the only way
   an agent would hear of a post unprompted; a loose end in the hooks.
   `arcana_publish` files no copy, so each post is filed by hand in
