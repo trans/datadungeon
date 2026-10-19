@@ -240,6 +240,39 @@ tags aren't in it; they wait for a later decision. It's 0.15.0 and not
   changes. Pirateship too (`aaba8a1`, 2026-10-18; 14 voices play byte for
   byte). Not heard: mj.
 
+## 0.15.1: pictures added by hand (branch `upload`, not committed)
+
+**Decided (Thomas, 2026-10-19):**
+- dd-serve gets an upload route, and curio a button for it: such assets
+  "will occur".
+- The prompt isn't the description. An asset added by hand has no recipe,
+  `generated: false`, and its words as its `description`; no flag is
+  needed. (Thomas first asked for a boolean marking a prompt as only a
+  description; agreed once he saw that a prompt exists only in a recipe.)
+- Later, an AI's description of a picture is its own text asset, linked
+  to the picture, with its own recipe (vision model, what it was asked, the
+  picture as reference): "How the AI describes an image has a recipe too."
+  Search reads only description and tags, so that text needs adding to it.
+
+**Built** in the scratchpad worktree `dd-upload` (branch `upload` from
+`58f1fa6`): `POST /assets`, multipart `file` + `asset` JSON {type, tags,
+custom, description, permanent, made_at, supersedes}; 409 with `asset_id`
+when the type holds the bytes. README: `description` is the asset in words,
+not its prompt (it said a generated image's description holds the prompt).
+`shard.yml` 0.15.1. 167 specs pass; dd-serve type-checks; a real PNG
+uploaded with curl to dd-serve on a copy of the park store came back
+byte-identical, measured, with no recipe; the repeat gave 409.
+
+**How apps use `description` today** (copies, 2026-10-19): Overlore the
+game's room text the prompt was built from; speech the words spoken (= the
+prompt); Owl's scenes words that differ from the prompt and read like the
+finished picture described ("at sunrise or sunset"); Owl's depth maps a
+label ("depth of 1"). Pictures with no recipe already exist: the park's 76
+props, Overlore's 11 backdrops.
+
+**Next:** Thomas says commit and tag; the curio draft
+(`mail/drafts/@curio--2026-10-19-upload-route.md`) goes on "send".
+
 **Next (as of the 0.14 tag; every app has since moved):** the apps move (Overlore switches to GitHub `~> 0.14.0`; Owl moves
 its prompt and narrator code; Cattacula, Pirateship and the park bump, the
 park's `dd-serve` rebuilt). Later: remove the purpose (rewrite stored ones
