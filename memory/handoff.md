@@ -1,6 +1,16 @@
 # DataDungeon handoff
 
-*Updated 2026-10-17*
+*Updated 2026-10-19*
+
+**Today (Thomas, 2026-10-19): finish the remaining items and semantic
+search.** Remaining, from the 0.15.1 section below: the standard types and
+tags decision (the old questions under "To settle before 0.15"); the two
+freeze fixes (`register_type` wanting `rekey:` for weights/scales/facets
+only, `rename_type` leaving MatchIndex files); AI descriptions as linked
+text assets with their own recipe, and search reading them; hashes as
+blobs and prompt compression; a word to Owl on its depth maps' "depth of 1"
+descriptions. Waiting: Overlore's deploy (Thomas), curio's button.
+Semantic search: built but unused, see "Semantic" below.
 
 ## 0.14: the prompt as sent, the wordings in it, the ratings' words (released v0.14.0 at `401dd4a`, 2026-10-17)
 
