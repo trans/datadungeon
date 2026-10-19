@@ -344,7 +344,13 @@ after a talk with Thomas, sent to mj too:
   real Rhubarb cues. **Overlore told** (`mail/sent/20261019-191518Z-…`).
   Thomas: "let's check with Overlore and then we can tag", so Overlore
   was asked to check the shape (`mail/sent/20261019-191828Z-@overlore--before-0.15.3-is-tagged-does-the-tracks-shape-fit.md`);
-  **tag waits on its answer.**
+  **Overlore's answer** (`mail/received/20261019-192407Z-@overlore--…`):
+  the shape fits. One change, made on the branch: a `words` value is the
+  word as written (punctuation kept) when the tool aligns a known text,
+  as heard when it transcribes. Also written down: `tool` names the
+  options that change the result (`rhubarb 1.14.0 --dialogFile`); only
+  the start order is checked (zero-length words, ends past the next
+  start). 174 specs. **Ready to tag** on Thomas's word.
   The speaker is left out: who speaks is a character (open); the voice
   is in the recipe.
 - For mj: a line per pose on what it expresses, which poses are rests and
