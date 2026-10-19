@@ -290,6 +290,31 @@ change log). 169 specs; dd-serve type-checks.
 Then 0.16: unlisted names refused. Then semantic search, on the
 registrations.
 
+**From `@mj`, 2026-10-19 (`mail/received/20261019-171409Z-@mj--…`),**
+after a talk with Thomas. Only the first is settled:
+1. **The automaton**, as mj stores it: the Bard's `graph.yml`, compiled to
+   `graph.json` (nodes of body frame plus mouth shape, weighted
+   neighbours, a walk rule per pose, moves between poses). Matches
+   `DESIGN-types.md`, and adds: **one automaton per set of frames that
+   connect**, so the cartoon and realistic Bards are two. Not yet in the
+   design doc.
+2. **Choreography is blocking in the script,** in Yarn markup on the word
+   a pose starts (`[pose spread/]My friend!`), timed at play from the
+   take's word timings; no new type. Thomas: "sounds like a good idea".
+   Asked of us: should the script type's notes name the three kinds of
+   direction (a moment `[sighs/]`; a state held until the next of its
+   kind, like a pose; a span `[whisper]…[/whisper]`, ending at the line's
+   end if unclosed), or leave each direction's meaning to the app.
+   **Open,** waiting on Thomas.
+3. **Characters as assets** reopens Thomas's 2026-10-13 "no character
+   entities". A character asset holds a sheet (description wording,
+   reference pictures, voice id), with others linked to it (`depicts`,
+   `voiced-by`). Thomas is leaning that way, undecided. Checked: links
+   carry data (`DB#link`), but DD has no copy between stores, so "copying
+   brings its kit along" needs a copy that follows links. A character's
+   words are already a named wording (kind `character`, DESIGN-recipes),
+   so a sheet should name that wording, not copy it. **Open.**
+
 ## 0.15.1: pictures added by hand (released v0.15.1 at `f9c4bc6`, 2026-10-19)
 
 **Decided (Thomas, 2026-10-19):**
