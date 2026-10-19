@@ -240,7 +240,7 @@ tags aren't in it; they wait for a later decision. It's 0.15.0 and not
   changes. Pirateship too (`aaba8a1`, 2026-10-18; 14 voices play byte for
   byte). Not heard: mj.
 
-## 0.15.1: pictures added by hand (branch `upload`, not committed)
+## 0.15.1: pictures added by hand (released v0.15.1 at `f9c4bc6`, 2026-10-19)
 
 **Decided (Thomas, 2026-10-19):**
 - dd-serve gets an upload route, and curio a button for it: such assets
@@ -254,8 +254,7 @@ tags aren't in it; they wait for a later decision. It's 0.15.0 and not
   picture as reference): "How the AI describes an image has a recipe too."
   Search reads only description and tags, so that text needs adding to it.
 
-**Built** in the scratchpad worktree `dd-upload` (branch `upload` from
-`58f1fa6`): `POST /assets`, multipart `file` + `asset` JSON {type, tags,
+**Built:** `POST /assets`, multipart `file` + `asset` JSON {type, tags,
 custom, description, permanent, made_at, supersedes}; 409 with `asset_id`
 when the type holds the bytes. README: `description` is the asset in words,
 not its prompt (it said a generated image's description holds the prompt).
@@ -270,8 +269,12 @@ finished picture described ("at sunrise or sunset"); Owl's depth maps a
 label ("depth of 1"). Pictures with no recipe already exist: the park's 76
 props, Overlore's 11 backdrops.
 
-**Next:** Thomas says commit and tag; the curio draft
-(`mail/drafts/@curio--2026-10-19-upload-route.md`) goes on "send".
+**Released (Thomas: "commit, tag and send", 2026-10-19):** `main`
+fast-forwarded to `f9c4bc6` and pushed, tag pushed, a fresh `~> 0.15.0`
+install resolves 0.15.1. Sent to @curio only: the route and a request to
+plan the button (`mail/sent/*-@curio--datadungeon-v0.15.1-*`). The other
+apps weren't told; they need nothing, though a `dd-serve` serves the route
+only once rebuilt. The `upload` branch and its worktree are removed.
 
 **Next (as of the 0.14 tag; every app has since moved):** the apps move (Overlore switches to GitHub `~> 0.14.0`; Owl moves
 its prompt and narrator code; Cattacula, Pirateship and the park bump, the
