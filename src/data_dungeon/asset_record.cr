@@ -85,6 +85,10 @@ module DataDungeon
     # `{"hair" => %w[hair-length hair-color]}`; "description" names the
     # asset's description.
     getter facets : Hash(String, Array(String))
+    # What SemanticIndex embeds of each asset: "description" and tag names,
+    # description first, then the tags by name. A type with none isn't
+    # embedded.
+    getter embed : Array(String)
     # For best matches (MatchIndex): traits whose values are ordered, low to
     # high (`{"rating" => ["g", "pg", "r", "x"]}`), so near values count as
     # close; traits whose values are colors, compared by appearance; and
@@ -100,8 +104,8 @@ module DataDungeon
     getter match_fields : Array(String)
 
     # Whether `other` derives keys differently: other traits, another
-    # order, group, labels or sets. Facets, scales, colors, cycles, weights
-    # and match fields change no keys.
+    # order, group, labels or sets. What's embedded, facets, scales, colors,
+    # cycles, weights and match fields change no keys.
     def keyed_differently?(other : AssetType) : Bool
       {pool_traits, group_traits, labels, sets} != {other.pool_traits, other.group_traits, other.labels, other.sets}
     end
@@ -118,7 +122,13 @@ module DataDungeon
                    @colors : Array(String) = [] of String,
                    @weights : Hash(String, Float64) = {} of String => Float64,
                    @cycles : Hash(String, Array(String)) = {} of String => Array(String),
-                   @match_fields : Array(String) = [] of String)
+                   @match_fields : Array(String) = [] of String,
+                   @embed : Array(String) = [] of String)
+    end
+
+    # Whether `other` embeds assets differently: other parts, or other facets.
+    def embedded_differently?(other : AssetType) : Bool
+      {embed, facets} != {other.embed, other.facets}
     end
 
     def trait?(name : String) : Bool
@@ -132,17 +142,25 @@ module DataDungeon
     # This registration under another type name.
     def renamed(name : String) : AssetType
       AssetType.new(name, @pool_traits, @group_traits, @labels, @sets, @facets, @scales, @colors, @weights,
-        @cycles, @match_fields)
+        @cycles, @match_fields, @embed)
     end
 
-    # This registration with a trait or facet tag renamed wherever it appears.
+    # This registration with a trait, facet tag or embedded tag renamed
+    # wherever it appears.
     def with_tag_renamed(from : String, to : String) : AssetType
       swap = ->(name : String) { name == from ? to : name }
       AssetType.new(@name, @pool_traits.map(&swap), @group_traits.map(&swap),
         @labels.to_h { |trait, label| {swap.call(trait), label} }, @sets.map(&swap),
         @facets.transform_values(&.map(&swap)), @scales.to_h { |trait, values| {swap.call(trait), values} },
         @colors.map(&swap), @weights.to_h { |trait, weight| {swap.call(trait), weight} },
-        @cycles.to_h { |trait, values| {swap.call(trait), values} }, @match_fields)
+        @cycles.to_h { |trait, values| {swap.call(trait), values} }, @match_fields,
+        AssetType.embed_order(@embed.map(&swap)))
+    end
+
+    # Parts to embed in their one order: "description" first, then tags by
+    # name. The same parts always make the same text, so the same vector.
+    def self.embed_order(parts : Array(String)) : Array(String)
+      parts.includes?("description") ? ["description"] + (parts - ["description"]).sort : parts.sort
     end
 
     # The key of these normalized values, in the type's own index.

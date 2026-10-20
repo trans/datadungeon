@@ -61,6 +61,13 @@ module DataDungeon
   #                                          ?trait.<k>=<v> &field.<f>=<v> (view=back-left,
   #                                          dominant-color=#aa3311) &require=a,b &weight.<k>=<n> &limit=
   #     GET    /assets/:id/similar         the assets closest to this one: ?require= &weight.<k>= &limit=
+  #     GET    /search                     assets by meaning, given a searcher (SemanticIndex), best
+  #                                          first with their scores: ?q= &type= &media= &tag.<k>=
+  #                                          &key= &key_prefix= &facet= (one facet of type) &limit=
+  #                                          &min_score=; or one query per facet, &facet.<name>=<q>
+  #                                          with type: each asset scores its weakest
+  #     GET    /search/status              the store's embedding model, and how many texts wait
+  #                                          to be embedded or failed
   #
   #     POST   /assets                     a file added by hand, as multipart/form-data: file
   #                                          (its Content-Type the asset's) and asset, JSON
@@ -97,7 +104,7 @@ module DataDungeon
     MAX_PAGE = 500
 
     def initialize(@db : DB, *, @read_token : String? = nil, @write_token : String? = nil, prefix : String = "",
-                   @matcher : Matcher? = nil)
+                   @matcher : Matcher? = nil, @searcher : Searcher? = nil)
       @prefix = prefix.rstrip('/')
     end
 
@@ -138,6 +145,11 @@ module DataDungeon
         matches(context) { |matcher, required, weights, limit|
           matcher.similar(id, require: required, weights: weights, limit: limit)
         }
+      elsif method == "GET" && parts == ["search"]
+        search(context)
+      elsif method == "GET" && parts == ["search", "status"]
+        searcher = @searcher || return error(context, 404, "Search isn't enabled on this server")
+        respond(context, searcher.status)
       elsif method == "POST" && parts.size == 3 && parts[0] == "types" && parts[2] == "promote"
         body = JSON.parse(context.request.body.try(&.gets_to_end) || "{}")
         respond(context, {promoted: @db.promote(parts[1], body["trait"].as_s, body["value"].as_s)})
@@ -216,6 +228,35 @@ module DataDungeon
       else
         error(context, 404, "No such endpoint")
       end
+    end
+
+    private def search(context) : Nil
+      searcher = @searcher || return error(context, 404, "Search isn't enabled on this server")
+      params = context.request.query_params
+      type, query, facets = params["type"]?, params["q"]?, prefixed(params, "facet.")
+      limit = page_param(context, "limit", 10, max: 100)
+      min_score = params["min_score"]?.try { |score| score.to_f64? || raise ArgumentError.new("min_score must be a number") }
+      tags, media, key, key_prefix = prefixed(params, "tag."), params["media"]?, params["key"]?, params["key_prefix"]?
+      hits = if facets.empty?
+               query = query.presence || raise ArgumentError.new("q is required: what to search for")
+               searcher.search(query, limit: limit, min_score: min_score, asset_type: type, media: media, tags: tags,
+                 key: key, key_prefix: key_prefix, facet: params["facet"]?)
+             else
+               raise ArgumentError.new("give q or facet.<name>, not both") if query
+               type || raise ArgumentError.new("a search by facets needs type")
+               searcher.search_facets(facets, type, limit: limit, min_score: min_score, media: media, tags: tags,
+                 key: key, key_prefix: key_prefix)
+             end
+      found = @db.load_tags_batch(hits.map(&.asset.id))
+      respond(context, {hits: hits.map { |hit|
+        {asset: hit.asset, tags: found[hit.asset.id]? || {} of String => String, score: hit.score,
+         facet_scores: hit.facet_scores.empty? ? nil : hit.facet_scores}
+      }})
+    rescue ex : ArgumentError
+      raise ex
+    rescue ex
+      # Most likely the embedding service, asked for the query's vector.
+      error(context, 502, "search failed: #{ex.message}")
     end
 
     # `page` (from 1) numbers pages of `limit`; `next` is the `before` for

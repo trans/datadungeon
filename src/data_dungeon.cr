@@ -6,6 +6,7 @@ end
 
 require "./data_dungeon/asset_record"
 require "./data_dungeon/matcher"
+require "./data_dungeon/searcher"
 require "./data_dungeon/webp"
 require "./data_dungeon/image_probe"
 require "./data_dungeon/storage"

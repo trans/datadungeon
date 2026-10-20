@@ -1,13 +1,42 @@
 # Embeddings: what DataDungeon embeds, and who says so
 
-*Draft 2026-10-11, with Thomas. Nothing here is built yet.*
+*Draft 2026-10-11, with Thomas. Updated 2026-10-20: 0.15.7 builds the small
+version (see "Built in 0.15.7"); the registry of named entries waits for a
+second app that needs its own.*
+
+## Built in 0.15.7
+
+Thomas agreed the smallest version that serves the first app (2026-10-19:
+"Yes, that is about right"):
+
+- **What's embedded is in the type's registration:** `register_type(…,
+  embed: %w[description subtype])`. A type with no `embed` isn't embedded,
+  so nothing goes to a paid model unless an app asks. Changing it needs no
+  re-key and embeds the type's assets again. Facets stay as they were.
+- **Statements,** description first, then tags by name: the parts are a
+  set, so one set always makes one text (decision 3 below). Facets are
+  written the same way.
+- **The prompt is left out:** since 0.14 a prompt carries style and rules
+  words many assets share, which drown out what differs.
+- **One model per store:** the first model whose vectors the store holds.
+  Another raises; `switch_model: true` drops the old vectors and embeds
+  everything again.
+- **`dd-serve` searches,** given `DD_EMBED_MODEL` and `DD_EMBED_KEY`: it is
+  the store's one worker, catching up on every process's changes from the
+  change log (`asset_changes`, which now logs description changes too), and
+  answers `GET /search` and `GET /search/status`.
+
+Not built: named entries per consumer, shared recipes of parts,
+`unregister_embedding`, the `default` entry, registering over HTTP. Owl is
+the likely first user (its places all have descriptions, and its library
+already reads other stores through their dd-serve).
 
 ## Why
 
 Semantic search (`data_dungeon/semantic`, `SemanticIndex`) works and is
 tested, but no consumer uses it and `dd-serve` doesn't offer it. Before
-hooking it up, what gets embedded needs a home. Today it's decided in two
-places, and only one of them is stored:
+hooking it up, what gets embedded needs a home. Before 0.15.7 it was decided
+in two places, and only one of them was stored:
 
 - **The whole-asset embedding:** the description plus the tags named by
   `semantic_tag_keys`, an argument to `SemanticIndex.new`. It lives in each
@@ -85,7 +114,7 @@ Margins are a hundredth or two: everything near the top is close, which is
 why a facet, compared on its own, separates better. A small synthetic test;
 `bench/embedding_format.py` and `bench/embedding_order.py` rerun both.
 
-## Proposed (to confirm)
+## Proposed (to confirm when the registry is built)
 
 - **Parts:** tag names, plus a short fixed list of fields: `description`,
   `prompt` (the `prompt` in `generation`, where Overlore's pictures keep
@@ -133,8 +162,10 @@ queue in the background and answers `GET /types/:type/embeddings` and
 
 ## Replaced
 
-`semantic_tag_keys:`, `register_type(…, facets:)`, `search(facet:)` and
-`search_facets` go; no consumer uses them (checked 2026-10-11). Facets
+`semantic_tag_keys:` went in 0.15.7, for `register_type(…, embed:)`.
+When the registry comes, `embed:`, `register_type(…, facets:)`,
+`search(facet:)` and `search_facets` go; no consumer used them (checked
+2026-10-11 and 2026-10-20). Facets
 already registered move into the registry on first open, and memo's
 existing `asset` and `<type>.<facet>` sources are dropped and queued again.
 
@@ -147,3 +178,4 @@ existing `asset` and `<type>.<facet>` sources are dropped and queued again.
 - **Registering over HTTP:** indexes are registered only from code; curio
   may want to register entries.
 - **Which release:** 0.16, after the standard types (Thomas, 2026-10-15).
+  The small version came first, in 0.15.7, once the types had moved.

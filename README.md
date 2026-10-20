@@ -134,8 +134,8 @@ can keep the call in its start-up until every copy of its store has moved.
 
 The registration is stored in the database. Registering a type again with
 the same definition changes nothing, and so does changing only what keys
-don't hold (facets, scales, colors, cycles, weights, match fields) beyond
-saving it. Other traits, order, group, labels or sets raise unless given
+don't hold (what's embedded, facets, scales, colors, cycles, weights, match
+fields) beyond saving it. Other traits, order, group, labels or sets raise unless given
 `rekey: true`, which re-derives the keys of its assets from their tags.
 A store shared by several applications should register its types in one
 place.
@@ -477,6 +477,10 @@ DataDungeon::DB::STANDARD_TRACKS  # the shared names: words, mouth
   past the next one's start.
 - **They're measured from the recording, not the script:** a retake has
   its own. Tracks go when their asset does.
+- **A `words` track is a tool's timing of the words, not their text:** for
+  the words as text, corrected by hand, with who speaks or with sounds that
+  aren't words, keep a `transcript` linked `transcript-of` the recording
+  (DESIGN-types).
 
 ## Storage
 
@@ -585,7 +589,8 @@ mount it, or `dd-serve` (`shards build dd-serve`) runs it alone beside the
 database, configured by `DD_*` environment variables (see
 `src/dd_serve.cr`). Reads need the read token, writes the write token
 (`Authorization: Bearer …`); without a write token there are no writes, and
-`dd-serve` opens the database read-only.
+`dd-serve` opens the database read-only, unless it embeds for search
+(`DD_EMBED_MODEL`, see Semantic asset search).
 
 ```crystal
 api = DataDungeon::API.new(db, read_token: ENV["DD_READ_TOKEN"], write_token: ENV["DD_WRITE_TOKEN"]?,
@@ -618,6 +623,9 @@ HTTP::Server.new([api, app_handler])
 | `POST /maintenance/prune` | `{type, keep_last, retired_before}`: delete retired assets (write token) |
 | `POST /maintenance/measure` | `{type, all}`: measure stored pictures (write token) |
 | `POST /types/:type/promote`, `/maintenance/vacuum` | (write token) |
+| `GET /search?q=&type=&media=&tag.<key>=&key=&key_prefix=&facet=&limit=&min_score=` | assets by meaning, best first, each with its tags and score (given a searcher, as `dd-serve` with `DD_EMBED_MODEL` has) |
+| `GET /search?type=&facet.<name>=<query>…` | by several facets at once, each with its own query: an asset scores its weakest |
+| `GET /search/status` | the store's embedding model, and how many texts wait to be embedded or failed |
 
 An asset in JSON carries its `key` (`pool_key` before 0.12, and both names
 through 0.12), `rating`, `flagged` and `permanent`, which `PATCH` sets,
@@ -671,40 +679,68 @@ the exhaustive top 10 found every time.
 
 ## Semantic asset search
 
-Semantic search is an optional entry point. Applications using it need a
-`memo` dependency in their shard file. It uses Memo's tables in the same
-SQLite database and keeps the USearch index beside that database. Memo embeds
-the asset's `description` plus only the tag keys you select. Keep exact
-constraints such as `art_style` and `rating` in the `tags:` search filter;
-do not add hashes, IDs, or generator bookkeeping to the embedding text.
+Semantic search finds assets by meaning: "a wizard's study at night" finds
+the picture described as "a cosy scholar's study at night, crowded with
+books". `require "data_dungeon/semantic"` adds `DataDungeon::SemanticIndex`,
+which needs the `memo` shard (and libmagic). It keeps Memo's tables in the
+same SQLite database and its USearch index file beside it.
+
+**What's embedded** is the type's to say, in its registration: `embed:`
+lists the parts, `description` and tag names. A type registered without
+`embed` isn't embedded, so nothing goes to the embedding model unless an
+app asks. Each asset's text is its description as written, then one
+statement per tag, by name, whatever order `embed` gives:
+
+```crystal
+db.register_type("drop", pool_traits: %w[world], embed: %w[description subtype])
+# A cosy stone-and-timber scholar's study at night, crowded with books
+# Subtype is scene.
+```
+
+Statements searched best of the forms measured (`DESIGN-embeddings.md`).
+Name the tags that say what the asset is (race, hair colour, a subtype), not
+exact constraints such as `art-style` and `rating`, which belong in a
+search's `tags:` filter, nor hashes, ids or slugs. A recipe's prompt is never
+embedded: since 0.14 it carries style and rules words many assets share,
+which drown out what differs. Changing `embed` needs no `rekey:`; it embeds
+the type's assets again.
 
 ```crystal
 require "data_dungeon/semantic"
 
 db = DataDungeon::DB.new("assets.db", cache_root: "asset-files")
-semantic = DataDungeon::SemanticIndex.new(
-  db,
-  format: "openai",
-  api_key: ENV.fetch("OPENAI_API_KEY"),
-  model: "text-embedding-3-small",
-  dimensions: 1536,
-  max_tokens: 8191,
-  semantic_tag_keys: %w[race gender hair-color hair-texture outfit]
-)
+semantic = DataDungeon::SemanticIndex.new(db,
+  format: "openai", model: "text-embedding-3-small", api_key: ENV.fetch("OPENAI_API_KEY"))
 
-semantic.backfill       # queue pre-existing assets; safe to repeat
-semantic.process_queue # run from one worker, off the request path
+semantic.catch_up       # queue what changed, here or in another process; safe to repeat
+semantic.process_queue  # embed it: one worker per store, off the request path
 hits = semantic.search("curly-haired adventurer",
   asset_type: "portrait", tags: {"art-style" => "silver"})
 hits.each { |hit| puts "#{hit.asset.id}: #{hit.score}" }
 db.close
 ```
 
-A registered type can declare **facets**: named groups of tags embedded
+**One model per store.** Vectors from two models can't be compared, so the
+first model used is the store's, and opening the index with another raises.
+`switch_model: true` drops the old vectors; the next `catch_up` queues
+everything to be embedded again.
+
+**`dd-serve` searches** when given a model: `DD_EMBED_MODEL`
+(`text-embedding-3-small`) and `DD_EMBED_KEY`, and `DD_EMBED_FORMAT` for an
+API other than OpenAI's (`voyage`, or `mock` with model `mock-8d` to try it
+without a key). It is then the store's one worker: every few seconds it
+catches up on what any process stored, re-described, re-registered or
+deleted (the store's change log), and embeds it, so an app needs no index of
+its own. It opens the store read-write to keep the vectors; its API still
+takes no writes without `DD_WRITE_TOKEN`. It answers `GET /search` and
+`GET /search/status` (see the API table above). Building it needs the `memo`
+shard beside `usearch` and `awscr-s3`.
+
+A registered type can also declare **facets**: named groups of tags embedded
 separately from the asset's own embedding, so a search can rank one part of
 an asset without the rest diluting it. Each facet is its own Memo source type
-(`<asset_type>.<facet>`) in the same store; `description` names the asset's
-description.
+(`<asset_type>.<facet>`) in the same store, written the same way;
+`description` names the asset's description.
 
 ```crystal
 db.register_type("listing", pool_traits: %w[city rooms],
@@ -720,8 +756,7 @@ semantic.search_facets({"location" => "quiet street near a park",
 each by its weakest facet, so a close match on one part doesn't make up for a
 poor match on another (`hit.facet_scores` has each). It ranks each facet to a
 depth of 500 assets by default, so combine within a scope (a pool key, key
-prefix or tags) small enough to be ranked whole. Changing a type's facets takes
-effect for existing assets at the next `backfill`.
+prefix or tags) small enough to be ranked whole.
 
 Hits come best first, each with its score, up to `limit`. There is no score
 cutoff unless you pass `min_score:`. Scores aren't comparable across
@@ -744,15 +779,15 @@ Those lookups start from the key index, so their cost follows the size of the
 pool rather than of the catalogue, and Memo ranks that set exactly.
 
 Once attached, storing an asset queues it for embedding; deleting an asset
-removes its Memo entry. Changes to the description or selected tags are
-re-embedded by the worker. Until that worker runs, search may still use the
-previous embedding. Memo saves the index file on its own policy (after many unsaved changes or a
-few minutes) and when the database closes, and it also keeps every vector in
-the database: after a crash or a lost index file, Memo replays or
-rebuilds the index when it opens, without embedding anything again. `backfill`
-queues assets that were never embedded, such as those stored before the index
-was attached; it is safe to repeat. An asset with
-no description and no selected tags is not indexed. Search returns asset
-records without changing usage or match counters, and its query cache stays
-in memory. The `generated` flag, generator parameters, and pool and group keys are
-stored as metadata but are not embedded.
+removes its Memo entry. Changes to the description or embedded tags are
+re-embedded by the worker; changes another process makes, once `catch_up`
+reads them from the change log. Until the worker runs, search may still use
+the previous embedding. Memo saves the index file on its own policy (after
+many unsaved changes or a few minutes) and when the database closes, and it
+also keeps every vector in the database: after a crash or a lost index file,
+Memo replays or rebuilds the index when it opens, without embedding anything
+again. `catch_up`'s first call, like `backfill`, checks every asset and
+queues those whose text has no vector yet; both are safe to repeat. An asset
+whose parts are all empty is not indexed. Search returns asset records
+without changing usage or match counters, and its query cache stays in
+memory.

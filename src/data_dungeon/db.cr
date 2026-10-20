@@ -45,6 +45,9 @@ module DataDungeon
     @usage_try_at = USAGE_WRITE_AT
     # Registered asset types, loaded from asset_types when the DB opens.
     @types = {} of String => AssetType
+    # Whether asset_types has its `embed` column (a read-only open of a store
+    # no 0.15.7 has opened yet has none).
+    @embed_kept = true
     getter? read_only = false
     # The database file.
     getter path : String
@@ -60,6 +63,11 @@ module DataDungeon
     def attach_indexer(indexer : AssetIndexer) : Nil
       raise "an asset indexer is already attached" if @indexer
       @indexer = indexer
+    end
+
+    # Forget an attached indexer; it calls this when it closes.
+    def detach_indexer(indexer : AssetIndexer) : Nil
+      @indexer = nil if @indexer.same?(indexer)
     end
 
     # With `read_only: true` the database is only read: nothing is created,
@@ -479,12 +487,14 @@ module DataDungeon
         colors       TEXT NOT NULL DEFAULT '[]',
         weights      TEXT NOT NULL DEFAULT '{}',
         cycles       TEXT NOT NULL DEFAULT '{}',
-        match_fields TEXT NOT NULL DEFAULT '[]'
+        match_fields TEXT NOT NULL DEFAULT '[]',
+        embed        TEXT NOT NULL DEFAULT '[]'
       )
     SQL
 
-    # Every change to an asset's tags or type, and every deletion, in order:
-    # what a MatchIndex in another process catches up from. Only the latest
+    # Every change to an asset's tags, type or description, and every
+    # deletion, in order: what a MatchIndex or SemanticIndex in another
+    # process catches up from. Only the latest
     # CHANGES_KEPT are kept; an index further behind rebuilds.
     ASSET_CHANGES_SCHEMA = <<-SQL
       CREATE TABLE IF NOT EXISTS asset_changes (
@@ -665,6 +675,9 @@ module DataDungeon
             conn.exec(ASSET_TAGS_SCHEMA)
             conn.exec(ASSET_TAGS_INDEX)
             conn.exec(ASSET_TYPES_SCHEMA)
+            unless table_columns(conn, "asset_types").has_key?("embed") # 0.15.7
+              conn.exec("ALTER TABLE asset_types ADD COLUMN embed TEXT NOT NULL DEFAULT '[]'")
+            end
             conn.exec(ASSET_CHANGES_SCHEMA)
             conn.exec(IMAGE_META_SCHEMA)
             conn.exec(IMAGE_ANIMATION_SCHEMA)
@@ -724,6 +737,8 @@ module DataDungeon
         raise ReadOnlyError.new("The database needs upgrading: open it read-write once first") unless current
         # Added in 0.15.3, so a store not yet opened by it reads as having no tracks.
         @tracks_kept = !table_columns(conn, "asset_tracks").empty?
+        # Added in 0.15.7: before it, no type was embedded.
+        @embed_kept = table_columns(conn, "asset_types").has_key?("embed")
       end
     end
 
@@ -1311,6 +1326,8 @@ module DataDungeon
             else
               conn.exec("UPDATE assets SET description_id = ? WHERE id = ?", text_id, id)
             end
+            # Logged, so a SemanticIndex in another process embeds the new words.
+            changed.each { |changed_id| log_change(conn, changed_id) }
           end
           conn.exec("UPDATE assets SET permanent = ? WHERE id = ?", permanent ? 1 : 0, id) unless permanent.nil?
           conn.exec("UPDATE assets SET flagged = ? WHERE id = ?", flagged ? 1 : 0, id) unless flagged.nil?
@@ -2178,9 +2195,12 @@ module DataDungeon
     # `tan-skin`). `sets` names traits whose value is a set, given as
     # comma-separated members in any order (`"sword, Lantern"` is stored and
     # keyed as `lantern,sword`); a set matches only the same set. Trait tags
-    # are stored normalized, as the key holds them. `facets` names groups of
-    # tags that SemanticIndex embeds separately, so a search can rank one
-    # part of an asset (its hair, say) without the rest diluting it.
+    # are stored normalized, as the key holds them. `embed` lists what
+    # SemanticIndex embeds of each asset: "description" and tag names
+    # (`%w[description race hair-color]`), in any order; a type with none
+    # isn't embedded. `facets` names groups of tags that SemanticIndex
+    # embeds separately, so a search can rank one part of an asset (its
+    # hair, say) without the rest diluting it.
     # `scales`, `colors` and `weights` shape best matches (MatchIndex) and
     # change no keys: `scales` lists an ordered trait's values low to high
     # (`{"rating" => %w[g pg r x]}`), so near values count as close; `colors`
@@ -2194,8 +2214,9 @@ module DataDungeon
     #
     # The registration is stored in the database. Registering a type again
     # with the same definition changes nothing, and one that changes only
-    # what keys don't hold (facets, scales, colors, cycles, weights, match
-    # fields) is saved as it is. Other traits, a new order, group, labels or
+    # what keys don't hold (what's embedded, facets, scales, colors, cycles,
+    # weights, match fields) is saved as it is; a change to what's embedded
+    # or to facets queues the type's assets to be embedded again. Other traits, a new order, group, labels or
     # sets raise unless `rekey: true`: changing them re-derives the keys of
     # every asset of the type, so a process holding a stale definition fails
     # loudly instead of re-keying every asset.
@@ -2212,13 +2233,14 @@ module DataDungeon
       weights : Hash(String, Float64) = {} of String => Float64,
       cycles : Hash(String, Array(String)) = {} of String => Array(String),
       match_fields : Array(String) = [] of String,
+      embed : Array(String) = [] of String,
       rekey : Bool = false,
     ) : AssetType
       writable!
       scales = scales.transform_values { |values| values.compact_map { |value| TraitKey.normalize(value) } }
       cycles = cycles.transform_values { |values| values.compact_map { |value| TraitKey.normalize(value) } }
       definition = AssetType.new(asset_type, pool_traits, group_traits, labels, sets, facets,
-        scales, colors, weights, cycles, match_fields)
+        scales, colors, weights, cycles, match_fields, AssetType.embed_order(embed))
       validate_type(definition)
       changed = [] of Int64
       @object_lock.synchronize do
@@ -2230,7 +2252,13 @@ module DataDungeon
           write_transaction do |conn|
             save_type(conn, definition)
             changed = rekey(conn, definition)
-            reindex_type(conn, asset_type) # labels may have changed
+            # Labels may have changed. This logs every asset of the type too, so
+            # a SemanticIndex in another process embeds them again when what's
+            # embedded changed; this process's is told below.
+            reindex_type(conn, asset_type)
+            if stored && stored[0].embedded_differently?(definition)
+              changed = (changed + conn.query_all("SELECT id FROM assets WHERE asset_type = ?", asset_type, as: Int64)).uniq
+            end
           end
         end
         @types[asset_type] = definition
@@ -2321,6 +2349,14 @@ module DataDungeon
     # The registration of an asset type, or nil when it has none.
     def registration(asset_type : String) : AssetType?
       @types[asset_type]?
+    end
+
+    # Read the registrations again, so a long-running process (dd-serve)
+    # sees types another process registered or changed since it opened.
+    # SemanticIndex#catch_up calls it when the change log has moved.
+    def refresh_registrations : Nil
+      rows = @db.query_all("SELECT #{type_columns} FROM asset_types") { |rs| read_type(rs) }
+      @object_lock.synchronize { @types = rows.to_h { |(type, _)| {type.name, type} } }
     end
 
     # Rename an asset type: its assets, their tags and its registration move
@@ -2613,6 +2649,12 @@ module DataDungeon
         raise ArgumentError.new("#{name}: set #{trait} is not a pool trait") unless type.trait?(trait)
       end
       raise ArgumentError.new("#{name}: a set is listed twice") if type.sets.uniq.size != type.sets.size
+      raise ArgumentError.new("#{name}: embed lists a part twice") if type.embed.uniq.size != type.embed.size
+      type.embed.each do |part|
+        unless part == "description" || part.matches?(TRAIT_NAME)
+          raise ArgumentError.new("#{name}: embed part #{part.inspect} must be \"description\" or a tag name: lowercase letters and digits, joined by '_' or '-'")
+        end
+      end
       type.facets.each do |facet, tags|
         unless facet.matches?(LABEL)
           raise ArgumentError.new("#{name}: facet #{facet.inspect} must be lowercase words joined by '-'")
@@ -2681,23 +2723,23 @@ module DataDungeon
         <<-SQL,
         INSERT INTO asset_types
         (asset_type, pool_traits, group_traits, labels, sets, facets, key_scheme, scales, colors, weights,
-         cycles, match_fields)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         cycles, match_fields, embed)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(asset_type) DO UPDATE SET pool_traits = excluded.pool_traits,
           group_traits = excluded.group_traits, labels = excluded.labels,
           sets = excluded.sets, facets = excluded.facets, key_scheme = excluded.key_scheme,
           scales = excluded.scales, colors = excluded.colors, weights = excluded.weights,
-          cycles = excluded.cycles, match_fields = excluded.match_fields
+          cycles = excluded.cycles, match_fields = excluded.match_fields, embed = excluded.embed
       SQL
         type.name, type.pool_traits.to_json, type.group_traits.to_json,
         type.labels.to_json, type.sets.to_json, type.facets.to_json, TraitKey::SCHEME, type.scales.to_json, type.colors.to_json, type.weights.to_json,
-        type.cycles.to_json, type.match_fields.to_json
+        type.cycles.to_json, type.match_fields.to_json, type.embed.to_json
       )
     end
 
     private def stored_type(asset_type : String) : {AssetType, Int32}?
       @db.query_one?(
-        "SELECT asset_type, pool_traits, group_traits, labels, sets, facets, key_scheme, scales, colors, weights, cycles, match_fields FROM asset_types WHERE asset_type = ?",
+        "SELECT #{type_columns} FROM asset_types WHERE asset_type = ?",
         asset_type
       ) { |rs| read_type(rs) }
     end
@@ -2715,15 +2757,21 @@ module DataDungeon
       weights = Hash(String, Float64).from_json(rs.read(String))
       cycles = Hash(String, Array(String)).from_json(rs.read(String))
       match_fields = Array(String).from_json(rs.read(String))
+      embed = Array(String).from_json(rs.read(String))
       {AssetType.new(name, pool_traits, group_traits, labels, sets, facets, scales, colors, weights,
-        cycles, match_fields), scheme}
+        cycles, match_fields, embed), scheme}
+    end
+
+    private def type_columns : String
+      "asset_type, pool_traits, group_traits, labels, sets, facets, key_scheme, scales, colors, weights, cycles, " \
+      "match_fields, #{@embed_kept ? "embed" : "'[]'"}"
     end
 
     # Registrations made with an older key encoding, or lacking their own
     # index, are re-keyed on open.
     private def load_types : Nil
       rows = @db.query_all(
-        "SELECT asset_type, pool_traits, group_traits, labels, sets, facets, key_scheme, scales, colors, weights, cycles, match_fields FROM asset_types"
+        "SELECT #{type_columns} FROM asset_types"
       ) { |rs| read_type(rs) }
       rows.each do |type, scheme|
         @types[type.name] = type

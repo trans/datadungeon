@@ -150,7 +150,7 @@ tie it to one automaton's).
 |---|---|
 | **prose** | continuous writing in one voice: a description, a decree, a story |
 | **script** | lines for voices in turns |
-| **transcript** | the words of an audio or video asset as a text of their own, written down after it (subtitles in WebVTT, an interview written up), with speakers and times when known; linked `transcript-of` it. A clip's words heard are its `words` track |
+| **transcript** | the words of an audio or video asset as text: corrected by hand, with who speaks, with sounds that aren't words; linked `transcript-of` it. A `words` track is a tool's timing of the words, not their text |
 | **log** | a record of what happened, in order (what interactive fiction calls a transcript) |
 
 **A recording's words** (Thomas, 2026-10-20) are kept in one of three
@@ -164,15 +164,22 @@ places, by when they were written and what they're for:
   The track's `tool` says whether it aligned the known text or transcribed
   the sound; an app keeping both names the second (`words-heard`). A
   recorded or uploaded clip, with no recipe, has only this.
-- **A `transcript` asset** only when the words are a thing of their own:
-  subtitles shipped with a video, an interview written up to be read. It
-  links to its recording `transcript-of`, which works for video as for
-  audio, allows several (one per language), and goes when either asset
-  does.
+- **A `transcript` asset, the words as text.** A `words` track is a tool's
+  timing of the words, not their text, so it has no place for a word
+  corrected by hand, who speaks, sounds that aren't words ("meows twice,
+  then purrs"), words no tool could time, or lines and stage directions.
+  Keep a transcript when you need any of those. It links to its recording
+  `transcript-of`, which works for video as for audio, allows several (one
+  per language), and goes when either asset does.
 
-So a clip spoken from a text needs no transcript. Overlore's 117 were
-copies of their clips' prompts, byte for byte, and are deleted in piece 3
-(Thomas, 2026-10-20).
+A clip made from a prompt usually needs no transcript: the prompt is its
+text, and its `words` track adds the timing. Overlore's 117 were copies of
+their clips' prompts, byte for byte, and were deleted in piece 3 (Thomas,
+2026-10-20). An earlier wording, "only when the words are a thing of their
+own", read as if a track were the transcript of an ordinary clip; Thomas
+(2026-10-20, through `@curio`): a words track isn't a transcript.
+Subtitles, timed lines, are closer to a track than to a transcript; where
+they go is open.
 
 `audio_meta.transcript_id`, from 0.2 (2026-03), before recipes and tracks,
 pointed a clip at one text asset; Overlore was the only app to use it. It
@@ -584,8 +591,9 @@ again and rewrote their search rows on each start).
   Thomas leans to it, undecided. A speech's speaker waits on it: the
   voice that spoke is in the recipe, but who is speaking is a character.
 - `q` over descriptions and a recipe's subject (`@owl` finds other stores'
-  pictures by words, and Overlore's drops have none in their tags),
-  before 0.16's semantic search.
+  pictures by words, and Overlore's drops have none in their tags).
+  Semantic search (0.15.7, `GET /search`) reads descriptions and the tags
+  a type's registration embeds, not recipes.
 - Release (Thomas, 2026-10-15): the vocabulary in 0.14 with the new
   picture prompts, `rating` only (no standard styles, Thomas, 2026-10-17). The types, several values per tag
   and keys as the apps' indexes wait for an app that needs them (Thomas,

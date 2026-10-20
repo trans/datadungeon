@@ -580,4 +580,25 @@ describe "DataDungeon::DB type registry" do
       expect_raises(ArgumentError, /asset type/) { db.rename_type("heroshot", "hero.shot") }
     end
   end
+
+  it "reads a store no 0.15.7 has opened read-write as embedding nothing, and adds what it embeds on opening" do
+    with_db("dd-embed-older") do |db, dir|
+      db.register_type("drop", pool_traits: %w[world], embed: %w[description])
+      db.connection.exec("ALTER TABLE asset_types DROP COLUMN embed")
+      older = DataDungeon::DB.new(File.join(dir, "assets.db"), read_only: true)
+      begin
+        older.registration("drop").not_nil!.embed.should be_empty
+        older.registration("drop").not_nil!.pool_traits.should eq %w[world]
+      ensure
+        older.close
+      end
+      reopened = open_db(dir)
+      begin
+        reopened.registration("drop").not_nil!.embed.should be_empty
+        reopened.register_type("drop", pool_traits: %w[world], embed: %w[description]).embed.should eq %w[description]
+      ensure
+        reopened.close
+      end
+    end
+  end
 end

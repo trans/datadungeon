@@ -82,8 +82,8 @@ module DataDungeon
       # Text
       StandardType.new("prose", "Prose", %w[text], "continuous writing in one voice: a description, a decree, a story"),
       StandardType.new("script", "Script", %w[text], "lines for voices in turns"),
-      StandardType.new("transcript", "Transcript", %w[text], "the words of an audio or video asset as a text of their own, written down after it (subtitles, " \
-                                                             "an interview written up), linked transcript-of it; a clip's words heard are its words track"),
+      StandardType.new("transcript", "Transcript", %w[text], "the words of an audio or video asset as text (corrected by hand, with who speaks, " \
+                                                             "with sounds that aren't words), linked transcript-of it; a words track is a tool's timing of the words, not their text"),
       StandardType.new("log", "Log", %w[text], "a record of what happened, in order"),
       # Documents and data
       StandardType.new("document", "Document", %w[data text], "made to be read: pages laid out, text and pictures (PDF, EPUB)"),

@@ -2,28 +2,28 @@ require "../data_dungeon"
 require "memo"
 
 module DataDungeon
-  # Optional Memo index for descriptions and selected descriptive tags.
+  # Optional Memo index of what a type's registration says to embed.
   #
-  # Every asset gets one embedding of its description plus the selected tags.
-  # A registered type can also declare facets (DB#register_type), each a group
-  # of tags embedded on its own as Memo source type `<asset_type>.<facet>`, so
-  # a search can rank one part of an asset without the rest diluting it.
+  # An asset of a type registered with `embed` (DB#register_type) gets one
+  # embedding of those parts: its description as written, then a statement
+  # for each tag, by name ("Hair color is red."). A type can also declare
+  # facets, each a group of tags embedded on its own as Memo source type
+  # `<asset_type>.<facet>`, so a search can rank one part of an asset
+  # without the rest diluting it. Types with neither aren't embedded.
   #
-  # Stored assets enqueue work; call process_queue from one worker to embed it.
-  # Search does not touch DataDungeon usage counters or Memo's search counters.
+  # A store has one embedding model, the first one used: vectors from two
+  # models can't be compared, so opening with another raises, unless
+  # `switch_model: true` drops the old vectors to embed everything again.
+  #
+  # Stored assets enqueue work; one worker per store calls catch_up, for what
+  # other processes changed, and process_queue to embed it. Search does not
+  # touch DataDungeon usage counters or Memo's search counters.
   class SemanticIndex < AssetIndexer
+    include Searcher
+
     SOURCE_TYPE = "asset"
 
-    struct Hit
-      getter asset : AssetRecord
-      getter score : Float64
-      # For search_facets: each facet's score; `score` is the lowest.
-      getter facet_scores : Hash(String, Float64)
-
-      def initialize(@asset : AssetRecord, @score : Float64,
-                     @facet_scores : Hash(String, Float64) = {} of String => Float64)
-      end
-    end
+    alias Hit = SearchHit
 
     # The Memo source type holding one facet of a type's assets.
     def self.facet_source(asset_type : String, facet : String) : String
@@ -58,9 +58,9 @@ module DataDungeon
       max_tokens : Int32? = nil,
       chunking_max_tokens : Int32 = 2000,
       query_cache_size : Int32 = 1024,
-      semantic_tag_keys : Array(String) = [] of String,
+      switch_model : Bool = false,
     )
-      @semantic_tag_keys = semantic_tag_keys.to_set
+      service ||= known_service(format, model)
       @memo = Memo::Service.new(
         db: @assets.connection,
         service: service,
@@ -77,7 +77,50 @@ module DataDungeon
         persistent_query_cache: false,
         track_matches: false,
       )
+      begin
+        check_model(switch_model)
+      rescue ex
+        @memo.close
+        raise ex
+      end
       @assets.attach_indexer(self)
+    end
+
+    # The service Memo already has for this format and model, if any, by
+    # name. Asked by format and model, Memo 0.13.1 adds a second service when
+    # it lists the model under another name (`openai` for
+    # text-embedding-3-small), and then can't choose between them on the
+    # next open. The one holding vectors comes first.
+    private def known_service(format : String?, model : String?) : String?
+      return unless format && model
+      Memo::Database.init(@assets.connection) # its tables and listed models, as Memo::Service makes them
+      @assets.connection.query_one?(<<-SQL, format, model, as: String)
+        SELECT s.name FROM memo_services s WHERE s.format = ? AND s.model = ?
+        ORDER BY EXISTS (SELECT 1 FROM memo_embeddings e WHERE e.service_id = s.id) DESC, s.id LIMIT 1
+      SQL
+    end
+
+    # The store's model is the one its vectors were made with. Another
+    # service holding vectors means another model's: refused, or with
+    # `switch` dropped, so catch_up's first pass embeds everything again.
+    private def check_model(switch : Bool) : Nil
+      others = @assets.connection.query_all(<<-SQL, @memo.service_id, as: {String, String})
+        SELECT s.name, s.model FROM memo_services s
+        WHERE s.id <> ? AND EXISTS (SELECT 1 FROM memo_embeddings e WHERE e.service_id = s.id)
+      SQL
+      return if others.empty?
+      unless switch
+        raise ArgumentError.new("this store's assets are embedded with #{others.map(&.[1]).join(", ")}, " \
+                                "not #{@memo.service_model}, and vectors from two models can't be compared: " \
+                                "pass switch_model: true to drop them and embed everything again")
+      end
+      others.each { |(name, _)| @memo.delete_service(name, force: true) }
+    end
+
+    # The store's embedding model, and how many texts wait or failed.
+    def status : SearchStatus
+      stats = @memo.queue_stats
+      SearchStatus.new(@memo.service_model, stats.pending, stats.failed)
     end
 
     # The asset write has already committed when this runs. Embedding happens
@@ -97,10 +140,14 @@ module DataDungeon
         return false
       end
 
-      tags = @assets.load_tags(id)
-      texts = {SOURCE_TYPE => embedding_text(asset.description, tags)}
-      @assets.registration(asset.asset_type).try &.facets.each do |facet, keys|
-        texts[SemanticIndex.facet_source(asset.asset_type, facet)] = facet_text(keys, asset.description, tags)
+      texts = {} of String => String
+      type = @assets.registration(asset.asset_type)
+      if type && !(type.embed.empty? && type.facets.empty?)
+        tags = @assets.load_tags(id)
+        texts[SOURCE_TYPE] = SemanticIndex.text(type.embed, asset.description, tags) unless type.embed.empty?
+        type.facets.each do |facet, parts|
+          texts[SemanticIndex.facet_source(type.name, facet)] = SemanticIndex.text(parts, asset.description, tags)
+        end
       end
       (sources_of(id) - texts.keys).each { |source_type| delete_source(source_type, id) }
 
@@ -121,6 +168,38 @@ module DataDungeon
       true
     end
 
+    # Queues what changed since the last call, in this process or another
+    # (DB's change log, asset_changes), so assets other programs store become
+    # searchable too. The first call, and one the log no longer reaches back
+    # to, checks every asset (backfill). Returns the number of assets queued.
+    # The worker calls it before process_queue.
+    def catch_up : Int64
+      latest = latest_change # read first: changes made meanwhile come next time
+      seen = @seen
+      return 0_i64 if seen && latest <= seen
+      @assets.refresh_registrations if seen # what's embedded may have changed too
+      oldest = @assets.connection.query_one("SELECT min(seq) FROM asset_changes", as: Int64?)
+      queued = 0_i64
+      if seen.nil? || oldest.nil? || oldest > seen + 1
+        queued = backfill
+      else
+        changed = @assets.connection.query_all("SELECT DISTINCT asset_id FROM asset_changes WHERE seq > ? AND seq <= ?",
+          seen, latest, as: Int64)
+        changed.each_with_index do |id, i|
+          queued += 1 if index_asset(id)
+          Fiber.yield if i % 100 == 99
+        end
+      end
+      @seen = latest
+      queued
+    end
+
+    @seen : Int64? = nil
+
+    private def latest_change : Int64
+      @assets.connection.query_one?("SELECT seq FROM sqlite_sequence WHERE name = 'asset_changes'", as: Int64) || 0_i64
+    end
+
     # Keyset pagination keeps memory bounded for large existing catalogs.
     # Returns the number of assets newly queued.
     def backfill(batch_size : Int32 = 500) : Int64
@@ -137,6 +216,7 @@ module DataDungeon
         break if ids.empty?
         ids.each { |id| queued += 1 if index_asset(id) }
         last_id = ids.last
+        Fiber.yield # a server answers between batches
       end
       queued
     end
@@ -309,6 +389,7 @@ module DataDungeon
     end
 
     def close : Nil
+      @assets.detach_indexer(self)
       @memo.close
     end
 
@@ -327,29 +408,26 @@ module DataDungeon
       found && present
     end
 
-    private def embedding_text(description : String?, tags : Hash(String, String)) : String
-      lines = [] of String
-      if description && !description.strip.empty?
-        lines << description.strip
-      end
-      tags.keys.sort.each do |key|
-        next unless @semantic_tag_keys.includes?(key)
-        value = tags[key].strip
-        next if value.empty?
-        lines << "#{key.tr("_-", "  ")}: #{value}"
-      end
-      lines.join("\n")
+    # The text embedded for these parts of an asset: its description as
+    # written, then one statement per tag, by name ("Hair color is red."),
+    # which searched best of the forms measured (DESIGN-embeddings.md).
+    # The parts are a set: any order gives the same text, so the same
+    # vector. Empty parts are left out.
+    def self.text(parts : Array(String), description : String?, tags : Hash(String, String)) : String
+      AssetType.embed_order(parts).compact_map { |part|
+        if part == "description"
+          description.try(&.strip).presence
+        elsif value = tags[part]?.try(&.strip).presence
+          statement(part, value)
+        end
+      }.join("\n")
     end
 
-    # A facet's text: its tags in the order the facet lists them, as
-    # "name: value" lines; "description" stands for the asset's description.
-    private def facet_text(keys : Array(String), description : String?, tags : Hash(String, String)) : String
-      lines = keys.compact_map do |key|
-        value = key == "description" ? description : tags[key]?
-        next unless value && !value.strip.empty?
-        key == "description" ? value.strip : "#{key.tr("_-", "  ")}: #{value.strip}"
-      end
-      lines.join("\n")
+    # `hair-color`, `red` → "Hair color is red." A `-` or `_` in the name
+    # reads as a space, so renaming one to the other re-embeds nothing.
+    private def self.statement(name : String, value : String) : String
+      sentence = "#{name.tr("_-", "  ").capitalize} is #{value}"
+      sentence.ends_with?('.') || sentence.ends_with?('!') || sentence.ends_with?('?') ? sentence : "#{sentence}."
     end
 
     private def asset_filter(filter : Filter, source : String) : {String?, Array(::DB::Any)}

@@ -1,5 +1,5 @@
 name: data_dungeon
-version: 0.15.6
+version: 0.15.7
 
 authors:
   - Thomas Sawyer <transfire@gmail.com>
@@ -14,9 +14,10 @@ dependencies:
     github: crystal-lang/crystal-sqlite3
 
 development_dependencies:
+  # For SemanticIndex (data_dungeon/semantic) and dd-serve's search; needs libmagic.
   memo:
     github: openbohemians/memo
-    branch: main
+    version: ~> 0.13.1
   # For MatchIndex (data_dungeon/matches): USearch, with its C library.
   usearch:
     github: trans/usearch.cr
