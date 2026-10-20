@@ -9,9 +9,12 @@ done** (`f9c472ee`, below). **0.15.7, semantic search, is built** on branch
 section below; real-model try done (below); waiting on Thomas's "tag". Sent on Thomas's "send": `@owl` (Overlore's
 door views are now places, `225e8d74`), `@memo` (duplicate service bug,
 `57d11aeb`). Open: `@curio` relayed Thomas's doubt (`872a7225`) that a
-`words` track can stand in for a transcript; see DESIGN-types "Text". Waiting on apps:
-Owl's `map` → `pass`. Then 0.16 (unlisted type names refused,
-`transcript_id` dropped) once Owl has moved. Later: AI descriptions as
+`words` track can stand in for a transcript; see DESIGN-types "Text". Owl has moved too (`359e4306`: depth
+maps `pass`, `16748f9`; `f3572932`: on 0.15.6, `1f81c94`), and reads no
+other store now (Thomas's plan: curio's hub links stores). Every live store
+uses only standard names and none sets `transcript_id` (checked read-only
+2026-10-20), so 0.16 (unlisted type names refused, `transcript_id`
+dropped) is unblocked. Later: AI descriptions as
 linked text assets with their own recipe, read by search; hashes as blobs
 and prompt compression. Thomas's: characters as assets (mj's item 3); the
 live park store to 0.15.6+ with a re-measure (curio); Overlore's deploy;
