@@ -2,17 +2,20 @@
 
 *Updated 2026-10-20*
 
-**Today (Thomas, 2026-10-19): finish the remaining items and semantic
-search.** Done today: the types decided and listed (0.15.2, with both
-freeze fixes), piece 1 (Pirateship), a take's tracks (0.15.3, `7cca94a`),
-and the `#datadungeon` topic. Next: pieces 2 and 3 (below), then semantic
-search: built but unused; see "Embeddings registry" below and
-`DESIGN-embeddings.md` (a draft, `a5febfd`) for where it stopped. Still
-open: AI descriptions as linked text assets with their own recipe, and
-search reading them; hashes as blobs and prompt compression; a word to Owl
-on its depth maps' "depth of 1" descriptions; characters as assets
-(Thomas). Waiting: Overlore's deploy (Thomas). Piece 2 is done
-(2026-10-20).
+**Where things stand (2026-10-20):** every app is on 0.15.4 or later;
+0.15.5 (`5ad4fe9`) and 0.15.6 (`8236d73`) are out. Waiting on apps:
+Overlore's piece 3 (types; transcripts: 48 any time, 69 on 0.15.5;
+`comic`, `layer`), Owl's `map` → `pass`; then tell Owl about Overlore's
+door views. Ours: semantic search next (Thomas's goal; built but unused,
+see "Embeddings registry" and `DESIGN-embeddings.md`, draft `a5febfd`),
+then 0.16 (unlisted type names refused, `transcript_id` dropped) once
+Overlore and Owl have moved. Later: AI descriptions as linked text assets
+with their own recipe, read by search; hashes as blobs and prompt
+compression. Thomas's: `legacy`'s 4 pictures (with Overlore); characters
+as assets (mj's item 3); the live park store to 0.15.6 with a re-measure
+(curio); Overlore's deploy; pushing transfs-rs `92d56d9`; the word to Owl
+on its depth maps' "depth of 1" descriptions (not drafted); topic
+subscription hooks and topic posts filed in sent/ (he's looking into it).
 
 ## 0.15.6: names (released v0.15.6 at `8236d73`, 2026-10-20; notice post 5)
 
