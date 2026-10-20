@@ -398,11 +398,6 @@ change log). 169 specs; dd-serve type-checks.
    voice its whole library again through TTS. So an old build must not
    run against a moved store; no DD release can stop it, since the old
    build runs the old DD (mail/received/20261020-*).
-   **Where a recording's words go (Thomas, 2026-10-20, "write it into
-   DESIGN-types"):** before, the recipe's prompt; after, the `words` track;
-   a `transcript` asset only for words that are a thing of their own,
-   linked `transcript-of`. `audio_meta.transcript_id` (from 0.2, used only
-   by Overlore) is dropped in 0.16, with the strict type names.
 3. Overlore (13 types into 6, subtypes, its transcripts go, `legacy` to
    decide). Overlore took 0.15.4 into its lock (uncommitted there) and held,
    not told it was its turn. **Asked 2026-10-20** (Thomas: "send the note";
@@ -424,8 +419,13 @@ change log). 169 specs; dd-serve type-checks.
    Overlore to delete the other 48 any time and the 69 on 0.15.5. **To do:**
    tell `@owl` once Overlore has moved: its library reads Overlore's `drop`
    as places (`OWL_LIBRARIES`, overlore on 7078), so door views will show up.
-Then 0.16: unlisted names refused. Then semantic search, on the
-registrations.
+   **Where a recording's words go (Thomas, 2026-10-20, "write it into
+   DESIGN-types"):** before, the recipe's prompt; after, the `words` track;
+   a `transcript` asset only for words that are a thing of their own,
+   linked `transcript-of`. `audio_meta.transcript_id` (from 0.2, used only
+   by Overlore) is dropped in 0.16, with the strict type names.
+Then 0.16: unlisted names refused, `transcript_id` dropped. Semantic
+search, on the registrations, needn't wait for 0.16.
 
 **From `@mj`, 2026-10-19 (`mail/received/20261019-171409Z-@mj--…`),**
 after a talk with Thomas. Only the first is settled:
