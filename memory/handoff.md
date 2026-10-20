@@ -14,7 +14,7 @@ on its depth maps' "depth of 1" descriptions; characters as assets
 (Thomas). Waiting: Overlore's deploy (Thomas). Piece 2 is done
 (2026-10-20).
 
-## 0.15.4: TIFF masters (built, uncommitted, 2026-10-20)
+## 0.15.4: TIFF masters (released v0.15.4 at `a229a4a`, 2026-10-20)
 
 **Decided (Thomas, 2026-10-20):** the park's originals are tiled TIFF, 8-bit
 ("we don't need 16 bit. I can't see the difference"), and DD makes their
@@ -23,10 +23,23 @@ conversion. This answers `@boardwalk`'s question
 (`mail/received/20261019-235320Z-@boardwalk--…`). XCF lost because nothing
 outside GIMP reads it properly: ImageMagick refuses 16-bit files, libgimp
 works only inside a running GIMP, and the Rust crates read 8-bit layers
-without blending them. The reply is held in
-`mail/drafts/@boardwalk--2026-10-19-xcf.md`.
+without blending them. The reply was sent to `@boardwalk` (`7c4a5eb7`). The notice is
+`#datadungeon` post 3, and `@curio` was sent the re-measure step for the park
+store (`f42b5aea`).
 
-**Built** on branch `tiff`, in scratchpad worktree `xcf-dd`:
+**Open (Thomas):** should the tiles be compressed? `@curio` relays
+(`mail/received/20261020-011926Z-@curio--…`) that Thomas wants the masters
+left uncompressed because the store is to be on transfs, "though he thinks
+Deflate is OK". 0.15.4 writes deflate. Measured on transfs, small stroke
+over 37 files, chunked and zstd'd:
+- uncompressed 64×64 tiles: 1.9 MiB an edit, 69.7 MiB the first copy,
+  162.7 MiB off transfs;
+- deflate tiles: 2.6 MiB an edit, 57.0 MiB the first copy, 56.8 MiB off
+  transfs.
+
+Uncompressed comes out cheaper only after about 18 edits a picture.
+
+**Released** on Thomas's "tag and message @boardwalk"; the branch and worktree are removed:
 - `require "data_dungeon/tiff"` links libtiff 4.5 or later; core DD links
   nothing new, so apps' builds can't break, and `dd-serve` requires it.
 - A TIFF is stored as `.tif`, and `image/x-xcf` as `.xcf`.
