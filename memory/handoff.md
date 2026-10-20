@@ -6,10 +6,20 @@
 later; 0.15.6 (`8236d73`) is the latest release. **Overlore's piece 3 is
 done** (`f9c472ee`, below). **0.15.7, semantic search, is released** (v0.15.7 at
 `e31e97e`, Thomas's "tag", 2026-10-20; notice `#datadungeon` post 6; branch
-and worktree removed). **Next: 0.16**, refusing unlisted type names. Thomas
-(2026-10-20, with "tag"): "maybe we can just leave transcript_id in there
-for the moment. doesn't hurt anything does it?": answered, not yet
-decided; DESIGN-types and the README still say 0.16 drops it. Sent on Thomas's "send": `@owl` (Overlore's
+and worktree removed). **0.16.0 is built** on branch `0.16` (scratchpad
+worktree `dd-016`), not committed, waiting on Thomas's "tag": `register_type`,
+`rename_type` (its `to`) and storing refuse names not in STANDARD_TYPES
+(`standard!`); an older registration still opens, reads and renames.
+**`transcript_id` stays, deprecated** (Thomas, 2026-10-20: "keep it
+deprecated ... You never know we might find some other need for the column
+and then we can just rename it"). Every spec, bench and README example moved
+onto standard names (helper: scratchpad `retype.py`); 188 specs; the five
+apps type-check; every live store's backup (scratchpad `r016/`) re-registers
+its types and runs its start-up renames on 0.16 unchanged. **Watch:**
+Overlore's start-up registers its old names on an unmoved store
+(`AssetTypes.register_before_standard`, web_app.cr:381), so a store of its
+that hasn't moved (its deploy) must move on a 0.15 build before it takes
+0.16; the notice says so. Sent on Thomas's "send": `@owl` (Overlore's
 door views are now places, `225e8d74`), `@memo` (duplicate service bug,
 `57d11aeb`). Open: `@curio` relayed Thomas's doubt (`872a7225`) that a
 `words` track can stand in for a transcript; see DESIGN-types "Text". Owl has moved too (`359e4306`: depth
