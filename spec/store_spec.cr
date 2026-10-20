@@ -300,6 +300,31 @@ describe DataDungeon::DB do
     FileUtils.rm_rf(dir) if dir
   end
 
+  it "delete_asset clears a clip's pointer to the transcript it deletes" do
+    dir = File.tempname("dd-del-transcript")
+    Dir.mkdir_p(dir)
+    db = open_db(dir)
+    db.register_type("transcript", pool_traits: %w[line])
+    words = db.store("transcript", {"line" => "hello"}, bytes: "Hello!".to_slice, content_type: "text/plain",
+      text: DataDungeon::TextMeta.new(content: "Hello!"))
+    clip = db.store("banter", {"line" => "hello"}, bytes: "ogg".to_slice, content_type: "audio/ogg",
+      audio: DataDungeon::AudioMeta.new(duration_ms: 800, transcript_id: words.id))
+    db.load_audio_meta(clip.id).not_nil!.transcript_id.should eq words.id
+    seq = db.connection.scalar("SELECT max(seq) FROM asset_changes").as(Int64)
+
+    db.delete_asset(words.id)
+    db.find_asset_by_id(words.id).should be_nil
+    meta = db.load_audio_meta(clip.id).not_nil!
+    meta.transcript_id.should be_nil
+    meta.duration_ms.should eq 800
+    db.connection.query_all("SELECT asset_id FROM asset_changes WHERE seq > ? ORDER BY seq", seq, as: Int64)
+      .should eq [words.id, clip.id]
+    db.connection.scalar("SELECT count(*) FROM pragma_foreign_key_check").should eq 0
+  ensure
+    db.try(&.close)
+    FileUtils.rm_rf(dir) if dir
+  end
+
   it "keeps the newest take readable after another with different bytes" do
     dir = File.tempname("dd-restore")
     Dir.mkdir_p(dir)

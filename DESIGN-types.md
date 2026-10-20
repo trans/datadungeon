@@ -151,8 +151,32 @@ tie it to one automaton's).
 | **transcript** | the words of an audio or video asset, written down after it, with speakers and times when known (WebVTT) |
 | **log** | a record of what happened, in order (what interactive fiction calls a transcript) |
 
-A clip spoken from a text needs no transcript: its words are its recipe's
-text, and when each is spoken is its `words` track. Prompts aren't assets: they're named texts in the recipe tables.
+**A recording's words** (Thomas, 2026-10-20) are kept in one of three
+places, by when they were written and what they're for:
+- **Before, what it was made from:** its recipe's prompt, the text sent to
+  the voice. It may hold directions that aren't spoken (`[whisper]`).
+  Prompts aren't assets: they're texts in the recipe tables, inputs to
+  making something.
+- **After, what is heard:** its `words` track, with each word's time,
+  which is a measurement of the recording, as a picture's content box is.
+  The track's `tool` says whether it aligned the known text or transcribed
+  the sound; an app keeping both names the second (`words-heard`). A
+  recorded or uploaded clip, with no recipe, has only this.
+- **A `transcript` asset** only when the words are a thing of their own:
+  subtitles shipped with a video, an interview written up to be read. It
+  links to its recording `transcript-of`, which works for video as for
+  audio, allows several (one per language), and goes when either asset
+  does.
+
+So a clip spoken from a text needs no transcript. Overlore's 117 were
+copies of their clips' prompts, byte for byte, and are deleted in piece 3
+(Thomas, 2026-10-20).
+
+`audio_meta.transcript_id`, from 0.2 (2026-03), before recipes and tracks,
+pointed a clip at one text asset; Overlore was the only app to use it. It
+is dropped in 0.16, with the strict type names. Until then, deleting an
+asset clears any clip's `transcript_id` that names it (0.15.5; the foreign
+key refused the delete before).
 
 **Scripts** use Yarn Spinner's line syntax (`@overlore`'s proposal; notes
 in Overlore's `docs/SCRIPT-FORMATS.md`): `Veteran: This isn't a stage,
@@ -499,7 +523,7 @@ and from then on their pictures in that style can be shared.
 Each app moves its own assets, one app at a time (Thomas, 2026-10-13):
 each of its types becomes a standard type and a use, with its tags kept
 and renamed to the shared vocabulary where they differ. Overlore has
-worked out its own already (its 15 types; its 116 `transcript` assets go,
+worked out its own already (its 15 types; its 117 `transcript` assets go,
 since a clip's words are its recipe's text). DataDungeon provides the
 calls; the one-way part, as 0.12's keys were, is the schema. Curating
 will find mistakes (a scrim filed as a drop), so one asset's type can be
@@ -544,7 +568,7 @@ again and rewrote their search rows on each start).
 | 2 | Cattacula | voice → `speech` |
 | 2 | the park | stage-standup → `speech`; prop is already `prop` |
 | 2 | Owl | owl_scene, owl_frame → `drop`; owl_depth → `map`; owl_voice → `speech`; owl_prop → `prop` |
-| 3 | Overlore | room, door_view, background, backdrop → `drop`; panel, heroshot, portrait → `plug`; banter, narration → `speech`; banter_script → `script`; decree → `prose`; its `transcript` assets go; `legacy`, to decide |
+| 3 | Overlore | room, door_view, background, backdrop → `drop`; panel, heroshot, portrait → `plug`; banter, narration → `speech`; banter_script → `script`; decree → `prose`; comic → `document`, `subtype` `comicbook`; layer → `prop` or `scrim`; its `transcript` assets are deleted (Thomas, 2026-10-20: each is its clip's prompt, byte for byte); `legacy`, to decide |
 
 ## Open, collected
 
@@ -566,4 +590,5 @@ again and rewrote their search rows on each start).
   2026-10-16: a freeze on what no app uses yet); uses and owner tags are
   dropped. 0.15 is a small cleanup, without them (Thomas, 2026-10-17).
   The types' list is 0.15.2, the apps move in pieces, and 0.16 refuses
-  unlisted names (Thomas, 2026-10-19).
+  unlisted names (Thomas, 2026-10-19). 0.16 also drops `audio_meta.transcript_id`
+  (Thomas, 2026-10-20); 0.15.5 lets a transcript it names be deleted.

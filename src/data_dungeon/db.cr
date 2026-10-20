@@ -2969,12 +2969,18 @@ module DataDungeon
 
     # Row-only delete (sidecars fall via ON DELETE CASCADE). Used by
     # delete_asset, which then releases the object, and by vacuum for rows
-    # whose object is already gone.
+    # whose object is already gone. A clip that names this asset as its
+    # transcript loses the pointer (the foreign key would refuse the delete),
+    # and is logged as changed.
     private def delete_asset_row(id : Int64) : Nil
       @indexer.try(&.delete_asset(id))
       write_transaction do |conn|
         unindex_search(conn, id)
         log_change(conn, id)
+        conn.query_all("SELECT asset_id FROM audio_meta WHERE transcript_id = ?", id, as: Int64).each do |clip|
+          log_change(conn, clip)
+        end
+        conn.exec("UPDATE audio_meta SET transcript_id = NULL WHERE transcript_id = ?", id)
         conn.exec("DELETE FROM assets WHERE id = ?", id)
       end
     end

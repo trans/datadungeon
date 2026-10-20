@@ -215,7 +215,8 @@ of its bytes under a directory named for the first two hex characters, with an
 extension from its content type (`ab/ab12….webp`). Identical bytes are stored
 once and shared by every asset that holds them (of different types), and
 deleting or pruning an asset unlinks its object only when no other asset
-still uses it. An asset's `media` comes from its content type unless given: its
+still uses it. Deleting an asset also clears any clip's `transcript_id`
+that names it (0.15.5; `transcript_id` itself goes in 0.16, DESIGN-types). An asset's `media` comes from its content type unless given: its
 top-level type (image, audio, video, text, model, font), JSON, XML and YAML
 counting as text, and anything else (a PDF, raw bytes) `data`.
 Existing rows keep the keys they were stored under. `DB#store_asset`
@@ -425,8 +426,8 @@ libtiff. With it, DataDungeon:
   rounded to the nearest 8-bit level (Thomas, 2026-10-20: 8-bit is enough).
   The same pixels always make the same file, and only the first page is
   kept, so export a flattened picture. An edit changes only the tiles it
-  touches, so on transfs a small stroke costs 2.6 MiB over 37 pictures,
-  against PNG's 32.7 (transfs-rs's chunk study);
+  touches, so on transfs a small stroke costs 2.7 MiB over 37 pictures,
+  against PNG's 32.9 (transfs-rs's chunk study);
 - **makes a picture's WebP,** a TIFF's or a PNG's: `store_webp(id, tags)`
   stores it as a new asset of the picture's type, linked `derived-from` it
   with its quality in the link's data. It takes the picture's tags with
