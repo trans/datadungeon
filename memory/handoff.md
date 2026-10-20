@@ -14,6 +14,21 @@ on its depth maps' "depth of 1" descriptions; characters as assets
 (Thomas). Waiting: Overlore's deploy (Thomas). Piece 2 is done
 (2026-10-20).
 
+## 0.15.6: names (branch `0.15.6`, scratchpad worktree `dd-0156`, uncommitted)
+
+**Decided (Thomas, 2026-10-20):**
+- **`map` → `pass`** ("every time I read 'map' I think of a pirate's map or
+  a zork map"; "utility/technical textures" collide with `texture`, so
+  "'pass' will have to do"). Compositing's word for a picture for programs.
+  Only Owl has any (47 depth maps). Rehearsed on a copy (scratchpad
+  `pass/`): 47 moved, only type, index, keys, search rows and change log
+  differ, second run moves nothing. Note to `@owl` drafted, held.
+- **`prop`'s definition:** "a 3D model of a thing (a chair, a sword), not a
+  set or a figure" (Thomas: name the other types, not "a body").
+- **`transcript`'s definition** tightened to match DESIGN-types' words note.
+
+181 specs pass; dd-serve builds. Not yet tagged.
+
 ## 0.15.4: TIFF masters (released v0.15.4 at `a229a4a`, 2026-10-20)
 
 **Decided (Thomas, 2026-10-20):** the park's originals are tiled TIFF, 8-bit
