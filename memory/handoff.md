@@ -4,9 +4,12 @@
 
 **Where things stand (2026-10-20, afternoon):** every app is on 0.15.4 or
 later; 0.15.6 (`8236d73`) is the latest release. **Overlore's piece 3 is
-done** (`f9c472ee`, below). **0.15.7, semantic search, is built** on branch
-`0.15.7` (scratchpad worktree `dd-0157`), not yet committed: see the
-section below; real-model try done (below); waiting on Thomas's "tag". Sent on Thomas's "send": `@owl` (Overlore's
+done** (`f9c472ee`, below). **0.15.7, semantic search, is released** (v0.15.7 at
+`e31e97e`, Thomas's "tag", 2026-10-20; notice `#datadungeon` post 6; branch
+and worktree removed). **Next: 0.16**, refusing unlisted type names. Thomas
+(2026-10-20, with "tag"): "maybe we can just leave transcript_id in there
+for the moment. doesn't hurt anything does it?": answered, not yet
+decided; DESIGN-types and the README still say 0.16 drops it. Sent on Thomas's "send": `@owl` (Overlore's
 door views are now places, `225e8d74`), `@memo` (duplicate service bug,
 `57d11aeb`). Open: `@curio` relayed Thomas's doubt (`872a7225`) that a
 `words` track can stand in for a transcript; see DESIGN-types "Text". Owl has moved too (`359e4306`: depth
@@ -22,7 +25,7 @@ pushing transfs-rs `92d56d9`; the word to Owl on its depth maps' "depth of
 1" descriptions (not drafted); topic subscription hooks and topic posts
 filed in sent/ (he's looking into it).
 
-## 0.15.7: semantic search (built 2026-10-20 on branch `0.15.7`, not committed)
+## 0.15.7: semantic search (released v0.15.7 at `e31e97e`, 2026-10-20; notice post 6)
 
 Thomas: "shall we go ahead and do semantic search?" (2026-10-20), on the
 scope he called "about right" (2026-10-19). Built:
