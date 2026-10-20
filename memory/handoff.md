@@ -37,7 +37,7 @@ store (`f42b5aea`).
   WebP was made and linked. curio 0.8.1 (`dd6b739`) thumbnails TIFF
   masters. The live park store moves when Thomas says.
 
-**Open (Thomas):** should the tiles be compressed? `@curio` relays
+**Decided (Thomas, 2026-10-20): keep deflate**, after the numbers below. They're in transfs-rs's chunk study (`92d56d9`). The question was whether the tiles should be compressed. `@curio` relays
 (`mail/received/20261020-011926Z-@curio--…`) that Thomas wants the masters
 left uncompressed because the store is to be on transfs, "though he thinks
 Deflate is OK". 0.15.4 writes deflate. Measured as transfs stores a TIFF
