@@ -4,7 +4,7 @@
 
 | App | Checkout | Uses DD for | Builds against |
 |---|---|---|---|
-| Overlore (formerly Infocomic) | `~/Projects/overlore` (moved from `~/Projects/infocomics/infocomic` 2026-10-14) | images, transcripts, banter, decrees | GitHub, `~> 0.15.0`; its lock has 0.15.4, not yet committed there (2026-10-20); piece 3 asked 2026-10-20; earlier: `~> 0.13.1`, live store on 0.13.1 since 2026-10-15 00:33 UTC (916 records as recipes, ten style wordings named); `~> 0.12.0` since its `863ba42` (2026-10-11); was this checkout |
+| Overlore (formerly Infocomic) | `~/Projects/overlore` (moved from `~/Projects/infocomics/infocomic` 2026-10-14) | images, transcripts, banter, decrees | GitHub, `~> 0.15.0`, live store on 0.15.6 (its lock) and the standard types since 2026-10-20 (`f9c472ee`); earlier: `~> 0.13.1`, live store on 0.13.1 since 2026-10-15 00:33 UTC (916 records as recipes, ten style wordings named); `~> 0.12.0` since its `863ba42` (2026-10-11); was this checkout |
 | Cattacula | `~/Projects/siliconcircus.lol/cattacula/service` | TTS voice audio (`voices.db`) | GitHub, `~> 0.15.4`, 0.15.4 since its `46bab79` (2026-10-20); 0.13.1 since its `4d39011` (2026-10-14); 0.13.0 since `55587c5`; `~> 0.12.0` since `9fe2421` (2026-10-12); agent `@cattacula` |
 | Pirateship | `~/Projects/siliconcircus.lol/pirateship` | parrot TTS voices (`data/voices.db`) | GitHub, 0.15.4 since its `d055ec6` (2026-10-20); 0.13.1 since its `84491af` (2026-10-14); `~> 0.13.0` since `a4dcabe`; agent `@pirateship`, with its own `.ai/` (handle `pirateship`) since 2026-10-19 |
 | Silicon Circus venues | via the `siliconcircus` agent | venue images, about one per attraction | — |

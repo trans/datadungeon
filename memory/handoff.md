@@ -2,20 +2,74 @@
 
 *Updated 2026-10-20*
 
-**Where things stand (2026-10-20):** every app is on 0.15.4 or later;
-0.15.5 (`5ad4fe9`) and 0.15.6 (`8236d73`) are out. Waiting on apps:
-Overlore's piece 3 (types; transcripts: 48 any time, 69 on 0.15.5;
-`comic`, `layer`), Owl's `map` → `pass`; then tell Owl about Overlore's
-door views. Ours: semantic search next (Thomas's goal; built but unused,
-see "Embeddings registry" and `DESIGN-embeddings.md`, draft `a5febfd`),
-then 0.16 (unlisted type names refused, `transcript_id` dropped) once
-Overlore and Owl have moved. Later: AI descriptions as linked text assets
-with their own recipe, read by search; hashes as blobs and prompt
-compression. Thomas's: `legacy`'s 4 pictures (with Overlore); characters
-as assets (mj's item 3); the live park store to 0.15.6 with a re-measure
-(curio); Overlore's deploy; pushing transfs-rs `92d56d9`; the word to Owl
-on its depth maps' "depth of 1" descriptions (not drafted); topic
-subscription hooks and topic posts filed in sent/ (he's looking into it).
+**Where things stand (2026-10-20, afternoon):** every app is on 0.15.4 or
+later; 0.15.6 (`8236d73`) is the latest release. **Overlore's piece 3 is
+done** (`f9c472ee`, below). **0.15.7, semantic search, is built** on branch
+`0.15.7` (scratchpad worktree `dd-0157`), not yet committed: see the
+section below; waiting on Thomas for a real-model try on an Owl copy (his
+`OPENAI_API_KEY`, asked) and "tag". Held drafts: `@owl` (Overlore's door
+views are now places), `@memo` (duplicate service bug). Waiting on apps:
+Owl's `map` → `pass`. Then 0.16 (unlisted type names refused,
+`transcript_id` dropped) once Owl has moved. Later: AI descriptions as
+linked text assets with their own recipe, read by search; hashes as blobs
+and prompt compression. Thomas's: characters as assets (mj's item 3); the
+live park store to 0.15.6+ with a re-measure (curio); Overlore's deploy;
+pushing transfs-rs `92d56d9`; the word to Owl on its depth maps' "depth of
+1" descriptions (not drafted); topic subscription hooks and topic posts
+filed in sent/ (he's looking into it).
+
+## 0.15.7: semantic search (built 2026-10-20 on branch `0.15.7`, not committed)
+
+Thomas: "shall we go ahead and do semantic search?" (2026-10-20), on the
+scope he called "about right" (2026-10-19). Built:
+- `register_type(…, embed: %w[description subtype])`: what's embedded, in
+  the registration (`asset_types.embed`, added on open; a read-only open of
+  an older store reads none). No `embed`, not embedded. A change needs no
+  rekey; `reindex_type` logs every asset, so other processes re-embed too.
+  `rename_tag` renames embed parts. `semantic_tag_keys:` removed (no
+  consumer used it, checked 2026-10-20).
+- Text: description as written, then "Hair color is red." per tag by name;
+  facets the same. Prompt never embedded.
+- One model per store: another service holding vectors raises;
+  `switch_model: true` drops them.
+- `SemanticIndex#catch_up` follows `asset_changes` (now also logged for
+  description changes), first call backfills; refreshes registrations
+  (`DB#refresh_registrations`). `close` detaches (`DB#detach_indexer`).
+- `Searcher` module + `SearchHit`/`SearchStatus` (searcher.cr) so http.cr
+  needn't require Memo. `GET /search` (q, type, media, tag.*, key,
+  key_prefix, facet, limit, min_score; facet.<name>= with type) and
+  `GET /search/status`; 502 when the query's embedding fails.
+- dd-serve: `DD_EMBED_MODEL`, `DD_EMBED_KEY`, `DD_EMBED_FORMAT` (openai,
+  voyage, mock); opens read-write to keep vectors; worker fiber every 5 s.
+  Needs memo (pinned `~> 0.13.1`) and libmagic: the park must add `memo`
+  to its shard.yml to build dd-serve (tell it in the notice).
+- **Memo 0.13.1 bug:** asked by format+model, it adds a `<format>/<model>`
+  service beside a listed one of another name (`openai`, `mock`), and the
+  next open fails "more than one row". Worked around (`known_service`);
+  report drafted to `@memo`, held.
+- Checked: 187 specs (1 pending S3); the five apps type-check; dd-serve on
+  an Owl copy (scratchpad `search/`, objects as symlinks) with the mock
+  model: embeds 38 drops, searches, picks up another process's description
+  and registration change within seconds, restarts cleanly.
+  `bench/semantic_filter.cr` still writes `assets.description`, gone since
+  0.13: stale, left.
+
+## Overlore's piece 3 (done 2026-10-20, `f9c472ee`, on 0.15.6)
+
+Live store moved at start-up (`StoreMigration.standard_types`, copies first
+to `assets.db.before-standard-types`). Now: `drop` (room 6, door-view 18,
+backdrop 11, background 29), `plug` (heroshot 5, portrait 17), `speech`
+(banter 704), `script` (banter-script 100), `prose` (decree 18); `document`
+(comicbook) and `prop` (layer, cropped to its thing) registered, empty.
+Subtype = old type name with dashes. **Deleted, copies kept outside the
+store for Thomas:** all 117 transcripts; all 64 narration clips (a turn's
+voice is now a clip per paragraph); all 66 panels (now kept by moment);
+`legacy` (Tom's portrait became a `plug` portrait; two stairs and Toni's
+portrait deleted; type unregistered); four portraits not head to toe
+(Thomas: "we can't use those four"). Also: 17 decrees given their `game`;
+15 portraits got their description back with a rebuilt prompt
+(`prompt-rebuilt`). Rehearsed on copies; second start changes nothing; 908
+assets' lookups the same live as rehearsed. Tell Owl: drafted, held.
 
 ## 0.15.6: names (released v0.15.6 at `8236d73`, 2026-10-20; notice post 5)
 
