@@ -6,8 +6,7 @@
 later; 0.15.6 (`8236d73`) is the latest release. **Overlore's piece 3 is
 done** (`f9c472ee`, below). **0.15.7, semantic search, is built** on branch
 `0.15.7` (scratchpad worktree `dd-0157`), not yet committed: see the
-section below; waiting on Thomas for a real-model try on an Owl copy (his
-`OPENAI_API_KEY`, asked) and "tag". Sent on Thomas's "send": `@owl` (Overlore's
+section below; real-model try done (below); waiting on Thomas's "tag". Sent on Thomas's "send": `@owl` (Overlore's
 door views are now places, `225e8d74`), `@memo` (duplicate service bug,
 `57d11aeb`). Open: `@curio` relayed Thomas's doubt (`872a7225`) that a
 `words` track can stand in for a transcript; see DESIGN-types "Text". Waiting on apps:
@@ -55,6 +54,17 @@ scope he called "about right" (2026-10-19). Built:
   and registration change within seconds, restarts cleanly.
   `bench/semantic_filter.cr` still writes `assets.description`, gone since
   0.13: stale, left.
+- **Real model (Thomas: "yes, feel free", 2026-10-20):** an Owl copy
+  (scratchpad `search-real/`), text-embedding-3-small, drop embedding
+  description+subtype, speech and prop description: 50 assets, 44 distinct
+  texts, 1,608 tokens. "a wizard's study at night" → the four studies
+  (0.66-0.70); "a bell ringing" → "the tower bell tolls once" (0.47, next
+  0.21); "a spooky graveyard" (nothing like it) tops at 0.37, against
+  0.55-0.70 for real matches: a cutoff near 0.45 for this model. A bad key:
+  `/search` gives 502 with OpenAI's message, `/search/status` still 200.
+- **Transcript wording** (Thomas through `@curio` `872a7225`: a words track
+  isn't a transcript) reworded on the branch: vocabulary.cr's definition,
+  DESIGN-types "Text" and table row, a README tracks line; subtitles open.
 
 ## Overlore's piece 3 (done 2026-10-20, `f9c472ee`, on 0.15.6)
 
