@@ -65,10 +65,11 @@ module DataDungeon
       StandardType.new("plug", "Plug", %w[image video], "a framed moment, shown as it is: a comic panel, a hero shot"),
       StandardType.new("placard", "Placard", %w[image video], "words shown on their own, between scenes: an intro, a title card, end credits"),
       StandardType.new("scrim", "Scrim", %w[image video], "a frame's whole size, laid over a drop or plug"),
-      StandardType.new("prop", "Prop", %w[image video model], "an object, placed by the app: a picture cropped close to its edges, or seen from outside in 3D"),
+      StandardType.new("prop", "Prop", %w[image video model], "an object the app places: a picture cropped close to its edges, or a 3D model of a thing " \
+                                                              "(a chair, a sword), not a set or a figure"),
       StandardType.new("texture", "Texture", %w[image video], "a material with no subject or edges, filling an area"),
       StandardType.new("icon", "Icon", %w[image video], "a small indicator: a button, a rating"),
-      StandardType.new("map", "Map", %w[image video], "for programs, not people: a depth map, a mask, a matte"),
+      StandardType.new("pass", "Pass", %w[image video], "for programs, not people: a depth map, a mask, a matte"),
       StandardType.new("automaton", "Automaton", %w[text data], "a character's moves as a graph of picture frames, which may follow which, " \
                                                                 "walked afresh each play; its frames are props linked from it"),
       # Sound
@@ -81,7 +82,8 @@ module DataDungeon
       # Text
       StandardType.new("prose", "Prose", %w[text], "continuous writing in one voice: a description, a decree, a story"),
       StandardType.new("script", "Script", %w[text], "lines for voices in turns"),
-      StandardType.new("transcript", "Transcript", %w[text], "the words of an audio or video asset, written down after it, with speakers and times when known"),
+      StandardType.new("transcript", "Transcript", %w[text], "the words of an audio or video asset as a text of their own, written down after it (subtitles, " \
+                                                             "an interview written up), linked transcript-of it; a clip's words heard are its words track"),
       StandardType.new("log", "Log", %w[text], "a record of what happened, in order"),
       # Documents and data
       StandardType.new("document", "Document", %w[data text], "made to be read: pages laid out, text and pictures (PDF, EPUB)"),

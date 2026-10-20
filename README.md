@@ -29,7 +29,7 @@ scan, at any depth.
 A type's name says what the asset is, from DataDungeon's list
 (`DB::STANDARD_TYPES`, served by `GET /vocabulary`), so another app can
 tell what it is: `drop` (a place, the set things stand in front of),
-`plug`, `placard`, `scrim`, `prop`, `texture`, `icon`, `map`,
+`plug`, `placard`, `scrim`, `prop`, `texture`, `icon`, `pass`,
 `automaton`; `speech`,
 `dialogue`, `music`, `ambience`, `effect`, `recording`; `prose`,
 `script`, `transcript`, `log`; `document`, `data`; `set`, `figure`,

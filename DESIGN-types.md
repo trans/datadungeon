@@ -60,9 +60,11 @@ as it is (a comic panel, a hero shot; in stagecraft a plug, technically a
 scenic insert; `panel`, `shot` and `tableau` were considered), and
 `placard` for words shown between scenes. The names come from stagecraft
 rather than film, since apps build rooms and scenes from these assets.
-`map` stays until a better word comes (Thomas,
-2026-10-13; `scan` was considered, but a scanned page is a picture people
-read). Not `scene` for a
+`pass` is a picture made for programs, not people, as compositing names a
+depth pass or a matte pass (Thomas, 2026-10-20). It was `map` until then,
+which read as a pirate's map or a Zork map; `scan` was considered
+(2026-10-13), but a scanned page is a picture people read, and "utility
+textures" would be confused with `texture`. Not `scene` for a
 drop: setting the scene is the whole arrangement, drop, props and scrims
 together, not the drop alone.
 
@@ -77,7 +79,7 @@ together, not the drop alone.
 | **prop** | an object, cropped close to its edges, placed by the app | around it |
 | **texture** | a material with no subject or edges, filling an area | either |
 | **icon** | a small indicator: a button, a rating; mostly SVG, or Lottie when it moves | either |
-| **map** | for programs, not people: a depth map, a mask, a matte | n/a |
+| **pass** | for programs, not people: a depth map, a mask, a matte | n/a |
 | **automaton** | a character's moves as a graph of frames: which may follow which, walked afresh each play | n/a |
 
 - **Opacity is part of the type,** so it's checked when stored: a drop, a
@@ -95,7 +97,7 @@ together, not the drop alone.
   speech bubble) needs the position of its opening or writing area: an
   area (below).
 - **A map of a place** (a game's world map) is a picture people read, so
-  it's a plug or a drop, not a `map`.
+  it's a plug or a drop, not a `pass`.
 - **An automaton** (Thomas, 2026-10-19, from `@mj`'s Bard) is the graph
   itself, a JSON file, not a picture: which body frames may follow which,
   walked afresh on each play, so neither a `sequence` (one fixed timeline),
@@ -148,7 +150,7 @@ tie it to one automaton's).
 |---|---|
 | **prose** | continuous writing in one voice: a description, a decree, a story |
 | **script** | lines for voices in turns |
-| **transcript** | the words of an audio or video asset, written down after it, with speakers and times when known (WebVTT) |
+| **transcript** | the words of an audio or video asset as a text of their own, written down after it (subtitles in WebVTT, an interview written up), with speakers and times when known; linked `transcript-of` it. A clip's words heard are its `words` track |
 | **log** | a record of what happened, in order (what interactive fiction calls a transcript) |
 
 **A recording's words** (Thomas, 2026-10-20) are kept in one of three
@@ -202,7 +204,7 @@ doesn't read the tags.
 | Type | What it is |
 |---|---|
 | **set** | a place, to be inside or look into |
-| **prop** | an object seen from outside, placed by the app: the same type as a picture's prop |
+| **prop** | a 3D model of a thing (a chair, a sword), not a set or a figure, placed by the app: the same type as a picture's prop |
 | **figure** | a character's body, usually rigged |
 | **motion** | movement for a skeleton, without geometry |
 
@@ -530,7 +532,7 @@ will find mistakes (a scrim filed as a drop), so one asset's type can be
 changed too (`@curio`), to another on the list.
 
 - **Owl** (`@owl`): scenes become drops (`owl:scene`), props props, depth
-  maps maps, the narrator's lines speech. Its frames, stills of one shot
+  maps passes, the narrator's lines speech. Its frames, stills of one shot
   played cross-faded as the player scrolls, would be drops (`owl:frame`)
   linked `derived-from` their scene with their place in the clip as the
   link's data. They stay stills (`@owl`, 2026-10-14): a clip is three to
@@ -567,7 +569,7 @@ again and rewrote their search rows on each start).
 | 1 | Pirateship | voice → `speech` |
 | 2 | Cattacula | voice → `speech` |
 | 2 | the park | stage-standup → `speech`; prop is already `prop` |
-| 2 | Owl | owl_scene, owl_frame → `drop`; owl_depth → `map`; owl_voice → `speech`; owl_prop → `prop` |
+| 2 | Owl | owl_scene, owl_frame → `drop`; owl_depth → `map`, `pass` since 0.15.6; owl_voice → `speech`; owl_prop → `prop` |
 | 3 | Overlore | room, door_view, background, backdrop → `drop`; panel, heroshot, portrait → `plug`; banter, narration → `speech`; banter_script → `script`; decree → `prose`; comic → `document`, `subtype` `comicbook`; layer → `prop` or `scrim`; its `transcript` assets are deleted (Thomas, 2026-10-20: each is its clip's prompt, byte for byte); `legacy`, to decide |
 
 ## Open, collected
