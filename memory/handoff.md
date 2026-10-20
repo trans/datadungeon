@@ -7,8 +7,10 @@ later; 0.15.6 (`8236d73`) is the latest release. **Overlore's piece 3 is
 done** (`f9c472ee`, below). **0.15.7, semantic search, is built** on branch
 `0.15.7` (scratchpad worktree `dd-0157`), not yet committed: see the
 section below; waiting on Thomas for a real-model try on an Owl copy (his
-`OPENAI_API_KEY`, asked) and "tag". Held drafts: `@owl` (Overlore's door
-views are now places), `@memo` (duplicate service bug). Waiting on apps:
+`OPENAI_API_KEY`, asked) and "tag". Sent on Thomas's "send": `@owl` (Overlore's
+door views are now places, `225e8d74`), `@memo` (duplicate service bug,
+`57d11aeb`). Open: `@curio` relayed Thomas's doubt (`872a7225`) that a
+`words` track can stand in for a transcript; see DESIGN-types "Text". Waiting on apps:
 Owl's `map` → `pass`. Then 0.16 (unlisted type names refused,
 `transcript_id` dropped) once Owl has moved. Later: AI descriptions as
 linked text assets with their own recipe, read by search; hashes as blobs
@@ -46,7 +48,7 @@ scope he called "about right" (2026-10-19). Built:
 - **Memo 0.13.1 bug:** asked by format+model, it adds a `<format>/<model>`
   service beside a listed one of another name (`openai`, `mock`), and the
   next open fails "more than one row". Worked around (`known_service`);
-  report drafted to `@memo`, held.
+  reported to `@memo` (`57d11aeb`).
 - Checked: 187 specs (1 pending S3); the five apps type-check; dd-serve on
   an Owl copy (scratchpad `search/`, objects as symlinks) with the mock
   model: embeds 38 drops, searches, picks up another process's description
@@ -69,7 +71,7 @@ portrait deleted; type unregistered); four portraits not head to toe
 (Thomas: "we can't use those four"). Also: 17 decrees given their `game`;
 15 portraits got their description back with a rebuilt prompt
 (`prompt-rebuilt`). Rehearsed on copies; second start changes nothing; 908
-assets' lookups the same live as rehearsed. Tell Owl: drafted, held.
+assets' lookups the same live as rehearsed. Owl told (`225e8d74`).
 
 ## 0.15.6: names (released v0.15.6 at `8236d73`, 2026-10-20; notice post 5)
 
