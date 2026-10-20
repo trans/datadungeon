@@ -314,9 +314,27 @@ change log). 169 specs; dd-serve type-checks.
 
    On each copy, nothing but the type, the keys, the search rows, the
    change log (and Owl's new `subtype` tags) differed. Integrity and
-   foreign keys pass, and a second run changed nothing. **Waiting on all
-   three.** curio told siliconcircus that Thomas expects the move "done
-   with DataDungeon 0.15.4 and 0.15.5"; piece 2 needs no new release.
+   foreign keys pass, and a second run changed nothing. curio told
+   siliconcircus that Thomas expects the move "done with DataDungeon 0.15.4
+   and 0.15.5"; piece 2 needed no new release.
+
+   **Done by all three, live, 2026-10-20**, each rehearsed on a copy
+   first, backed up, with the call kept in start-up. Each matched the
+   rehearsal, and none found anything rough in DD:
+   - the park store: assets `089a279`, backup in `data/before-speech/`.
+     All 564 assets and 14 curator queries answer the same through
+     dd-serve. The import script reads Cattacula's `voice`, or `speech`
+     once Cattacula has it.
+   - Cattacula `77621f1`, pinned `~> 0.15.3`.
+   - Owl `d2a371c`. Its `style` tag now holds Owl's style name. Its
+     remote searches read `drop` beside the old names and skip `subtype`
+     `frame`.
+
+   **Cattacula's warning, for piece 3:** a build from before the move,
+   run against a moved store, finds none of its assets. Cattacula's would
+   voice its whole library again through TTS. So an old build must not
+   run against a moved store; no DD release can stop it, since the old
+   build runs the old DD (mail/received/20261020-*).
 3. Overlore (13 types into 6, subtypes, its transcripts go, `legacy` to
    decide).
 Then 0.16: unlisted names refused. Then semantic search, on the
