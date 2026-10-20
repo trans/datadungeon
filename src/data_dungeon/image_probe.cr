@@ -16,8 +16,9 @@ lib LibPNGImage
     message : UInt8[64]
   end
 
-  VERSION     = 1_u32
-  FORMAT_RGBA = 3_u32 # colour and alpha, 8 bits each
+  VERSION            = 1_u32
+  FORMAT_RGBA        = 3_u32 # colour and alpha, 8 bits each
+  FORMAT_FLAG_LINEAR = 4_u32 # 16 bits each, linear light, premultiplied
 
   fun png_image_begin_read_from_memory(image : Image*, memory : Void*, size : LibC::SizeT) : Int32
   fun png_image_finish_read(image : Image*, background : Void*, buffer : Void*, row_stride : Int32, colormap : Void*) : Int32
@@ -123,26 +124,36 @@ module DataDungeon
     # noise a cut-out's matting leaves doesn't widen its content box.
     VISIBLE_ALPHA = 16
 
+    # Formats read and written through a library an application links by
+    # requiring it (`data_dungeon/tiff`), by content type: a decoder gives
+    # {width, height, RGBA pixels}, an encoder takes them.
+    DECODERS = {} of String => Proc(Bytes, {Int32, Int32, Bytes})
+    ENCODERS = {} of String => Proc(Int32, Int32, Bytes, Bytes)
+
     # The measurement of these bytes, or nil for a format DataDungeon can't
     # read (or bytes that aren't the image they claim to be).
     def self.measure(data : Bytes, content_type : String) : Measurement?
-      case content_type.downcase
+      case type = content_type.downcase
       when "image/png"               then png(data)
       when "image/webp"              then webp(data)
       when "image/gif"               then gif(data)
       when "image/jpeg", "image/jpg" then jpeg(data)
+      else                                DECODERS[type]?.try { |decoder| from_pixels(*decoder.call(data)) }
       end
     rescue Error | IndexError
       nil
     end
 
     # The RGBA pixels of a still PNG or WebP, or of an animation's first
-    # frame: {width, height, pixels}.
+    # frame, or of a format an application added (a TIFF): {width, height,
+    # pixels}.
     def self.decode(data : Bytes, content_type : String) : {Int32, Int32, Bytes}
-      case content_type.downcase
+      case type = content_type.downcase
       when "image/png"  then decode_png(data)
       when "image/webp" then decode_webp(data)
-      else                   raise Error.new("DataDungeon can't decode #{content_type}")
+      else
+        decoder = DECODERS[type]? || raise Error.new("DataDungeon can't decode #{content_type}")
+        decoder.call(data)
       end
     end
 
@@ -151,20 +162,63 @@ module DataDungeon
       from_pixels(width, height, rgba)
     end
 
+    # libpng's simplified reader takes 16-bit samples with no gAMA or sRGB
+    # chunk for linear light, brightening them on the way to 8 bits, and gets
+    # interlaced ones wrong besides. Its 16-bit "linear" output gives such
+    # samples as stored (premultiplied), so they're read that way and rounded
+    # here, at the nearest 8-bit level (within one where partly clear).
     def self.decode_png(data : Bytes) : {Int32, Int32, Bytes}
       image = LibPNGImage::Image.new
       image.version = LibPNGImage::VERSION
       if LibPNGImage.png_image_begin_read_from_memory(pointerof(image), data.to_unsafe.as(Void*), data.size) == 0
         raise Error.new("not a PNG: #{String.new(image.message.to_unsafe)}")
       end
-      image.format = LibPNGImage::FORMAT_RGBA
       width, height = image.width.to_i32, image.height.to_i32
-      rgba = Bytes.new(width * height * 4)
-      if LibPNGImage.png_image_finish_read(pointerof(image), nil, rgba.to_unsafe.as(Void*), 0, nil) == 0
-        LibPNGImage.png_image_free(pointerof(image))
-        raise Error.new("unreadable PNG: #{String.new(image.message.to_unsafe)}")
+      if sixteen_bits_as_stored?(data)
+        image.format = LibPNGImage::FORMAT_RGBA | LibPNGImage::FORMAT_FLAG_LINEAR
+        samples = Slice(UInt16).new(width * height * 4)
+        finish_png(pointerof(image), samples.to_unsafe.as(Void*))
+        return {width, height, straight_8_bit(samples)}
       end
+      image.format = LibPNGImage::FORMAT_RGBA
+      rgba = Bytes.new(width * height * 4)
+      finish_png(pointerof(image), rgba.to_unsafe.as(Void*))
       {width, height, rgba}
+    end
+
+    private def self.finish_png(image : LibPNGImage::Image*, buffer : Void*) : Nil
+      return unless LibPNGImage.png_image_finish_read(image, nil, buffer, 0, nil) == 0
+      LibPNGImage.png_image_free(image)
+      raise Error.new("unreadable PNG: #{String.new(image.value.message.to_unsafe)}")
+    end
+
+    # Whether a PNG has 16-bit samples and no gAMA or sRGB chunk before its
+    # pixels, so libpng hands them over unconverted as "linear".
+    private def self.sixteen_bits_as_stored?(data : Bytes) : Bool
+      return false unless data.size > 28 && String.new(data[12, 4]) == "IHDR" && data[24] == 16
+      pos = 8
+      while pos + 8 <= data.size
+        type = String.new(data[pos + 4, 4])
+        return true if type == "IDAT"
+        return false if type.in?("gAMA", "sRGB")
+        pos += 12 + IO::ByteFormat::BigEndian.decode(UInt32, data[pos, 4]).to_i32
+      end
+      true
+    end
+
+    # Premultiplied 16-bit RGBA as straight 8-bit RGBA, each sample at its
+    # nearest 8-bit level. A clear pixel's colour is gone, so it's black.
+    private def self.straight_8_bit(samples : Slice(UInt16)) : Bytes
+      rgba = Bytes.new(samples.size)
+      (samples.size // 4).times do |i|
+        alpha = samples[i * 4 + 3].to_i64
+        rgba[i * 4 + 3] = ((alpha + 128) // 257).to_u8
+        3.times do |channel|
+          straight = alpha > 0 ? Math.min(65535_i64, (samples[i * 4 + channel].to_i64 * 65535 + alpha // 2) // alpha) : 0_i64
+          rgba[i * 4 + channel] = ((straight + 128) // 257).to_u8
+        end
+      end
+      rgba
     end
 
     private def self.webp(data : Bytes) : Measurement

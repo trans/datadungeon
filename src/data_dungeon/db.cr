@@ -1105,6 +1105,38 @@ module DataDungeon
       repeat ? held : raise AlreadyStored.new(held.id, held.retired?)
     end
 
+    # Store the WebP of a picture DataDungeon decodes (a TIFF, with
+    # `data_dungeon/tiff`, or a PNG) as a new asset of its type, linked
+    # `derived-from` it with the quality in the link's data. It takes the
+    # picture's tags with these over them (`{"fmt" => "webp"}`), its
+    # description and rating, and the image fields the application sets; it
+    # isn't permanent, since it can be made again. Storing the same WebP with
+    # the same tags again returns it (see `store`).
+    def store_webp(id : Int64, tags : Hash(String, String) = {} of String => String, *,
+                   quality : Int32 = WebP::QUALITY.to_i) : AssetRecord
+      writable!
+      raise ArgumentError.new("a WebP's quality is 0 to 100, not #{quality}") unless 0 <= quality <= 100
+      rec = find_asset_by_id(id) || raise ArgumentError.new("No asset #{id}")
+      type = rec.content_type.downcase
+      unless type == "image/png" || ImageProbe::DECODERS.has_key?(type)
+        raise ArgumentError.new("a WebP is made from a picture DataDungeon decodes, and asset #{id} is #{rec.content_type}")
+      end
+      width, height, rgba = ImageProbe.decode(read(rec), type)
+      given = load_tags(id)
+      own = load_image_meta(id)
+      webp = store(rec.asset_type, given.merge(tags),
+        bytes: WebP.encode_webp_bytes(rgba, width, height, quality.to_f32), content_type: "image/webp",
+        description: rec.description, custom: custom_traits(id).select { |name| tags[name]?.nil? || tags[name] == given[name]? },
+        image: own.try { |meta| ImageMeta.new(usage_class: meta.usage_class, presentation: meta.presentation,
+          view_x: meta.view_x, view_y: meta.view_y, view_z: meta.view_z, view_roll: meta.view_roll,
+          light_x: meta.light_x, light_y: meta.light_y, light_z: meta.light_z,
+          anchor_x: meta.anchor_x, anchor_y: meta.anchor_y,
+          world_width: meta.world_width, world_height: meta.world_height, world_depth: meta.world_depth) })
+      link(webp.id, "derived-from", id, {quality: quality}.to_json)
+      rec.rating.try { |rating| update_asset(webp.id, rating: rating) unless webp.rating == rating }
+      find_asset_by_id(webp.id).not_nil!
+    end
+
     # ── Retiring ──
 
     # `new_id` replaces `old_id`: the old take is retired (kept, but out of
@@ -1457,20 +1489,31 @@ module DataDungeon
       policy = meta.compression
       return {data, content_type} if policy == "original"
 
-      target = meta.target_format || "webp"
-      return {data, content_type} unless target == "webp"                  # only WebP output supported today
-      return {data, content_type} if content_type.downcase == "image/webp" # already target
-
-      quality = case policy
-                when "compress" then (meta.quality_floor || 80).to_f32
-                else                 (meta.quality_floor || 90).to_f32 # normalize
-                end
-
-      case content_type.downcase
-      when "image/png"
-        {WebP.png_to_webp_bytes(data, quality), "image/webp"}
+      type = content_type.downcase
+      case meta.target_format || "webp"
+      when "webp"
+        return {data, content_type} if type == "image/webp" # already target
+        quality = case policy
+                  when "compress" then (meta.quality_floor || 80).to_f32
+                  else                 (meta.quality_floor || 90).to_f32 # normalize
+                  end
+        if type == "image/png"
+          {WebP.png_to_webp_bytes(data, quality), "image/webp"}
+        elsif ImageProbe::DECODERS.has_key?(type) # a TIFF, with data_dungeon/tiff
+          width, height, rgba = ImageProbe.decode(data, type)
+          {WebP.encode_webp_bytes(rgba, width, height, quality), "image/webp"}
+        else
+          {data, content_type} # unsupported input (jpg/etc.) — passthrough for now
+        end
+      when "tiff"
+        # Lossless but for depth: 8 bits a channel, in 64×64 deflate tiles.
+        encoder = ImageProbe::ENCODERS["image/tiff"]? ||
+                  raise ArgumentError.new(%(storing as TIFF needs `require "data_dungeon/tiff"`))
+        return {data, content_type} unless type == "image/png" || type == "image/tiff"
+        width, height, rgba = type == "image/png" ? ImageProbe.decode(data, type) : ImageProbe.decode(data, type)
+        {encoder.call(width, height, rgba), "image/tiff"}
       else
-        {data, content_type} # unsupported input (jpg/etc.) — passthrough for now
+        {data, content_type} # an output DataDungeon doesn't write
       end
     end
 
@@ -1521,6 +1564,8 @@ module DataDungeon
       when "image/jpeg", "image/jpg"  then "jpg"
       when "image/gif"                then "gif"
       when "image/svg+xml"            then "svg"
+      when "image/tiff"               then "tif"
+      when "image/x-xcf"              then "xcf"
       when "audio/mpeg", "audio/mp3"  then "mp3"
       when "audio/ogg"                then "ogg"
       when "audio/opus"               then "opus"

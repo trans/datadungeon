@@ -14,10 +14,11 @@
 #   DD_MATCHES_DIR      where best-match files go (beside the database)
 #
 # Building it needs the awscr-s3 and usearch shards (usearch builds its C
-# library when installed, statically linked).
+# library when installed, statically linked), and libtiff 4.5 or later.
 require "./data_dungeon/http"
 require "./data_dungeon/s3"
 require "./data_dungeon/matches"
+require "./data_dungeon/tiff"
 
 def setting(name : String) : String?
   ENV[name]?.presence

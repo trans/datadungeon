@@ -631,7 +631,7 @@ describe DataDungeon::DB do
     db = open_db(dir)
 
     {"audio/opus" => "opus", "image/svg+xml" => "svg", "text/plain; charset=utf-8" => "txt",
-     "audio/ogg; codecs=opus" => "ogg", "application/pdf" => "pdf"}.each do |content_type, ext|
+     "audio/ogg; codecs=opus" => "ogg", "application/pdf" => "pdf", "image/x-xcf" => "xcf"}.each do |content_type, ext|
       rec = db.store("file", bytes: content_type.to_slice, content_type: content_type)
       File.extname(rec.file_path).should eq ".#{ext}"
     end

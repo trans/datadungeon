@@ -1,8 +1,9 @@
 # DataDungeon
 
 DataDungeon stores and serves typed assets. It records searchable tags and
-media-specific metadata, applies image storage policy (including PNG to WebP),
-and resolves stored objects through a `Storage` adapter.
+media-specific metadata, applies image storage policy (PNG or TIFF to WebP,
+and tiled TIFF masters), and resolves stored objects through a `Storage`
+adapter.
 
 ## Asset identity
 
@@ -364,10 +365,13 @@ not known.
 `transparent` (any pixel not fully opaque), `dominant_color` (the colour
 most of the visible picture is, `#rrggbb` in JSON), the box around the
 visible pixels (`content_x/y/w/h`), and for an animation its frames
-(`animation`: count, duration, loops). PNG and WebP, still or animated, give
-all of these; a GIF its size and frames and a JPEG its size, from their
-headers. `measure_images(type, all:)` measures pictures stored before
-(each object is read, which for a bucket is a download).
+(`animation`: count, duration, loops). PNG and WebP, still or animated, and
+TIFF with `data_dungeon/tiff` (below), give all of these; a GIF its size and
+frames and a JPEG its size, from their headers. `measure_images(type, all:)`
+measures pictures stored before (each object is read, which for a bucket is
+a download). Before 0.15.4 a 16-bit PNG with no gamma chunk was read as
+linear light, too bright, and wrongly when interlaced; `all: true` measures
+such pictures again.
 
 **The application sets** what it asked the generator for: the view (where
 the camera stands, a unit vector in the thing's frame, and its roll), the
@@ -405,6 +409,43 @@ Neighbouring views may be at most 90 degrees apart, with a checkpoint
 wherever something turns, so a filter matches a field at the first frame or
 at any checkpoint exactly ("does it ever show the back?"). DataDungeon
 measures the content box at each checkpoint of an animated WebP.
+
+## TIFF masters
+
+`require "data_dungeon/tiff"` adds TIFF, through libtiff 4.5 or later, which
+the application then links (`dd-serve` does). Without it, nothing links
+libtiff. With it, DataDungeon:
+
+- **measures a TIFF** as it does a PNG, whatever layout, compression or
+  depth libtiff reads, and stores it as `.tif`;
+- **stores a TIFF or a PNG as a master,** asked with
+  `ImageMeta.new(compression: "normalize", target_format: "tiff")`: 8 bits
+  a channel, in 64×64 tiles, deflate-compressed, with alpha only when a
+  pixel isn't opaque. The pixels stay as they are, but 16-bit samples are
+  rounded to the nearest 8-bit level (Thomas, 2026-10-20: 8-bit is enough).
+  The same pixels always make the same file, and only the first page is
+  kept, so export a flattened picture. An edit changes only the tiles it
+  touches, so on transfs a small stroke costs 2.6 MiB over 37 pictures,
+  against PNG's 32.7 (transfs-rs's chunk study);
+- **makes a picture's WebP,** a TIFF's or a PNG's: `store_webp(id, tags)`
+  stores it as a new asset of the picture's type, linked `derived-from` it
+  with its quality in the link's data. It takes the picture's tags with
+  these over them, its description and rating, and the image fields the
+  application sets. It isn't permanent, since it can be made again, and
+  storing it again with the same tags returns it.
+
+```crystal
+require "data_dungeon/tiff"
+
+master = db.store("prop", {"venue" => "boardwalk", "thing" => "barrel", "fmt" => "tif"},
+  bytes: File.read("barrel.tif").to_slice, content_type: "image/tiff",   # as GIMP exports it
+  image: DataDungeon::ImageMeta.new(compression: "normalize", target_format: "tiff", anchor_x: 0.5, anchor_y: 1.0))
+webp = db.store_webp(master.id, {"fmt" => "webp"})                       # quality: 85
+```
+
+An `.xcf` (`image/x-xcf`), GIMP's own format, is stored as given, for the
+odd original kept in it. DataDungeon can't read one, so it isn't measured
+and has no WebP (Thomas, 2026-10-20).
 
 ## Tracks
 
@@ -565,7 +606,8 @@ HTTP::Server.new([api, app_handler])
 | `GET /objects` | every object key the store's rows use, for clearing a shared bucket |
 | `GET /vocabulary` | the shared tags and their values, with their titles; each rating with DataDungeon's words for it; DataDungeon's asset types; the shared tracks |
 | `GET /assets/:id/tracks[/:name]` | its tracks, or one (404 when it has none of that name) |
-| `POST /assets` | a file added by hand, as `multipart/form-data`: `file` (its `Content-Type` the asset's) and `asset`, JSON `{type, tags, custom, description, permanent, made_at, supersedes}`; stored as not generated, with no recipe; 409 with `asset_id` when its type already holds the bytes (write token) |
+| `POST /assets` | a file added by hand, as `multipart/form-data`: `file` (its `Content-Type` the asset's) and `asset`, JSON `{type, tags, custom, description, permanent, made_at, supersedes, image}`; stored as not generated, with no recipe; `image` as `PATCH` takes it, plus how to store the file (`{"compression": "normalize", "target_format": "tiff"}` for a TIFF master); 409 with `asset_id` when its type already holds the bytes (write token) |
+| `POST /assets/:id/webp` | `{tags, quality}`: the picture's WebP, as an asset of its own (`store_webp`); 409 as above (write token) |
 | `PATCH`, `DELETE /assets/:id` | edit (with `image` fields, views readably, and `everywhere` for a shared description) or delete (write token) |
 | `PUT /assets/:id/keyframes` | an animation's checkpoints (write token) |
 | `PUT /assets/:id/tracks/:name` | `{tool, cues: [{start_ms, end_ms, value}]}`: a track, replacing the one of that name (write token) |

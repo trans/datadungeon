@@ -84,7 +84,7 @@ together, not the drop alone.
   plug or a placard with transparent pixels, in any frame, is refused. It's
   the pixels that are checked, not the format: a PNG with an alpha channel
   that is opaque throughout passes (`@overlore`). DataDungeon already
-  decodes PNG and WebP to find a picture's content box, so the check costs
+  decodes PNG and WebP (and TIFF) to find a picture's content box, so the check costs
   almost nothing.
 - **A placard's words** are its description, so they're searched like any.
 - **A scrim's link** (`placed-on`) names the one drop or plug it fits.

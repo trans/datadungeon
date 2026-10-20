@@ -65,9 +65,14 @@ module DataDungeon
   #     POST   /assets                     a file added by hand, as multipart/form-data: file
   #                                          (its Content-Type the asset's) and asset, JSON
   #                                          {type, tags, custom, description, permanent,
-  #                                          made_at, supersedes}; stored as not generated, with
-  #                                          no recipe; 409 with asset_id when its type already
-  #                                          holds the bytes
+  #                                          made_at, supersedes, image}; stored as not generated,
+  #                                          with no recipe; image as PATCH takes it, plus how
+  #                                          to store the file ({compression: "normalize",
+  #                                          target_format: "tiff"} for 8-bit 64x64 tiles); 409
+  #                                          with asset_id when its type already holds the bytes
+  #     POST   /assets/:id/webp            {tags, quality}: a picture's WebP as an asset of its
+  #                                          own, its tags with these over them, linked
+  #                                          derived-from it (DB#store_webp); 409 as above
   #     PATCH  /assets/:id                 {tags, description, everywhere, flagged, rating,
   #                                          permanent, image}: update_asset;
   #                                          image holds the fields an application sets, view
@@ -178,6 +183,9 @@ module DataDungeon
         else
           error(context, 405, "#{method} isn't allowed here")
         end
+      elsif method == "POST" && parts.size == 3 && parts[0] == "assets" && parts[2] == "webp" && id
+        @db.find_asset_by_id(id) || return error(context, 404, "No asset #{id}")
+        webp(context, id)
       elsif method == "POST" && parts.size == 3 && parts[0] == "assets" && parts[2] == "retire" && id
         @db.find_asset_by_id(id) || return error(context, 404, "No asset #{id}")
         respond(context, {retired: @db.retire(id)})
@@ -344,13 +352,25 @@ module DataDungeon
       rec = @db.store(asset["type"].as_s, asset["tags"]?.try(&.as_h.transform_values(&.as_s)) || {} of String => String,
         bytes: file, content_type: given_type, description: asset["description"]?.try(&.as_s),
         custom: asset["custom"]?.try(&.as_a.map(&.as_s)) || [] of String, permanent: asset["permanent"]?.try(&.as_bool) || false,
-        made_at: asset["made_at"]?.try { |made| time(made) }, supersedes: asset["supersedes"]?.try(&.as_i64))
+        made_at: asset["made_at"]?.try { |made| time(made) }, supersedes: asset["supersedes"]?.try(&.as_i64),
+        image: asset["image"]?.try { |fields| image_fields(fields, storing: true) })
       respond(context, {asset: rec, tags: @db.load_tags(rec.id)})
     rescue ex : AlreadyStored
       context.response.status_code = 409
       respond(context, {error: ex.message, asset_id: ex.asset_id, retired: ex.retired?})
     rescue ex : HTTP::FormData::Error | MIME::Multipart::Error
       error(context, 400, "POST /assets takes multipart/form-data, a file part and an asset part (#{ex.message})")
+    end
+
+    # A picture's WebP, stored as its own asset (DB#store_webp).
+    private def webp(context, id : Int64) : Nil
+      body = JSON.parse(context.request.body.try(&.gets_to_end).presence || "{}")
+      rec = @db.store_webp(id, body["tags"]?.try(&.as_h.transform_values(&.as_s)) || {} of String => String,
+        quality: body["quality"]?.try(&.as_i) || WebP::QUALITY.to_i)
+      respond(context, {asset: rec, tags: @db.load_tags(rec.id)})
+    rescue ex : AlreadyStored
+      context.response.status_code = 409
+      respond(context, {error: ex.message, asset_id: ex.asset_id, retired: ex.retired?})
     end
 
     # A time given as a date (2026-10-19) or as DataDungeon writes one.
@@ -395,7 +415,10 @@ module DataDungeon
     end
 
     # The fields an application sets, from a PATCH body's `image`.
-    private def image_fields(fields : JSON::Any) : ImageMeta
+    # The image fields an application sets; when `storing`, also how the
+    # file is stored (compression, target_format, quality_floor), which only
+    # a store reads.
+    private def image_fields(fields : JSON::Any, *, storing : Bool = false) : ImageMeta
       number = ->(name : String) { number(fields[name]?) }
       direction = ->(name : String) { direction(fields[name]?) }
       animation = fields["animation"]?.try do |given|
@@ -404,7 +427,10 @@ module DataDungeon
       ImageMeta.new(usage_class: fields["usage_class"]?.try(&.as_s), presentation: fields["presentation"]?.try(&.as_s),
         view: direction.call("view"), light: direction.call("light"),
         anchor_x: number.call("anchor_x"), anchor_y: number.call("anchor_y"), world_width: number.call("world_width"),
-        world_height: number.call("world_height"), world_depth: number.call("world_depth"), animation: animation)
+        world_height: number.call("world_height"), world_depth: number.call("world_depth"), animation: animation,
+        compression: (fields["compression"]?.try(&.as_s) if storing) || "original",
+        target_format: storing ? fields["target_format"]?.try(&.as_s) : nil,
+        quality_floor: storing ? fields["quality_floor"]?.try(&.as_i) : nil)
     end
 
     private def delete(context, id : Int64) : Nil

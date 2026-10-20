@@ -20,7 +20,10 @@ day is a key trait (a word, or a cyclic scale for best match). Numbers stay
 fields even when they tell versions apart (the blimp facing left or right):
 a pooled type holds both, and a join on the field tells them apart (see
 Named directions).
-Renditions (sizes, formats) are made on request and never stored; a
+Renditions (sizes, formats) were to be made on request and never stored.
+From 0.15.4 a WebP DataDungeon makes of a master (`store_webp`) is stored
+as an asset of its own, linked `derived-from` it, since `dd-serve` serves
+stored bytes (Thomas, 2026-10-20: the park's originals are tiled TIFF). A
 version redrawn small on purpose is its own master, so its size can be
 identity.
 
@@ -39,8 +42,9 @@ so no caller parses image headers:
 | `dominant_color` | INTEGER 0xRRGGBB | the colour most of the visible picture is (hex in the API). Not "key colour": `@mj`'s cut-out pipeline uses that for the background it removes |
 | `content_x`, `content_y`, `content_w`, `content_h` | INTEGER px | the box around the visible pixels |
 
-DD decodes PNG and WebP already; a JPEG gives its size from the header, and
-no key colour or content box unless a decoder is added.
+DD decodes PNG and WebP, and TIFF with `data_dungeon/tiff` (0.15.4); a JPEG
+gives its size from the header, and no key colour or content box unless a
+decoder is added.
 
 **Set by the application**, usually from what it asked the generator for:
 
