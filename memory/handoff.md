@@ -22,7 +22,7 @@ on its depth maps' "depth of 1" descriptions; characters as assets
   "'pass' will have to do"). Compositing's word for a picture for programs.
   Only Owl has any (47 depth maps). Rehearsed on a copy (scratchpad
   `pass/`): 47 moved, only type, index, keys, search rows and change log
-  differ, second run moves nothing. Note to `@owl` drafted, held.
+  differ, second run moves nothing. **Owl told** (`9c618957`, Thomas: "send").
 - **`prop`'s definition:** "a 3D model of a thing (a chair, a sword), not a
   set or a figure" (Thomas: name the other types, not "a body").
 - **`transcript`'s definition** tightened to match DESIGN-types' words note.
