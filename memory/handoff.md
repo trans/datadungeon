@@ -11,7 +11,45 @@ search: built but unused; see "Embeddings registry" below and
 open: AI descriptions as linked text assets with their own recipe, and
 search reading them; hashes as blobs and prompt compression; a word to Owl
 on its depth maps' "depth of 1" descriptions; characters as assets
-(Thomas). Waiting: Overlore's deploy (Thomas); piece 2's three stores.
+(Thomas). Waiting: Overlore's deploy (Thomas). Piece 2 is done
+(2026-10-20).
+
+## 0.15.4: TIFF masters (built, uncommitted, 2026-10-20)
+
+**Decided (Thomas, 2026-10-20):** the park's originals are tiled TIFF, 8-bit
+("we don't need 16 bit. I can't see the difference"), and DD makes their
+WebP. DD still stores an `.xcf` as given, for the odd one-off, with no
+conversion. This answers `@boardwalk`'s question
+(`mail/received/20261019-235320Z-@boardwalk--…`). XCF lost because nothing
+outside GIMP reads it properly: ImageMagick refuses 16-bit files, libgimp
+works only inside a running GIMP, and the Rust crates read 8-bit layers
+without blending them. The reply is held in
+`mail/drafts/@boardwalk--2026-10-19-xcf.md`.
+
+**Built** on branch `tiff`, in scratchpad worktree `xcf-dd`:
+- `require "data_dungeon/tiff"` links libtiff 4.5 or later; core DD links
+  nothing new, so apps' builds can't break, and `dd-serve` requires it.
+- A TIFF is stored as `.tif`, and `image/x-xcf` as `.xcf`.
+- TIFFs are measured.
+- `target_format: "tiff"` stores a TIFF or PNG as 8-bit 64×64 deflate tiles.
+- `store_webp` and `POST /assets/:id/webp` make a picture's WebP.
+- `POST /assets` takes `image`.
+- 180 specs pass. The five apps type-check.
+- dd-serve end to end: GIMP's 8.5 MB 16-bit export became 1.2 MB of tiles,
+  and its WebP is 124 KB.
+- DD's own tiles cost 2.6 MiB a small stroke over the study's 37 files,
+  the same as libvips's.
+
+**Bug found and fixed:** libpng's simplified reader took 16-bit PNGs with
+no gAMA/sRGB chunk for linear light, so they measured too bright, and
+interlaced ones came out wrong besides. Now such files are read raw and
+rounded. All 27 park PNGs match ImageMagick: opaque exact, partly clear
+within 1, alpha exact. 17 of them are 16-bit, so the park's colours need
+`measure_images(all: true)` on 0.15.4. Example: the night front is
+`#514C50` stored, `#130D0F` true.
+
+**transfs-rs:** TIFF rows were added to `docs/chunk-study.md`, with
+`tools/chunk-study/export_tiff.sh`; uncommitted there.
 
 ## 0.14: the prompt as sent, the wordings in it, the ratings' words (released v0.14.0 at `401dd4a`, 2026-10-17)
 
