@@ -27,6 +27,16 @@ without blending them. The reply was sent to `@boardwalk` (`7c4a5eb7`). The noti
 `#datadungeon` post 3, and `@curio` was sent the re-measure step for the park
 store (`f42b5aea`).
 
+**Checked by the apps (2026-10-20):**
+- `@pirateship` is on 0.15.4 (`d055ec6`), live. Three starts with
+  `rename_type` kept in boot: after the first, nothing changed in any
+  table, and `asset_changes` stayed at seq 42.
+- `@curio`, on a copy of the park store with a 0.15.4 dd-serve, measured
+  all 76 pictures again; exactly the 17 16-bit pngs changed (#557
+  `#514C50` → `#130D0F`). TIFF uploads were stored and measured, and their
+  WebP was made and linked. curio 0.8.1 (`dd6b739`) thumbnails TIFF
+  masters. The live park store moves when Thomas says.
+
 **Open (Thomas):** should the tiles be compressed? `@curio` relays
 (`mail/received/20261020-011926Z-@curio--…`) that Thomas wants the masters
 left uncompressed because the store is to be on transfs, "though he thinks
