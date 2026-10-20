@@ -398,6 +398,11 @@ change log). 169 specs; dd-serve type-checks.
    voice its whole library again through TTS. So an old build must not
    run against a moved store; no DD release can stop it, since the old
    build runs the old DD (mail/received/20261020-*).
+   **Where a recording's words go (Thomas, 2026-10-20, "write it into
+   DESIGN-types"):** before, the recipe's prompt; after, the `words` track;
+   a `transcript` asset only for words that are a thing of their own,
+   linked `transcript-of`. `audio_meta.transcript_id` (from 0.2, used only
+   by Overlore) is dropped in 0.16, with the strict type names.
 3. Overlore (13 types into 6, subtypes, its transcripts go, `legacy` to
    decide). Overlore took 0.15.4 into its lock (uncommitted there) and held,
    not told it was its turn. **Asked 2026-10-20** (Thomas: "send the note";
@@ -412,9 +417,9 @@ change log). 169 specs; dd-serve type-checks.
    `legacy` (4 pictures, never used) is still Overlore's and Thomas's to
    decide. **The catch:** 71 clips point at 69 of them through
    `audio_meta.transcript_id` (no ON DELETE), so 0.15.4's `delete_asset`
-   fails with a foreign-key error. **Fix on branch `0.15.5`** (scratchpad
-   worktree `dd-0155`, uncommitted): `delete_asset_row` clears the pointer
-   and logs the clip as changed; spec fails without it; on an Overlore copy
+   fails with a foreign-key error. **Fixed in 0.15.5** (released v0.15.5 at
+   `5ad4fe9`, 2026-10-20, on Thomas's "tag"; notice `#datadungeon` post 4):
+   `delete_asset_row` clears the pointer and logs the clip as changed; spec fails without it; on an Overlore copy
    all 117 deleted with only their rows and the 71 pointers changed. Told
    Overlore to delete the other 48 any time and the 69 on 0.15.5. **To do:**
    tell `@owl` once Overlore has moved: its library reads Overlore's `drop`
