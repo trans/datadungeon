@@ -14,7 +14,7 @@ on its depth maps' "depth of 1" descriptions; characters as assets
 (Thomas). Waiting: Overlore's deploy (Thomas). Piece 2 is done
 (2026-10-20).
 
-## 0.15.6: names (branch `0.15.6`, scratchpad worktree `dd-0156`, uncommitted)
+## 0.15.6: names (released v0.15.6 at `8236d73`, 2026-10-20; notice post 5)
 
 **Decided (Thomas, 2026-10-20):**
 - **`map` → `pass`** ("every time I read 'map' I think of a pirate's map or
@@ -27,7 +27,7 @@ on its depth maps' "depth of 1" descriptions; characters as assets
   set or a figure" (Thomas: name the other types, not "a body").
 - **`transcript`'s definition** tightened to match DESIGN-types' words note.
 
-181 specs pass; dd-serve builds. Not yet tagged.
+181 specs pass; dd-serve builds; a fresh `~> 0.15.0` install resolves it.
 
 ## 0.15.4: TIFF masters (released v0.15.4 at `a229a4a`, 2026-10-20)
 
