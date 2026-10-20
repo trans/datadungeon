@@ -4,12 +4,12 @@
 
 | App | Checkout | Uses DD for | Builds against |
 |---|---|---|---|
-| Overlore (formerly Infocomic) | `~/Projects/overlore` (moved from `~/Projects/infocomics/infocomic` 2026-10-14) | images, transcripts, banter, decrees | GitHub, `~> 0.13.1`; live store on 0.13.1 since 2026-10-15 00:33 UTC (916 records as recipes, ten style wordings named); `~> 0.12.0` since its `863ba42` (2026-10-11); was this checkout |
-| Cattacula | `~/Projects/siliconcircus.lol/cattacula/service` | TTS voice audio (`voices.db`) | GitHub, 0.13.1 since its `4d39011` (2026-10-14); 0.13.0 since `55587c5`; `~> 0.12.0` since `9fe2421` (2026-10-12); agent `@cattacula` |
-| Pirateship | `~/Projects/siliconcircus.lol/pirateship` | parrot TTS voices (`data/voices.db`) | GitHub, 0.13.1 since its `84491af` (2026-10-14); `~> 0.13.0` since `a4dcabe`; agent `@pirateship`, with its own `.ai/` (handle `pirateship`) since 2026-10-19 |
+| Overlore (formerly Infocomic) | `~/Projects/overlore` (moved from `~/Projects/infocomics/infocomic` 2026-10-14) | images, transcripts, banter, decrees | GitHub, `~> 0.15.0`; its lock has 0.15.4, not yet committed there (2026-10-20); piece 3 asked 2026-10-20; earlier: `~> 0.13.1`, live store on 0.13.1 since 2026-10-15 00:33 UTC (916 records as recipes, ten style wordings named); `~> 0.12.0` since its `863ba42` (2026-10-11); was this checkout |
+| Cattacula | `~/Projects/siliconcircus.lol/cattacula/service` | TTS voice audio (`voices.db`) | GitHub, `~> 0.15.4`, 0.15.4 since its `46bab79` (2026-10-20); 0.13.1 since its `4d39011` (2026-10-14); 0.13.0 since `55587c5`; `~> 0.12.0` since `9fe2421` (2026-10-12); agent `@cattacula` |
+| Pirateship | `~/Projects/siliconcircus.lol/pirateship` | parrot TTS voices (`data/voices.db`) | GitHub, 0.15.4 since its `d055ec6` (2026-10-20); 0.13.1 since its `84491af` (2026-10-14); `~> 0.13.0` since `a4dcabe`; agent `@pirateship`, with its own `.ai/` (handle `pirateship`) since 2026-10-19 |
 | Silicon Circus venues | via the `siliconcircus` agent | venue images, about one per attraction | — |
-| Silicon Circus park store | `~/Projects/siliconcircus.lol/assets` | the park's shared assets: Cattacula's voices (copied), fronts, sprites, props | GitHub, `~> 0.13.1`, on 0.13.1 since 2026-10-14 (assets `2f1d1ca`; `@curio` checked 564 assets and 27 queries against 0.13.0); `just serve` runs dd-serve on 127.0.0.1:12782 |
-| Owl | `~/Projects/owl` (moved from `~/my/world/ofwords/owl` on 2026-10-19) | scenes, props, frames and depth maps (`owl_*` types), its scene graph in `owl_*` tables in the same file | GitHub, 0.13.0 (2026-10-14; was `~> 0.12.0` since its `03ffc98`); agent `@owl` (joined 2026-10-12) |
+| Silicon Circus park store | `~/Projects/siliconcircus.lol/assets` | the park's shared assets: Cattacula's voices (copied), fronts, sprites, props | GitHub, 0.15.4 in the repo (`3a074cf`), the live dd-serve when Thomas says (2026-10-20); 0.13.1 since 2026-10-14 (assets `2f1d1ca`; `@curio` checked 564 assets and 27 queries against 0.13.0); `just serve` runs dd-serve on 127.0.0.1:12782 |
+| Owl | `~/Projects/owl` (moved from `~/my/world/ofwords/owl` on 2026-10-19) | scenes, props, frames and depth maps (`owl_*` types), its scene graph in `owl_*` tables in the same file | GitHub, `~> 0.15.0`, 0.15.4 since its `8f50950` (2026-10-20, live); 0.13.0 (2026-10-14; was `~> 0.12.0` since its `03ffc98`); agent `@owl` (joined 2026-10-12) |
 
 ## Where the files are
 

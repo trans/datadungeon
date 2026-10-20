@@ -1,6 +1,6 @@
 # DataDungeon handoff
 
-*Updated 2026-10-19*
+*Updated 2026-10-20*
 
 **Today (Thomas, 2026-10-19): finish the remaining items and semantic
 search.** Done today: the types decided and listed (0.15.2, with both
@@ -399,7 +399,26 @@ change log). 169 specs; dd-serve type-checks.
    run against a moved store; no DD release can stop it, since the old
    build runs the old DD (mail/received/20261020-*).
 3. Overlore (13 types into 6, subtypes, its transcripts go, `legacy` to
-   decide).
+   decide). Overlore took 0.15.4 into its lock (uncommitted there) and held,
+   not told it was its turn. **Asked 2026-10-20** (Thomas: "send the note";
+   `mail/sent/20261020-034222Z-@overlore--piece-3-…`, `14b5d259`), with what
+   a fresh copy showed: join kinds by `subtype`, registering the target with
+   all its traits first; `comic` and `layer` registered with no assets.
+   **Decided (Thomas, 2026-10-20):** the 117 transcripts are dropped
+   ("make sure all transscripts are in fact duplicates": each is byte for
+   byte its clip's recipe prompt and description, no other tags, links or
+   recipe; checked on a fresh copy), and Overlore does it ("tell overlore to
+   do it"). `comic` → `document` with `subtype` `comicbook` (Thomas's name).
+   `legacy` (4 pictures, never used) is still Overlore's and Thomas's to
+   decide. **The catch:** 71 clips point at 69 of them through
+   `audio_meta.transcript_id` (no ON DELETE), so 0.15.4's `delete_asset`
+   fails with a foreign-key error. **Fix on branch `0.15.5`** (scratchpad
+   worktree `dd-0155`, uncommitted): `delete_asset_row` clears the pointer
+   and logs the clip as changed; spec fails without it; on an Overlore copy
+   all 117 deleted with only their rows and the 71 pointers changed. Told
+   Overlore to delete the other 48 any time and the 69 on 0.15.5. **To do:**
+   tell `@owl` once Overlore has moved: its library reads Overlore's `drop`
+   as places (`OWL_LIBRARIES`, overlore on 7078), so door views will show up.
 Then 0.16: unlisted names refused. Then semantic search, on the
 registrations.
 
