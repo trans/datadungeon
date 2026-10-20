@@ -23,14 +23,14 @@ describe DataDungeon::SemanticIndex do
     Dir.mkdir_p(dir)
     db = DataDungeon::DB.new(File.join(dir, "assets.db"), cache_root: File.join(dir, "store"))
     index = DataDungeon::SemanticIndex.new(db, service: "mock", chunking_max_tokens: 50)
-    db.register_type("portrait", pool_traits: %w[hair_color rating], embed: %w[description hair_color])
-    db.register_type("audio", pool_traits: %w[hair_color], embed: %w[description])
+    db.register_type("plug", pool_traits: %w[hair_color rating], embed: %w[description hair_color])
+    db.register_type("speech", pool_traits: %w[hair_color], embed: %w[description])
 
-    red = db.store("portrait", {"hair_color" => "red", "rating" => "pg"}, bytes: "red-image".to_slice,
+    red = db.store("plug", {"hair_color" => "red", "rating" => "pg"}, bytes: "red-image".to_slice,
       content_type: "image/webp", description: "A human adventurer", generated: true)
-    blue = db.store("portrait", {"hair_color" => "blue", "rating" => "r"}, bytes: "blue-image".to_slice,
+    blue = db.store("plug", {"hair_color" => "blue", "rating" => "r"}, bytes: "blue-image".to_slice,
       content_type: "image/webp", description: "A human mage")
-    audio = db.store("audio", {"hair_color" => "blue"}, bytes: "audio".to_slice,
+    audio = db.store("speech", {"hair_color" => "blue"}, bytes: "audio".to_slice,
       content_type: "audio/ogg", description: "A spoken greeting")
 
     index.process_queue.should eq 3
@@ -41,12 +41,12 @@ describe DataDungeon::SemanticIndex do
     text.should eq "A human adventurer\nHair color is red."
     text.should_not contain "rating"
 
-    found = index.search("adventurer", asset_type: "portrait", tags: {"hair_color" => "red"}, min_score: 0.0)
+    found = index.search("adventurer", asset_type: "plug", tags: {"hair_color" => "red"}, min_score: 0.0)
     found.map(&.asset.id).should eq [red.id]
-    index.search("adventurer", asset_type: "portrait").size.should eq 2 # no cutoff by default
-    index.search("mage", asset_type: "portrait", tags: {"hair_color" => "blue"}, min_score: 0.0)
+    index.search("adventurer", asset_type: "plug").size.should eq 2 # no cutoff by default
+    index.search("mage", asset_type: "plug", tags: {"hair_color" => "blue"}, min_score: 0.0)
       .map(&.asset.id).should eq [blue.id]
-    index.search("mage", asset_type: "portrait", tags: {"hair_color" => "red' OR 1=1 --"}, min_score: 0.0)
+    index.search("mage", asset_type: "plug", tags: {"hair_color" => "red' OR 1=1 --"}, min_score: 0.0)
       .should be_empty
     index.search("spoken greeting", media: "audio", min_score: 0.0)
       .map(&.asset.id).should eq [audio.id]
@@ -65,15 +65,15 @@ describe DataDungeon::SemanticIndex do
     new_text.should eq "A wandering knight\nHair color is black."
 
     db.retire(red.id)
-    index.search("knight", asset_type: "portrait", min_score: 0.0)
+    index.search("figure", asset_type: "plug", min_score: 0.0)
       .map(&.asset.id).should_not contain red.id
     db.reinstate(red.id)
     index.process_queue.should eq 1
-    index.search("knight", asset_type: "portrait", min_score: 0.0)
+    index.search("figure", asset_type: "plug", min_score: 0.0)
       .map(&.asset.id).should contain red.id
 
     db.delete_asset(red.id)
-    index.search("knight", asset_type: "portrait", min_score: 0.0)
+    index.search("figure", asset_type: "plug", min_score: 0.0)
       .map(&.asset.id).should_not contain red.id
   ensure
     db.try(&.close)
@@ -85,18 +85,18 @@ describe DataDungeon::SemanticIndex do
     Dir.mkdir_p(dir)
     db = DataDungeon::DB.new(File.join(dir, "assets.db"), cache_root: File.join(dir, "store"))
     index = DataDungeon::SemanticIndex.new(db, service: "mock", chunking_max_tokens: 50)
-    db.register_type("portrait", pool_traits: %w[hair_color], embed: %w[description hair_color])
-    rec = db.store("portrait", {"hair_color" => "red"}, bytes: "p".to_slice,
+    db.register_type("plug", pool_traits: %w[hair_color], embed: %w[description hair_color])
+    rec = db.store("plug", {"hair_color" => "red"}, bytes: "p".to_slice,
       content_type: "image/webp", description: "A human adventurer")
     index.process_queue.should eq 1
 
-    db.rename_tag("portrait", "hair_color", "hair-color").should eq 1
+    db.rename_tag("plug", "hair_color", "hair-color").should eq 1
     index.process_queue.should eq 0
     db.connection.query_one(
       "SELECT t.content FROM memo_sources s JOIN memo_contents t ON t.id = s.content_id WHERE s.source_type = 'asset' AND s.external_int = ?",
       rec.id, as: String
     ).should eq "A human adventurer\nHair color is red."
-    db.registration("portrait").not_nil!.embed.should eq %w[description hair-color]
+    db.registration("plug").not_nil!.embed.should eq %w[description hair-color]
   ensure
     db.try(&.close)
     FileUtils.rm_rf(dir) if dir
@@ -106,17 +106,17 @@ describe DataDungeon::SemanticIndex do
     dir = File.tempname("dd-semantic-backfill")
     Dir.mkdir_p(dir)
     db = DataDungeon::DB.new(File.join(dir, "assets.db"), cache_root: File.join(dir, "store"))
-    db.register_type("scene", pool_traits: %w[place], embed: %w[description])
-    old = db.store("scene", bytes: "scene".to_slice, content_type: "image/webp",
+    db.register_type("drop", pool_traits: %w[place], embed: %w[description])
+    old = db.store("drop", bytes: "scene".to_slice, content_type: "image/webp",
       description: "A moonlit castle")
     index = DataDungeon::SemanticIndex.new(db, service: "mock", chunking_max_tokens: 50)
     index.backfill.should eq 1
     index.process_queue.should eq 1
     index.backfill.should eq 0
-    index.search("castle", asset_type: "scene", min_score: 0.0)
+    index.search("castle", asset_type: "drop", min_score: 0.0)
       .map(&.asset.id).should eq [old.id]
 
-    fresh = db.store("scene", bytes: "another".to_slice, content_type: "image/webp",
+    fresh = db.store("drop", bytes: "another".to_slice, content_type: "image/webp",
       description: "A forest clearing")
     db.delete_asset(fresh.id)
     index.memo.queue_stats.pending.should eq 0
@@ -131,11 +131,11 @@ describe DataDungeon::SemanticIndex do
     Dir.mkdir_p(dir)
     db = DataDungeon::DB.new(File.join(dir, "assets.db"))
     index = DataDungeon::SemanticIndex.new(db, service: "mock", chunking_max_tokens: 50)
-    db.register_type("portrait", pool_traits: %w[group], embed: %w[description])
+    db.register_type("plug", pool_traits: %w[group], embed: %w[description])
 
     ids = [] of Int64
     540.times do |i|
-      ids << db.store_asset("portrait", "image", "image/webp", "portrait/#{i}.webp",
+      ids << db.store_asset("plug", "image", "image/webp", "plug/#{i}.webp",
         tags: {"group" => "common"}, description: "Distinct portrait #{i} in a meadow")
     end
     index.process_queue.should eq 540
@@ -145,7 +145,7 @@ describe DataDungeon::SemanticIndex do
     rare = ids.find { |id| !nearest_ids.includes?(id) }.not_nil!
     db.connection.exec("UPDATE asset_tags SET tag_value = 'rare' WHERE asset_id = ? AND tag_key = 'group'", rare)
 
-    index.search("a traveler", asset_type: "portrait", tags: {"group" => "rare"}, min_score: 0.0)
+    index.search("a traveler", asset_type: "plug", tags: {"group" => "rare"}, min_score: 0.0)
       .map(&.asset.id).should eq [rare]
     db.connection.scalar("SELECT SUM(match_count) FROM memo_chunks").as(Int64).should eq 0
   ensure
@@ -157,10 +157,10 @@ describe DataDungeon::SemanticIndex do
     dir = File.tempname("dd-semantic-pool")
     Dir.mkdir_p(dir)
     db = DataDungeon::DB.new(File.join(dir, "assets.db"), cache_root: File.join(dir, "store"))
-    db.register_type("picture", pool_traits: %w[portrait rating state], embed: %w[description])
+    db.register_type("drop", pool_traits: %w[portrait rating state], embed: %w[description])
     index = DataDungeon::SemanticIndex.new(db, service: "mock", chunking_max_tokens: 50)
     picture = ->(portrait : String, state : String, scene : String) do
-      db.store("picture", {"portrait" => portrait, "rating" => "pg", "state" => state},
+      db.store("drop", {"portrait" => portrait, "rating" => "pg", "state" => state},
         bytes: scene.to_slice, content_type: "image/webp", description: scene)
     end
     fights = picture.call("1", "troll-alive", "the hero fights a troll")
@@ -169,14 +169,14 @@ describe DataDungeon::SemanticIndex do
     picture.call("2", "troll-alive", "another hero fights a troll")
     index.process_queue.should eq 4
 
-    pool = db.key_for("picture", {"portrait" => "1", "rating" => "pg", "state" => "troll-alive"})
+    pool = db.key_for("drop", {"portrait" => "1", "rating" => "pg", "state" => "troll-alive"})
     index.search("troll", key: pool).map(&.asset.id).sort.should eq [fights.id, flees.id]
-    portrait_one = db.group_key_for("picture", {"portrait" => "1"}, 1)
+    portrait_one = db.group_key_for("drop", {"portrait" => "1"}, 1)
     index.search("troll", key_prefix: portrait_one).map(&.asset.id).sort
       .should eq [fights.id, flees.id, stands.id]
-    index.search("troll", key_prefix: portrait_one, asset_type: "picture", tags: {"state" => "troll-dead"})
+    index.search("troll", key_prefix: portrait_one, asset_type: "drop", tags: {"state" => "troll-dead"})
       .map(&.asset.id).should eq [stands.id]
-    expect_raises(ArgumentError, /must end with/) { index.search("troll", key_prefix: "picture.1") }
+    expect_raises(ArgumentError, /must end with/) { index.search("troll", key_prefix: "drop.1") }
   ensure
     db.try(&.close)
     FileUtils.rm_rf(dir) if dir
@@ -186,11 +186,11 @@ describe DataDungeon::SemanticIndex do
     dir = File.tempname("dd-semantic-facets")
     Dir.mkdir_p(dir)
     db = DataDungeon::DB.new(File.join(dir, "assets.db"), cache_root: File.join(dir, "store"))
-    db.register_type("hero", pool_traits: %w[race hair_color], embed: %w[description],
+    db.register_type("figure", pool_traits: %w[race hair_color], embed: %w[description],
       facets: {"identity" => %w[race skin], "hair" => %w[hair_color customization]})
     index = DataDungeon::SemanticIndex.new(db, service: "mock", chunking_max_tokens: 50)
     hero = ->(tags : Hash(String, String), bytes : String) do
-      db.store("hero", tags, bytes: bytes.to_slice, content_type: "image/webp", description: "a hero")
+      db.store("figure", tags, bytes: bytes.to_slice, content_type: "image/webp", description: "a hero")
     end
     ape = hero.call({"race" => "ape", "skin" => "purple", "hair_color" => "red", "customization" => "braided"}, "a")
     elf = hero.call({"race" => "elf", "skin" => "pale", "hair_color" => "black"}, "b")
@@ -202,19 +202,19 @@ describe DataDungeon::SemanticIndex do
         "SELECT t.content FROM memo_sources s JOIN memo_contents t ON t.id = s.content_id WHERE s.source_type = ? AND s.external_int = ?",
         source_type, id, as: String)
     end
-    text.call("hero.identity", ape.id).should eq "Race is ape.\nSkin is purple."
-    text.call("hero.hair", ape.id).should eq "Customization is braided.\nHair color is red." # by name
-    text.call("hero.hair", bald.id).should be_nil
+    text.call("figure.identity", ape.id).should eq "Race is ape.\nSkin is purple."
+    text.call("figure.hair", ape.id).should eq "Customization is braided.\nHair color is red." # by name
+    text.call("figure.hair", bald.id).should be_nil
 
     # One facet: the matching text ranks first; assets without the facet never appear.
-    top = index.search("Race is elf.\nSkin is pale.", asset_type: "hero", facet: "identity").first
+    top = index.search("Race is elf.\nSkin is pale.", asset_type: "figure", facet: "identity").first
     top.asset.id.should eq elf.id
     top.score.should be_close(1.0, 0.01)
-    index.search("Hair color is red.", asset_type: "hero", facet: "hair").map(&.asset.id).sort.should eq [ape.id, elf.id]
+    index.search("Hair color is red.", asset_type: "figure", facet: "hair").map(&.asset.id).sort.should eq [ape.id, elf.id]
 
     # Together: every facet must be present, and the weakest one scores.
     queries = {"identity" => "Race is elf.\nSkin is pale.", "hair" => "Hair color is black."}
-    found = index.search_facets(queries, asset_type: "hero")
+    found = index.search_facets(queries, asset_type: "figure")
     found.map(&.asset.id).sort.should eq [ape.id, elf.id]
     found.first.asset.id.should eq elf.id
     found.each do |hit|
@@ -223,7 +223,7 @@ describe DataDungeon::SemanticIndex do
     end
 
     expect_raises(ArgumentError, /registered asset_type/) { index.search("x", facet: "hair") }
-    expect_raises(ArgumentError, /no facet/) { index.search("x", asset_type: "hero", facet: "body") }
+    expect_raises(ArgumentError, /no facet/) { index.search("x", asset_type: "figure", facet: "body") }
 
     # Deleting an asset removes its embedding and every facet's.
     chunks = ->(id : Int64) do
@@ -236,12 +236,12 @@ describe DataDungeon::SemanticIndex do
     %w[asset hero.identity hero.hair].each { |source_type| text.call(source_type, ape.id).should be_nil }
 
     # Dropping a facet removes its sources at the next backfill.
-    db.register_type("hero", pool_traits: %w[race hair_color], embed: %w[description],
+    db.register_type("figure", pool_traits: %w[race hair_color], embed: %w[description],
       facets: {"identity" => %w[race skin]})
-    text.call("hero.hair", elf.id).should be_nil # no re-key needed, and gone at once
+    text.call("figure.hair", elf.id).should be_nil # no re-key needed, and gone at once
     index.backfill.should eq 0
-    text.call("hero.identity", elf.id).should eq "Race is elf.\nSkin is pale."
-    expect_raises(ArgumentError, /no facet/) { index.search("x", asset_type: "hero", facet: "hair") }
+    text.call("figure.identity", elf.id).should eq "Race is elf.\nSkin is pale."
+    expect_raises(ArgumentError, /no facet/) { index.search("x", asset_type: "figure", facet: "hair") }
   ensure
     db.try(&.close)
     FileUtils.rm_rf(dir) if dir
@@ -254,8 +254,8 @@ describe DataDungeon::SemanticIndex do
     closed = false
     reopened : DataDungeon::DB? = nil
     index = DataDungeon::SemanticIndex.new(db, service: "mock", chunking_max_tokens: 50)
-    db.register_type("scene", pool_traits: %w[place], embed: %w[description])
-    asset = db.store_asset("scene", "image", "image/webp", "scene/castle.webp",
+    db.register_type("drop", pool_traits: %w[place], embed: %w[description])
+    asset = db.store_asset("drop", "image", "image/webp", "scene/castle.webp",
       description: "A castle on a hill")
     index.process_queue.should eq 1
     path = index.memo.index_path
@@ -270,7 +270,7 @@ describe DataDungeon::SemanticIndex do
     repair = DataDungeon::SemanticIndex.new(reopened, service: "mock", chunking_max_tokens: 50)
     repair.memo.index_recovery.rebuilt.should eq 1
     repair.backfill.should eq 0
-    repair.search("castle", asset_type: "scene", min_score: 0.0)
+    repair.search("castle", asset_type: "drop", min_score: 0.0)
       .map(&.asset.id).should eq [asset]
   ensure
     reopened.try(&.close)
@@ -288,11 +288,11 @@ describe DataDungeon::SemanticIndex do
     dir = File.tempname("dd-semantic-parts")
     Dir.mkdir_p(dir)
     db = DataDungeon::DB.new(File.join(dir, "assets.db"))
-    db.register_type("knight", pool_traits: %w[hair-color], embed: %w[hair-color description art_style])
+    db.register_type("figure", pool_traits: %w[hair-color], embed: %w[hair-color description art_style])
       .embed.should eq %w[description art_style hair-color]
-    expect_raises(ArgumentError, /twice/) { db.register_type("k2", pool_traits: %w[a], embed: %w[a a]) }
+    expect_raises(ArgumentError, /twice/) { db.register_type("set", pool_traits: %w[a], embed: %w[a a]) }
     expect_raises(ArgumentError, /must be "description" or a tag name/) do
-      db.register_type("k3", pool_traits: %w[a], embed: %w[Description])
+      db.register_type("motion", pool_traits: %w[a], embed: %w[Description])
     end
   ensure
     db.try(&.close)

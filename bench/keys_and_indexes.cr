@@ -30,7 +30,7 @@ n = (ARGV[0]? || "200000").to_i
 path = ARGV[1]? || "/tmp/keys_and_indexes.db"
 File.delete(path) if File.exists?(path)
 db = DataDungeon::DB.new(path, consumer: "bench")
-db.register_type("voice", pool_traits: %w[voice bit beat fmt])
+db.register_type("speech", pool_traits: %w[voice bit beat fmt])
 rng = Random.new(11)
 
 def tags(rng : Random) : Hash(String, String)
@@ -39,16 +39,16 @@ def tags(rng : Random) : Hash(String, String)
 end
 
 t = Time.instant
-n.times { |i| db.store_asset("voice", "audio", "audio/mpeg", "/voices/#{i}.mp3", tags(rng)) }
+n.times { |i| db.store_asset("speech", "audio", "audio/mpeg", "/voices/#{i}.mp3", tags(rng)) }
 puts "#{n} assets stored in #{(Time.instant - t).total_seconds.round(1)} s"
 db.connection.exec("UPDATE assets SET retired_at = created_at WHERE id % 10 = 0")
 
 t = Time.instant
-db.register_index("voice", "lines", traits: %w[bit beat voice fmt])
+db.register_index("speech", "lines", traits: %w[bit beat voice fmt])
 puts "index registered (#{n} keys) in #{(Time.instant - t).total_seconds.round(1)} s"
 
 t = Time.instant
-1000.times { db.store_asset("voice", "audio", "audio/mpeg", "/voices/more.mp3", tags(rng)) }
+1000.times { db.store_asset("speech", "audio", "audio/mpeg", "/voices/more.mp3", tags(rng)) }
 puts "stores with the index: #{((Time.instant - t).total_milliseconds / 1000).round(3)} ms each"
 
 def p50(&) : Float64
@@ -72,21 +72,21 @@ end
   "beat voice fmt=wav (rare)"   => {"beat" => "2", "voice" => "voice3", "fmt" => "wav"},
   "beat fmt=wav"                => {"beat" => "2", "fmt" => "wav"},
 }.each do |name, filter|
-  page = p50 { db.list_assets("voice", filter, limit: 50) }
-  count = p50 { db.count_assets("voice", filter) }
+  page = p50 { db.list_assets("speech", filter, limit: 50) }
+  count = p50 { db.count_assets("speech", filter) }
   puts "#{name.ljust(28)} page p50=#{page.round(3)} ms  count p50=#{count.round(3)} ms  " \
-       "(#{db.count_assets("voice", filter)} current)"
+       "(#{db.count_assets("speech", filter)} current)"
 end
 
-puts "get by key            p50=#{p50 { db.get("voice", {"voice" => "voice3", "bit" => "b123", "beat" => "2", "fmt" => "mp3"}, touch: false) }.round(3)} ms"
-puts "find_pool by traits   p50=#{p50 { db.find_pool("voice", {"voice" => "voice3", "bit" => "b123", "beat" => "2", "fmt" => "mp3"}) }.round(3)} ms"
-puts "find_group by prefix  p50=#{p50 { db.find_group("voice.voice3.b123.") }.round(3)} ms"
+puts "get by key            p50=#{p50 { db.get("speech", {"voice" => "voice3", "bit" => "b123", "beat" => "2", "fmt" => "mp3"}, touch: false) }.round(3)} ms"
+puts "find_pool by traits   p50=#{p50 { db.find_pool("speech", {"voice" => "voice3", "bit" => "b123", "beat" => "2", "fmt" => "mp3"}) }.round(3)} ms"
+puts "find_group by prefix  p50=#{p50 { db.find_group("speech.voice3.b123.") }.round(3)} ms"
 puts "asset_types           p50=#{p50 { db.asset_types }.round(3)} ms"
 puts "asset_types retired   p50=#{p50 { db.asset_types(retired: true) }.round(3)} ms"
-puts "tag_keys              p50=#{p50 { db.tag_keys("voice") }.round(3)} ms"
-puts "tag_values voice      p50=#{p50 { db.tag_values("voice", "voice") }.round(3)} ms"
-puts "list retired page     p50=#{p50 { db.list_assets("voice", retired: true, limit: 50) }.round(3)} ms"
-ids = db.list_assets("voice", limit: 1000).map(&.id)
+puts "tag_keys              p50=#{p50 { db.tag_keys("speech") }.round(3)} ms"
+puts "tag_values voice      p50=#{p50 { db.tag_values("speech", "voice") }.round(3)} ms"
+puts "list retired page     p50=#{p50 { db.list_assets("speech", retired: true, limit: 50) }.round(3)} ms"
+ids = db.list_assets("speech", limit: 1000).map(&.id)
 t = Time.instant
 ids.each { |id| db.retire(id) }
 puts "retire                #{((Time.instant - t).total_milliseconds / ids.size).round(3)} ms each"

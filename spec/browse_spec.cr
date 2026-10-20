@@ -25,79 +25,79 @@ private def open_read_only(dir : String) : DataDungeon::DB
 end
 
 private def store_backdrop(db, style : String, rating : String, bytes : String) : DataDungeon::AssetRecord
-  db.store("backdrop", {"art-style" => style, "rating" => rating}, bytes: bytes.to_slice, content_type: "image/webp")
+  db.store("drop", {"art-style" => style, "rating" => rating}, bytes: bytes.to_slice, content_type: "image/webp")
 end
 
 describe "DataDungeon::DB browsing" do
   it "lists types with their counts, registered ones even when empty" do
     with_db("dd-browse-types") do |db|
-      db.register_type("backdrop", pool_traits: %w[art-style rating])
-      db.register_type("voice", pool_traits: %w[line])
+      db.register_type("drop", pool_traits: %w[art-style rating])
+      db.register_type("speech", pool_traits: %w[line])
       store_backdrop(db, "golden", "pg", "a")
       store_backdrop(db, "silver", "pg", "b")
       # An unregistered type's asset, as a store from before 0.12 could hold.
       db.connection.exec("INSERT INTO assets (asset_type, media, content_type, file_path, created_at, made_at) " \
                          "VALUES ('legacy', 'image', 'image/webp', 'l.webp', '2026-01-01', '2026-01-01')")
 
-      db.asset_types.should eq({"backdrop" => 2, "legacy" => 1, "voice" => 0})
+      db.asset_types.should eq({"drop" => 2, "legacy" => 1, "speech" => 0})
     end
   end
 
   it "lists a type's tag names and each one's values, most frequent first" do
     with_db("dd-browse-tags") do |db|
-      db.register_type("backdrop", pool_traits: %w[art-style rating])
+      db.register_type("drop", pool_traits: %w[art-style rating])
       store_backdrop(db, "golden", "pg", "a")
       store_backdrop(db, "golden", "x", "b")
       store_backdrop(db, "silver", "pg", "c")
 
-      db.tag_keys("backdrop").should eq({"art-style" => 3, "rating" => 3})
-      db.tag_values("backdrop", "art-style").should eq({"golden" => 2, "silver" => 1})
-      db.tag_values("backdrop", "art-style", limit: 1).should eq({"golden" => 2})
+      db.tag_keys("drop").should eq({"art-style" => 3, "rating" => 3})
+      db.tag_values("drop", "art-style").should eq({"golden" => 2, "silver" => 1})
+      db.tag_values("drop", "art-style", limit: 1).should eq({"golden" => 2})
       db.tag_keys("missing").should be_empty
     end
   end
 
   it "pages through a type's assets, newest first, filtered by tags or not" do
     with_db("dd-browse-page") do |db|
-      db.register_type("backdrop", pool_traits: %w[art-style rating])
+      db.register_type("drop", pool_traits: %w[art-style rating])
       a = store_backdrop(db, "golden", "pg", "a")
       b = store_backdrop(db, "silver", "pg", "b")
       c = store_backdrop(db, "golden", "pg", "c")
 
-      db.list_assets("backdrop").map(&.id).should eq [c.id, b.id, a.id]
-      db.list_assets("backdrop", limit: 2).map(&.id).should eq [c.id, b.id]
-      db.list_assets("backdrop", limit: 2, before: b.id).map(&.id).should eq [a.id]
-      db.list_assets("backdrop", limit: 2, offset: 2).map(&.id).should eq [a.id]
-      db.list_assets("backdrop", {"art-style" => "Golden"}).map(&.id).should eq [c.id, a.id]
-      db.count_assets("backdrop", {"art-style" => "golden"}).should eq 2
-      db.list_assets("backdrop", {"art-style" => "bronze"}).should be_empty
+      db.list_assets("drop").map(&.id).should eq [c.id, b.id, a.id]
+      db.list_assets("drop", limit: 2).map(&.id).should eq [c.id, b.id]
+      db.list_assets("drop", limit: 2, before: b.id).map(&.id).should eq [a.id]
+      db.list_assets("drop", limit: 2, offset: 2).map(&.id).should eq [a.id]
+      db.list_assets("drop", {"art-style" => "Golden"}).map(&.id).should eq [c.id, a.id]
+      db.count_assets("drop", {"art-style" => "golden"}).should eq 2
+      db.list_assets("drop", {"art-style" => "bronze"}).should be_empty
     end
   end
 
   it "lists across types, and searches by words in any order" do
     with_db("dd-browse-search") do |db|
-      db.register_type("front", pool_traits: %w[venue attraction look])
-      db.register_type("sprite", pool_traits: %w[venue attraction look scale])
-      db.register_type("portrait", pool_traits: %w[hair skin], labels: {"hair" => "hair", "skin" => "skin"})
-      front = db.store("front", {"venue" => "boardwalk", "attraction" => "cattacula", "look" => "night"},
+      db.register_type("placard", pool_traits: %w[venue attraction look])
+      db.register_type("icon", pool_traits: %w[venue attraction look scale])
+      db.register_type("plug", pool_traits: %w[hair skin], labels: {"hair" => "hair", "skin" => "skin"})
+      front = db.store("placard", {"venue" => "boardwalk", "attraction" => "cattacula", "look" => "night"},
         bytes: "f".to_slice, content_type: "image/webp")
-      sprite = db.store("sprite", {"venue" => "boardwalk", "attraction" => "cattacula", "look" => "night", "scale" => "32"},
+      sprite = db.store("icon", {"venue" => "boardwalk", "attraction" => "cattacula", "look" => "night", "scale" => "32"},
         bytes: "s".to_slice, content_type: "image/webp")
-      register_plain(db, "room")
-      room = db.store("room", {"room" => "west-of-house", "note" => "Giant Ape"}, bytes: "r".to_slice,
+      register_plain(db, "drop")
+      room = db.store("drop", {"room" => "west-of-house", "note" => "Giant Ape"}, bytes: "r".to_slice,
         content_type: "image/webp")
-      red_hair = db.store("portrait", {"hair" => "red", "skin" => "tan"}, bytes: "h".to_slice, content_type: "image/webp")
-      red_skin = db.store("portrait", {"hair" => "black", "skin" => "red"}, bytes: "k".to_slice, content_type: "image/webp")
+      red_hair = db.store("plug", {"hair" => "red", "skin" => "tan"}, bytes: "h".to_slice, content_type: "image/webp")
+      red_skin = db.store("plug", {"hair" => "black", "skin" => "red"}, bytes: "k".to_slice, content_type: "image/webp")
 
       db.list_assets.map(&.id).should eq [red_skin.id, red_hair.id, room.id, sprite.id, front.id]
       db.list_assets(limit: 2, before: room.id).map(&.id).should eq [sprite.id, front.id]
       db.list_assets(nil, {"venue" => "boardwalk"}).map(&.id).should eq [sprite.id, front.id]
 
-      db.list_assets(q: "boardwalk cattacula front").map(&.id).should eq [front.id]
+      db.list_assets(q: "boardwalk cattacula placard").map(&.id).should eq [front.id]
       db.list_assets(q: "catt* night").map(&.id).should eq [sprite.id, front.id]
       db.list_assets(q: "catt night").should be_empty # whole words unless asked
-      db.list_assets(q: "boardwalk.cattacula.front.night").map(&.id).should eq [front.id]
-      db.list_assets("sprite", q: "night").map(&.id).should eq [sprite.id]
+      db.list_assets(q: "boardwalk.cattacula.placard.night").map(&.id).should eq [front.id]
+      db.list_assets("icon", q: "night").map(&.id).should eq [sprite.id]
       db.list_assets(q: "night", limit: 1).map(&.id).should eq [sprite.id]
       db.list_assets(q: "night", limit: 1, before: sprite.id).map(&.id).should eq [front.id]
       db.list_assets(q: "house").map(&.id).should eq [room.id] # a part of west-of-house
@@ -111,8 +111,8 @@ describe "DataDungeon::DB browsing" do
 
       db.update_asset(front.id, tags: {"venue" => "boardwalk", "attraction" => "cattacula", "look" => "day"})
       db.list_assets(q: "night").map(&.id).should eq [sprite.id]
-      db.rename_type("front", "facade")
-      db.list_assets(q: "facade day").map(&.id).should eq [front.id]
+      db.rename_type("placard", "scrim")
+      db.list_assets(q: "scrim day").map(&.id).should eq [front.id]
       db.delete_asset(sprite.id)
       db.list_assets(q: "cattacula").map(&.id).should eq [front.id]
     end
@@ -160,10 +160,10 @@ describe "DataDungeon::DB browsing" do
 
   it "links assets to assets and to names, filters by them, and drops them with the asset" do
     with_db("dd-browse-links") do |db|
-      db.register_type("portrait", pool_traits: %w[hair])
-      register_plain(db, "panel", "prop")
-      portrait = db.store("portrait", {"hair" => "red"}, bytes: "p".to_slice, content_type: "image/webp")
-      picture = db.store("panel", {"scene" => "beach"}, bytes: "q".to_slice, content_type: "image/webp")
+      db.register_type("plug", pool_traits: %w[hair])
+      register_plain(db, "drop", "prop")
+      portrait = db.store("plug", {"hair" => "red"}, bytes: "p".to_slice, content_type: "image/webp")
+      picture = db.store("drop", {"scene" => "beach"}, bytes: "q".to_slice, content_type: "image/webp")
       prop = db.store("prop", {"thing" => "gangway"}, bytes: "g".to_slice, content_type: "image/webp")
 
       db.link(picture.id, "derived-from", portrait.id)
@@ -233,8 +233,8 @@ describe "DataDungeon::DB browsing" do
 
   it "edits an asset in place, re-deriving its key and keeping unchanged custom flags" do
     with_db("dd-browse-update") do |db|
-      db.register_type("portrait", pool_traits: %w[art-style race])
-      rec = db.store("portrait", {"art-style" => "golden", "race" => "ape", "note" => "x"}, custom: %w[race],
+      db.register_type("plug", pool_traits: %w[art-style race])
+      rec = db.store("plug", {"art-style" => "golden", "race" => "ape", "note" => "x"}, custom: %w[race],
         bytes: "p".to_slice, content_type: "image/webp", description: "an ape")
 
       updated = db.update_asset(rec.id, description: "a golden ape", flagged: true, rating: 3)
@@ -244,34 +244,34 @@ describe "DataDungeon::DB browsing" do
       updated.key.should eq rec.key # tags untouched
 
       moved = db.update_asset(rec.id, tags: {"art-style" => "Silver", "race" => "ape"})
-      moved.key.should eq "portrait.silver.ape"
+      moved.key.should eq "plug.silver.ape"
       db.load_tags(rec.id).should eq({"art-style" => "silver", "race" => "ape"})
       db.custom_traits(rec.id).should eq ["race"]
-      db.get("portrait", {"art-style" => "silver", "race" => "ape"}, touch: false).should be_nil # flagged: out of play
+      db.get("plug", {"art-style" => "silver", "race" => "ape"}, touch: false).should be_nil # flagged: out of play
       db.update_asset(rec.id, flagged: false)
-      db.get("portrait", {"art-style" => "silver", "race" => "ape"}, touch: false).not_nil!.id.should eq rec.id
+      db.get("plug", {"art-style" => "silver", "race" => "ape"}, touch: false).not_nil!.id.should eq rec.id
       String.new(db.read(moved)).should eq "p" # same object
 
-      other = db.store("portrait", {"art-style" => "golden", "race" => "elf"}, bytes: "e".to_slice,
+      other = db.store("plug", {"art-style" => "golden", "race" => "elf"}, bytes: "e".to_slice,
         content_type: "image/webp")
       db.update_asset(other.id, tags: {"art-style" => "silver", "race" => "ape"}).key.should eq moved.key
-      db.find_pool("portrait", {"art-style" => "silver", "race" => "ape"}).map(&.id).should eq [rec.id, other.id]
+      db.find_pool("plug", {"art-style" => "silver", "race" => "ape"}).map(&.id).should eq [rec.id, other.id]
       expect_raises(ArgumentError, /No asset/) { db.update_asset(999_i64, flagged: true) }
     end
   end
 
   it "serializes records, metadata and registrations as JSON" do
     with_db("dd-browse-json") do |db|
-      db.register_type("backdrop", pool_traits: %w[art-style rating])
-      rec = db.store("backdrop", {"art-style" => "golden", "rating" => "pg"}, bytes: "b".to_slice,
+      db.register_type("drop", pool_traits: %w[art-style rating])
+      rec = db.store("drop", {"art-style" => "golden", "rating" => "pg"}, bytes: "b".to_slice,
         content_type: "image/webp", image: DataDungeon::ImageMeta.new(compression: "original", width: 64))
       json = JSON.parse(rec.to_json)
-      json["asset_type"].should eq "backdrop"
-      json["key"].should eq "backdrop.golden.pg"
+      json["asset_type"].should eq "drop"
+      json["key"].should eq "drop.golden.pg"
       json["pool_key"]?.should be_nil # the old name went in 0.13
       json["has_recipe"].should eq false
       JSON.parse(db.get_with_meta_by_id(rec.id, touch: false).not_nil![1].not_nil!.to_json)["width"].should eq 64
-      JSON.parse(db.registration("backdrop").to_json)["pool_traits"].should eq ["art-style", "rating"]
+      JSON.parse(db.registration("drop").to_json)["pool_traits"].should eq ["art-style", "rating"]
     end
   end
 end
@@ -279,23 +279,23 @@ end
 describe "DataDungeon::DB read-only" do
   it "reads, but refuses every write" do
     with_db("dd-read-only") do |db, dir|
-      db.register_type("backdrop", pool_traits: %w[art-style rating])
+      db.register_type("drop", pool_traits: %w[art-style rating])
       rec = store_backdrop(db, "golden", "pg", "a")
 
       ro = open_read_only(dir)
       begin
         ro.read_only?.should be_true
-        ro.asset_types.should eq({"backdrop" => 1})
+        ro.asset_types.should eq({"drop" => 1})
         ro.get_by_id(rec.id).not_nil!.id.should eq rec.id # touching is skipped, not refused
         ro.find_asset_by_id(rec.id).not_nil!.use_count.should eq 0
         String.new(ro.read(rec)).should eq "a"
-        ro.list_assets("backdrop").size.should eq 1
+        ro.list_assets("drop").size.should eq 1
         ro.check_consistency.clean?.should be_true
 
         expect_raises(DataDungeon::ReadOnlyError) { store_backdrop(ro, "silver", "pg", "b") }
         expect_raises(DataDungeon::ReadOnlyError) { ro.update_asset(rec.id, flagged: true) }
         expect_raises(DataDungeon::ReadOnlyError) { ro.delete_asset(rec.id) }
-        expect_raises(DataDungeon::ReadOnlyError) { ro.register_type("voice", pool_traits: %w[line]) }
+        expect_raises(DataDungeon::ReadOnlyError) { ro.register_type("speech", pool_traits: %w[line]) }
         expect_raises(DataDungeon::ReadOnlyError) { ro.vacuum(delete_orphan_objects: true) }
         ro.connection.scalar("PRAGMA query_only").should eq 1 # SQLite refuses writes too
       ensure

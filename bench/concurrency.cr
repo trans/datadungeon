@@ -11,8 +11,8 @@
 #                 does on its socket
 #   --dir PATH    where to put the database (default: a temporary directory)
 #
-# Seeds a database with a pooled "picture" type (with set traits) and a
-# single-best "voice" type, then runs F clients per process for S seconds,
+# Seeds a database with a pooled "drop" type (with set traits) and a
+# single-best "speech" type, then runs F clients per process for S seconds,
 # each mixing lookups and stores in the proportions of WEIGHTS. Note that
 # `get` touches usage, so it writes too. With --procs above 1, that many
 # processes share the database, as several app servers or a separate worker
@@ -58,10 +58,10 @@ end
 
 def open_db(dir : String) : DataDungeon::DB
   db = DataDungeon::DB.new(File.join(dir, "assets.db"), cache_root: File.join(dir, "store"))
-  db.register_type("picture", pool_traits: %w[portrait art_style rating room state items],
+  db.register_type("drop", pool_traits: %w[portrait art_style rating room state items],
     group_traits: %w[portrait art_style rating], labels: {"portrait" => "portrait", "room" => "room"},
     sets: %w[state items])
-  db.register_type("voice", pool_traits: %w[bit beat voice])
+  db.register_type("speech", pool_traits: %w[bit beat voice])
   db
 end
 
@@ -102,18 +102,18 @@ def run_clients(dir : String, assets : Int32, fibers : Int32, seconds : Float64,
         start = Time.instant
         begin
           case op
-          when "find_pool"        then db.find_pool("picture", picture_traits(i))
-          when "find_group"       then db.find_group("picture", picture_traits(i))
-          when "find_pool_custom" then db.find_pool("picture", picture_traits(i), custom: %w[items])
+          when "find_pool"        then db.find_pool("drop", picture_traits(i))
+          when "find_group"       then db.find_group("drop", picture_traits(i))
+          when "find_pool_custom" then db.find_pool("drop", picture_traits(i), custom: %w[items])
           when "find_by_tags"
             traits = picture_traits(i)
-            db.find_assets_by_tags("picture", {"room" => traits["room"], "rating" => traits["rating"]})
-          when "get_voice" then db.get("voice", voice_traits(i))
+            db.find_assets_by_tags("drop", {"room" => traits["room"], "rating" => traits["rating"]})
+          when "get_voice" then db.get("speech", voice_traits(i))
           when "store_picture"
-            db.store("picture", picture_traits(i), bytes: bytes(rng), content_type: "image/webp")
+            db.store("drop", picture_traits(i), bytes: bytes(rng), content_type: "image/webp")
             results.stored_pictures += 1
           when "store_voice"
-            db.store("voice", voice_traits(i), bytes: bytes(rng), content_type: "audio/mpeg", media: "audio")
+            db.store("speech", voice_traits(i), bytes: bytes(rng), content_type: "audio/mpeg", media: "audio")
           end
           (results.latencies[op] ||= [] of Float64) << (Time.instant - start).total_milliseconds
         rescue ex
@@ -173,8 +173,8 @@ begin
   db = open_db(dir)
   seeding = Time.instant
   rng = Random.new(1)
-  assets.times { |i| db.store("picture", picture_traits(i), bytes: bytes(rng), content_type: "image/webp") }
-  2000.times { |i| db.store("voice", voice_traits(i), bytes: bytes(rng), content_type: "audio/mpeg", media: "audio") }
+  assets.times { |i| db.store("drop", picture_traits(i), bytes: bytes(rng), content_type: "image/webp") }
+  2000.times { |i| db.store("speech", voice_traits(i), bytes: bytes(rng), content_type: "audio/mpeg", media: "audio") }
   db.close
   puts "seeded #{assets} pictures and 2000 voices in #{(Time.instant - seeding).total_seconds.round(1)} s"
   puts "running #{procs} process(es) x #{fibers} clients for #{seconds} s, think #{think_ms} ms"

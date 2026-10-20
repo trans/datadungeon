@@ -6,8 +6,8 @@ private def with_db(name : String, consumer : String? = "overlore", &)
   dir = File.tempname(name)
   Dir.mkdir_p(dir)
   db = DataDungeon::DB.new(File.join(dir, "assets.db"), cache_root: File.join(dir, "store"), consumer: consumer)
-  db.register_type("panel", pool_traits: %w[art-style])
-  db.register_type("line", pool_traits: %w[voice])
+  db.register_type("plug", pool_traits: %w[art-style])
+  db.register_type("speech", pool_traits: %w[voice])
   yield db, dir
 ensure
   db.try(&.close)
@@ -16,7 +16,7 @@ end
 
 private def store_panel(db, bytes : String, recipe : DataDungeon::Recipe? = nil, description : String? = nil,
                         generation : String? = nil) : DataDungeon::AssetRecord
-  db.store("panel", {"art-style" => "silver-comic"}, bytes: bytes.to_slice, content_type: "image/webp",
+  db.store("plug", {"art-style" => "silver-comic"}, bytes: bytes.to_slice, content_type: "image/webp",
     image: DataDungeon::ImageMeta.new(compression: "original"), recipe: recipe, description: description,
     generation: generation)
 end
@@ -215,7 +215,7 @@ describe DataDungeon::Recipe do
     Dir.mkdir_p(dir)
     path = File.join(dir, "assets.db")
     db = DataDungeon::DB.new(path, cache_root: File.join(dir, "store"), consumer: "overlore")
-    db.register_type("panel", pool_traits: %w[art-style])
+    db.register_type("plug", pool_traits: %w[art-style])
     figure = store_panel(db, "a", styled("An elf.", "overlore:silver-comic", "Silver Age comic art, one figure."))
     place = store_panel(db, "b", styled("A hall.", "overlore:silver-comic", "Silver Age comic art, a wide room."))
     db.close
@@ -253,7 +253,7 @@ describe DataDungeon::Recipe do
     Dir.mkdir_p(dir)
     path = File.join(dir, "assets.db")
     db = DataDungeon::DB.new(path, cache_root: File.join(dir, "store"), consumer: "overlore")
-    db.register_type("panel", pool_traits: %w[art-style])
+    db.register_type("plug", pool_traits: %w[art-style])
     store_panel(db, "a", styled("An elf.", "overlore:silver-comic", "Silver Age comic art."))
     hall = store_panel(db, "b", styled("A hall.", "overlore:silver-comic", "Silver Age comic art."))
     db.close
@@ -280,7 +280,7 @@ describe DataDungeon::Recipe do
     Dir.mkdir_p(dir)
     path = File.join(dir, "assets.db")
     overlore = DataDungeon::DB.new(path, cache_root: File.join(dir, "store"), consumer: "overlore")
-    overlore.register_type("panel", pool_traits: %w[art-style])
+    overlore.register_type("plug", pool_traits: %w[art-style])
     store_panel(overlore, "a", picture("A"))
     overlore.close
 
@@ -294,7 +294,7 @@ describe DataDungeon::Recipe do
       store_panel(owl, "d", DataDungeon::Recipe.new("picture", prompt: "Silver, more or less.",
         wordings: [wording("style", "dd:silver-comic", "Silver, more or less.")]))
     end
-    owl.find_assets_by_tags("panel", {"art-style" => "silver-comic"}).size.should eq 2 # the refused stores left nothing
+    owl.find_assets_by_tags("plug", {"art-style" => "silver-comic"}).size.should eq 2 # the refused stores left nothing
   ensure
     owl.try(&.close)
     FileUtils.rm_rf(dir) if dir
@@ -319,7 +319,7 @@ describe DataDungeon::Recipe do
       speech = DataDungeon::Recipe.new("speech", settings: {"model" => "gpt-4o-mini-tts", "voice" => "fable"},
         prompt: "Sit down, bard.", instructions: "Gruff, tired.",
         wordings: [wording("style", "overlore:veteran", "Gruff, tired.")], cost: 0.001)
-      line = db.store("line", {"voice" => "fable"}, bytes: "mp3".to_slice, content_type: "audio/mpeg", recipe: speech)
+      line = db.store("speech", {"voice" => "fable"}, bytes: "mp3".to_slice, content_type: "audio/mpeg", recipe: speech)
       got = db.recipe(line.id).not_nil!
       got.prompt.should eq "Sit down, bard."
       got.instructions.should eq "Gruff, tired."
@@ -327,7 +327,7 @@ describe DataDungeon::Recipe do
       db.with_text("style", "overlore:veteran").should eq [line.id]
 
       chat = DataDungeon::Recipe.new("text", prompt: "The hall, from the door.", instructions: "Describe a room in one sentence.")
-      decree = db.store("line", {"voice" => "none"}, bytes: "words".to_slice, content_type: "text/plain", recipe: chat)
+      decree = db.store("speech", {"voice" => "none"}, bytes: "words".to_slice, content_type: "text/plain", recipe: chat)
       db.recipe(decree.id).not_nil!.instructions.should eq "Describe a room in one sentence."
 
       edit = picture("A rain-soaked street.")
@@ -381,7 +381,7 @@ describe DataDungeon::Recipe do
       # A voice's style is its own too.
       speech = DataDungeon::Recipe.new("speech", prompt: "Hello.", instructions: "Warm.",
         wordings: [wording("style", "overlore:host", "Warm.")])
-      db.store("line", {"voice" => "fable"}, bytes: "mp3".to_slice, content_type: "audio/mpeg", recipe: speech).has_recipe?.should be_true
+      db.store("speech", {"voice" => "fable"}, bytes: "mp3".to_slice, content_type: "audio/mpeg", recipe: speech).has_recipe?.should be_true
     end
   end
 
@@ -395,7 +395,7 @@ describe DataDungeon::Recipe do
       db.recipe(id).not_nil!.wordings.should eq [pg, SILVER]
       db.with_text("rating", "dd:pg").should eq [id]
       text = DataDungeon::Recipe.new("text", prompt: "A dwarf's tale.", instructions: "Tell it. #{words}", wordings: [pg])
-      db.store("line", {"voice" => "fable"}, bytes: "tale".to_slice, content_type: "text/plain", recipe: text).has_recipe?.should be_true
+      db.store("speech", {"voice" => "fable"}, bytes: "tale".to_slice, content_type: "text/plain", recipe: text).has_recipe?.should be_true
       reworded = DataDungeon::Recipe.new("picture", prompt: "Kept clean. #{SILVER_WORDS} A dwarf.",
         wordings: [wording("rating", "dd:pg", "Kept clean."), SILVER])
       expect_raises(ArgumentError, /isn't DataDungeon's words/) { store_panel(db, "b", reworded) }
@@ -454,7 +454,7 @@ describe DataDungeon::Recipe do
       # The driver reports a refused statement's error again when it
       # finalizes the cached statement.
       expect_raises(SQLite3::Exception, /FOREIGN KEY/) { raw.close }
-      db.find_assets_by_tags("panel", {"art-style" => "silver-comic"}).first.description.should eq "A small room."
+      db.find_assets_by_tags("plug", {"art-style" => "silver-comic"}).first.description.should eq "A small room."
     end
   end
 
@@ -463,7 +463,7 @@ describe DataDungeon::Recipe do
     Dir.mkdir_p(dir)
     path = File.join(dir, "assets.db")
     db = DataDungeon::DB.new(path, cache_root: File.join(dir, "store"))
-    db.register_type("panel", pool_traits: %w[art-style])
+    db.register_type("plug", pool_traits: %w[art-style])
     a = store_panel(db, "a")
     b = store_panel(db, "b")
     db.close
@@ -550,11 +550,11 @@ describe DataDungeon::Recipe do
     Dir.mkdir_p(dir)
     path = File.join(dir, "assets.db")
     db = DataDungeon::DB.new(path, cache_root: File.join(dir, "store"), consumer: "overlore")
-    db.register_type("panel", pool_traits: %w[art-style])
-    db.register_type("line", pool_traits: %w[voice])
+    db.register_type("plug", pool_traits: %w[art-style])
+    db.register_type("speech", pool_traits: %w[voice])
     joined, sent, filled, bare, layer = %w[a b c d e].map { |bytes| store_panel(db, bytes).id }
-    line = db.store("line", {"voice" => "fable"}, bytes: "mp3".to_slice, content_type: "audio/mpeg").id
-    decree = db.store("line", {"voice" => "none"}, bytes: "words".to_slice, content_type: "text/plain").id
+    line = db.store("speech", {"voice" => "fable"}, bytes: "mp3".to_slice, content_type: "audio/mpeg").id
+    decree = db.store("speech", {"voice" => "none"}, bytes: "words".to_slice, content_type: "text/plain").id
     db.close
 
     raw = ::DB.open("sqlite3://#{path}")
@@ -617,7 +617,7 @@ describe DataDungeon::Recipe do
     Dir.mkdir_p(dir)
     path = File.join(dir, "assets.db")
     db = DataDungeon::DB.new(path, cache_root: File.join(dir, "store"), consumer: "overlore")
-    db.register_type("panel", pool_traits: %w[art-style])
+    db.register_type("plug", pool_traits: %w[art-style])
     old, layer = %w[a b].map { |bytes| store_panel(db, bytes).id }
     db.close
 
@@ -655,7 +655,7 @@ describe DataDungeon::Recipe do
     Dir.mkdir_p(dir)
     path = File.join(dir, "assets.db")
     db = DataDungeon::DB.new(path, cache_root: File.join(dir, "store"), consumer: "overlore")
-    db.register_type("panel", pool_traits: %w[art-style])
+    db.register_type("plug", pool_traits: %w[art-style])
     first, second = %w[a b].map { |bytes| store_panel(db, bytes).id }
     db.close
     raw = ::DB.open("sqlite3://#{path}")
@@ -680,8 +680,8 @@ describe DataDungeon::Recipe do
     Dir.mkdir_p(dir)
     path = File.join(dir, "assets.db")
     db = DataDungeon::DB.new(path, cache_root: File.join(dir, "store"), consumer: "overlore")
-    db.register_type("line", pool_traits: %w[voice])
-    line = db.store("line", {"voice" => "fable"}, bytes: "mp3".to_slice, content_type: "audio/mpeg").id
+    db.register_type("speech", pool_traits: %w[voice])
+    line = db.store("speech", {"voice" => "fable"}, bytes: "mp3".to_slice, content_type: "audio/mpeg").id
     db.close
     raw = ::DB.open("sqlite3://#{path}")
     as_013(raw)
@@ -754,7 +754,7 @@ describe DataDungeon::Recipe do
       db.list_assets(file_hash: plain.file_hash).map(&.id).should eq [plain.id]
       db.list_assets(texts: {"style" => "overlore:silver-comic"}).map(&.id).should eq [second.id, first.id]
       inked = "overlore:silver-comic@#{version("Silver Age comic art, heavy inks.")}"
-      db.list_assets("panel", texts: {"style" => inked}).map(&.id).should eq [second.id]
+      db.list_assets("plug", texts: {"style" => inked}).map(&.id).should eq [second.id]
       db.count_assets(texts: {"framing" => "overlore:house", "style" => "overlore:silver-comic@#{version("Silver Age comic art.")}"}).should eq 1
       expect_raises(ArgumentError, /owner:name/) { db.list_assets(texts: {"style" => "silver"}) }
     end

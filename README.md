@@ -13,7 +13,7 @@ Traits are ordinary tags. DataDungeon derives the asset's `key` from them:
 the asset type, then the trait values in that order, joined by dots.
 
 ```
-portrait.golden.pg.f.human.tan-skin.red-hair
+plug.golden.pg.f.human.tan-skin.red-hair
 ```
 
 The key is an index, not a name: it finds the assets whose traits are these,
@@ -23,7 +23,7 @@ application's call. The asset's id, and its bytes' SHA-256, are what name
 one asset durably, never the key. The leading `group_traits` form the type's
 group: the wider set of candidates that exact checks and ranking work
 within. Because a trait's position says which trait it is, a lookup on
-leading traits is a prefix match (`portrait.golden.pg.f.`), one index range
+leading traits is a prefix match (`plug.golden.pg.f.`), one index range
 scan, at any depth.
 
 A type's name says what the asset is, from DataDungeon's list
@@ -36,12 +36,14 @@ tell what it is: `drop` (a place, the set things stand in front of),
 `motion`; `sequence`, `font` (see `DESIGN-types.md`). An app tells its own
 kinds of one type apart with the shared tag `subtype`, its values the app's
 own words (`room`, `door-view`), and registers each type it uses with the
-traits its lookups need, `subtype` among them where it looks up by kind. The list came in 0.15.2; apps move
-their own types onto it one at a time (`rename_type`), and once all have,
-`register_type` will take only these names.
+traits its lookups need, `subtype` among them where it looks up by kind.
+Since 0.16, `register_type`, `rename_type` and storing take only these
+names, and anything else raises. A store an older DataDungeon left with
+other names still opens and reads, and `rename_type` moves its assets onto
+a listed type.
 
 Keys are canonical: every trait is present, in the registered order, with an
-empty segment for a trait the asset lacks (`portrait.golden.pg..human`). Values are
+empty segment for a trait the asset lacks (`plug.golden.pg..human`). Values are
 normalized for matching (Unicode case folding and NFC; letters and digits
 kept, apostrophes dropped, and every other run of punctuation, symbols or
 spaces turned into `-`, so `Zork III: The Dungeon Master` becomes
@@ -59,9 +61,9 @@ turns commas inside a value into `-`, so a key's only commas separate set
 members, and prefixes still stop at dots. Set traits can't be labelled.
 
 ```crystal
-db.register_type("poster", pool_traits: %w[style colors], sets: %w[colors])
-db.store("poster", {"style" => "art deco", "colors" => "Red, blue"}, ...)
-# key: poster.art-deco.blue,red
+db.register_type("prop", pool_traits: %w[thing colors], sets: %w[colors])
+db.store("prop", {"thing" => "poster", "colors" => "Red, blue"}, ...)
+# key: prop.poster.blue,red
 ```
 
 A tag may be marked `custom` when its value isn't one of the application's
@@ -71,14 +73,14 @@ any key.
 
 ```crystal
 db = DataDungeon::DB.new("assets.db", cache_root: "asset-files")
-db.register_type("portrait",
+db.register_type("plug",
   pool_traits: %w[art-style rating gender race skin hair-color],
   group_traits: %w[art-style rating gender],
   labels: {"skin" => "skin", "hair-color" => "hair"})
 
 traits = {"art-style" => "silver", "rating" => "pg", "gender" => "f",
           "race" => "ape", "skin" => "purple", "hair-color" => "red"}
-record = db.store("portrait", traits, custom: %w[race],
+record = db.store("plug", traits, custom: %w[race],
   source_path: "portrait.png",
   content_type: "image/png",
   description: "A purple ape with red hair, facing left.",
@@ -88,19 +90,19 @@ record = db.store("portrait", traits, custom: %w[race],
     prompt: image_prompt),
   image: DataDungeon::ImageMeta.new(compression: "normalize", target_format: "webp")
 )
-record.key                                          # "portrait.silver.pg.f.ape.purple-skin.red-hair"
+record.key                                          # "plug.silver.pg.f.ape.purple-skin.red-hair"
 
-db.find_pool("portrait", traits)                    # every trait equal
-db.find_pool("portrait", traits, custom: %w[race])  # every trait equal but race; rank race yourself
-db.find_group("portrait", traits)                   # the group traits equal
-db.find_group("portrait", traits, 4)                # the first four traits equal
+db.find_pool("plug", traits)                        # every trait equal
+db.find_pool("plug", traits, custom: %w[race])      # every trait equal but race; rank race yourself
+db.find_group("plug", traits)                       # the group traits equal
+db.find_group("plug", traits, 4)                    # the first four traits equal
 db.find_pool(record.key.not_nil!)                   # by the key alone
-db.find_group("portrait.silver.pg.")                # by a key prefix alone
-found = db.find("portrait", traits, custom: %w[race])
+db.find_group("plug.silver.pg.")                    # by a key prefix alone
+found = db.find("plug", traits, custom: %w[race])
 found.pool                                          # as find_pool with custom:
 found.group                                         # the rest of the group
-db.custom_values("portrait", "race")                # {"ape" => 1}
-db.promote("portrait", "race", "ape")
+db.custom_values("plug", "race")                    # {"ape" => 1}
+db.promote("plug", "race", "ape")
 db.get_by_id(record.id)
 db.get_with_meta_by_id(record.id)
 db.path_for(record)
@@ -165,10 +167,10 @@ nothing is deleted until the application prunes:
 retired assets, keeping each key's last few or the recent ones.
 
 ```crystal
-old = db.get("voice", line)
-take = db.store("voice", line, bytes: audio, content_type: "audio/mpeg", supersedes: old.try(&.id))
+old = db.get("speech", line)
+take = db.store("speech", line, bytes: audio, content_type: "audio/mpeg", supersedes: old.try(&.id))
 db.reinstate(old.not_nil!.id)   # the old take back
-db.prune("voice", keep_last: 3)
+db.prune("speech", keep_last: 3)
 ```
 
 An asset is its bytes, so storing bytes its type already holds raises
@@ -185,8 +187,8 @@ by, most selective first.
 
 ```crystal
 db = DataDungeon::DB.new(path, consumer: "cattacula")
-db.register_index("voice", "lines", traits: %w[bit beat voice fmt])
-db.list_assets("voice", {"bit" => "b1", "beat" => "0"})   # one range of that index
+db.register_index("speech", "lines", traits: %w[bit beat voice fmt])
+db.list_assets("speech", {"bit" => "b1", "beat" => "0"})  # one range of that index
 ```
 
 Applications just ask with traits. A lookup by tags counts where it could
@@ -216,7 +218,8 @@ extension from its content type (`ab/ab12….webp`). Identical bytes are stored
 once and shared by every asset that holds them (of different types), and
 deleting or pruning an asset unlinks its object only when no other asset
 still uses it. Deleting an asset also clears any clip's `transcript_id`
-that names it (0.15.5; `transcript_id` itself goes in 0.16, DESIGN-types). An asset's `media` comes from its content type unless given: its
+that names it (0.15.5). `transcript_id` is deprecated: link a transcript
+`transcript-of` its recording instead (DESIGN-types). An asset's `media` comes from its content type unless given: its
 top-level type (image, audio, video, text, model, font), JSON, XML and YAML
 counting as text, and anything else (a PDF, raw bytes) `data`.
 Existing rows keep the keys they were stored under. `DB#store_asset`
@@ -255,7 +258,7 @@ recipe = DataDungeon::Recipe.new("picture",
   prompt: prompt, wordings: [rating, rules, style],
   seed: 7, cost: 0.04, cost_basis: "reported: runware", generated_at: Time.utc,
   references: [portrait.file_hash.not_nil!])
-db.store("panel", tags, bytes: png, content_type: "image/png", recipe: recipe)
+db.store("plug", tags, bytes: png, content_type: "image/png", recipe: recipe)
 
 narrator = DataDungeon::Recipe.wording("style", "owl:narrator", "Warm, unhurried, a storyteller by a fire.")
 spoken = DataDungeon::Recipe.new("speech", settings: {"model" => "gpt-4o-mini-tts", "voice" => "fable"},
@@ -556,7 +559,7 @@ db.list_assets(q: "red-hair")                 # a labelled trait, only as keys s
 db.list_assets(links: {"used-by" => "boardwalk"}, limit: 50, before: last_id)
 db.list_assets(links: {"used-by" => "boardwalk.*"})   # boardwalk and names under it
 db.list_assets("prop", unlinked: "used-by")   # what nothing uses
-db.list_assets("voice", retired: true)        # what was retired or superseded
+db.list_assets("speech", retired: true)       # what was retired or superseded
 db.list_assets(file_hash: hash)               # the assets holding a file, such as a recipe's reference
 db.list_assets(description_hash: rec.description_hash)   # every asset sharing a description
 ```
@@ -639,13 +642,13 @@ closest to what was picked, even when none matches every pick, ranked by
 `score = Σ weight × similarity` over the traits asked for.
 
 ```crystal
-db.register_type("portrait", pool_traits: %w[art-style rating race hair skin items],
+db.register_type("plug", pool_traits: %w[art-style rating race hair skin items],
   scales: {"rating" => %w[g pg r x]},  # ordered: near values count as close
   colors: %w[hair skin],               # CSS names or hex codes, by appearance
   sets: %w[items],                     # by shared members
   weights: {"art-style" => 2.0})       # default weights (else 1)
 index = DataDungeon::MatchIndex.new(db)
-index.best_matches("portrait", {"art-style" => "golden", "rating" => "pg", "hair" => "crimson"},
+index.best_matches("plug", {"art-style" => "golden", "rating" => "pg", "hair" => "crimson"},
   require: %w[art-style rating],       # must match exactly
   weights: {"hair" => 3.0}, limit: 10) # => [BestMatch(asset, score), …], best first
 index.similar(asset_id, limit: 10)     # by an asset's own traits
@@ -715,7 +718,7 @@ semantic = DataDungeon::SemanticIndex.new(db,
 semantic.catch_up       # queue what changed, here or in another process; safe to repeat
 semantic.process_queue  # embed it: one worker per store, off the request path
 hits = semantic.search("curly-haired adventurer",
-  asset_type: "portrait", tags: {"art-style" => "silver"})
+  asset_type: "plug", tags: {"art-style" => "silver"})
 hits.each { |hit| puts "#{hit.asset.id}: #{hit.score}" }
 db.close
 ```
@@ -743,13 +746,13 @@ an asset without the rest diluting it. Each facet is its own Memo source type
 `description` names the asset's description.
 
 ```crystal
-db.register_type("listing", pool_traits: %w[city rooms],
+db.register_type("drop", pool_traits: %w[city rooms],
   facets: {"location" => %w[neighborhood view], "interior" => %w[style finishes description]})
 
-semantic.search("sunny loft with exposed brick", asset_type: "listing", facet: "interior")
+semantic.search("sunny loft with exposed brick", asset_type: "drop", facet: "interior")
 semantic.search_facets({"location" => "quiet street near a park",
                         "interior" => "sunny loft with exposed brick"},
-  asset_type: "listing", key_prefix: db.group_key_for("listing", {"city" => "oslo"}, 1))
+  asset_type: "drop", key_prefix: db.group_key_for("drop", {"city" => "oslo"}, 1))
 ```
 
 `search_facets` keeps only assets that have every facet named, and scores
@@ -772,7 +775,7 @@ one portrait:
 
 ```crystal
 pictures = semantic.search("the hero fights the troll",
-  key_prefix: db.group_key_for("picture", {"portrait" => portrait_id}, 1))
+  key_prefix: db.group_key_for("plug", {"portrait" => portrait_id}, 1))
 ```
 
 Those lookups start from the key index, so their cost follows the size of the

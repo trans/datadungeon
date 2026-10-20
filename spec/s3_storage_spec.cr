@@ -83,20 +83,20 @@ describe DataDungeon::S3Storage do
     Dir.mkdir_p(dir)
     storage = s3_storage("spec-#{Random::Secure.hex(4)}")
     db = DataDungeon::DB.new(File.join(dir, "assets.db"), storage: storage)
-    db.register_type("voice", pool_traits: %w[line voice])
+    db.register_type("speech", pool_traits: %w[line voice])
     traits = {"line" => "hello", "voice" => "fable"}
 
-    rec = db.store("voice", traits, bytes: "audio-1".to_slice, content_type: "audio/mpeg", media: "audio")
-    db.get("voice", traits, touch: false).not_nil!.id.should eq rec.id
+    rec = db.store("speech", traits, bytes: "audio-1".to_slice, content_type: "audio/mpeg", media: "audio")
+    db.get("speech", traits, touch: false).not_nil!.id.should eq rec.id
     String.new(db.read(rec)).should eq "audio-1"
     db.check_consistency.clean?.should be_true
 
     # A new take superseding it keeps the old object until pruned.
-    newer = db.store("voice", traits, bytes: "audio-2".to_slice, content_type: "audio/mpeg", media: "audio",
+    newer = db.store("speech", traits, bytes: "audio-2".to_slice, content_type: "audio/mpeg", media: "audio",
       supersedes: rec.id)
     String.new(db.read(newer)).should eq "audio-2"
     storage.exists?(rec.file_path).should be_true
-    db.prune("voice").should eq 1
+    db.prune("speech").should eq 1
     storage.exists?(rec.file_path).should be_false
     db.check_consistency.clean?.should be_true
 

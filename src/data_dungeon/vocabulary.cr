@@ -57,8 +57,8 @@ module DataDungeon
   class DB
     # DataDungeon's asset types, as agreed (Thomas with the apps,
     # 2026-10-13). The list changes in a release, by agreement, never by
-    # an app. Apps move their own types onto it one at a time (rename_type);
-    # once all have, register_type takes only these.
+    # an app. The apps moved their own types onto it in 0.15 (rename_type);
+    # since 0.16, register_type, rename_type and storing take only these.
     STANDARD_TYPES = [
       # Pictures, still or moving
       StandardType.new("drop", "Drop", %w[image video], "a place, the set things stand in front of"),

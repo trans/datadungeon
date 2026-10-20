@@ -112,8 +112,8 @@ private def with_db(name : String, &)
   Dir.mkdir_p(dir)
   db = DataDungeon::DB.new(File.join(dir, "assets.db"), cache_root: File.join(dir, "store"))
   db.register_type("prop", pool_traits: %w[thing], match_fields: %w[view dominant-color])
-  db.register_type("blimp", pool_traits: %w[motion])
-  {"voice", "anim", "script"}.each { |type| db.register_type(type, pool_traits: %w[name]) }
+  db.register_type("plug", pool_traits: %w[motion])
+  {"speech", "sequence", "script"}.each { |type| db.register_type(type, pool_traits: %w[name]) }
   yield db
 ensure
   db.try(&.close)
@@ -262,7 +262,7 @@ describe "Image fields" do
       meta.dominant_color.should eq 0xFF0000 # measured fields untouched
       db.list_assets(q: "right").map(&.id).should eq [rec.id]
 
-      voice = db.store("voice", bytes: "mp3".to_slice, content_type: "audio/mpeg")
+      voice = db.store("speech", bytes: "mp3".to_slice, content_type: "audio/mpeg")
       expect_raises(ArgumentError, /no image fields/) { db.update_asset(voice.id, image: DataDungeon::ImageMeta.new(world_width: 1.0)) }
     end
   end
@@ -309,10 +309,10 @@ describe "Image fields" do
       db.update_asset(a.id, image: view.call("back", -0.5, 0.0))
       db.view_counts("prop").should eq({"back-left" => 1, "top-down" => 1})
       db.delete_asset(c.id)
-      db.rename_type("prop", "thing")
-      db.view_counts("thing", retired: nil).should eq({"back-left" => 2, "from-above" => 1})
+      db.rename_type("prop", "icon")
+      db.view_counts("icon", retired: nil).should eq({"back-left" => 2, "from-above" => 1})
       db.view_counts("prop").should be_empty
-      db.tag_keys("thing").keys.should eq ["thing"] # the counts aren't tags
+      db.tag_keys("icon").keys.should eq ["thing"] # the counts aren't tags
       kept = db.connection.query_all("SELECT * FROM asset_tag_counts ORDER BY 1, 2, 3", as: {String, String, String, Int64, Int64})
       fresh = DataDungeon::DB::COUNT_TAGS.flat_map do |sql|
         db.connection.query_all(sql.sub(/\A\s*INSERT INTO[^\n]*\n/, ""), as: {String, String, String, Int64, Int64})
@@ -320,18 +320,18 @@ describe "Image fields" do
       kept.should eq fresh.sort # as counted afresh
 
       expect_raises(ArgumentError, /@ are DataDungeon's/) do
-        db.store("thing", {"@view" => "front"}, bytes: png(5, 1) { RED }, content_type: "image/png")
+        db.store("icon", {"@view" => "front"}, bytes: png(5, 1) { RED }, content_type: "image/png")
       end
-      expect_raises(ArgumentError, /@ are DataDungeon's/) { db.rename_tag("thing", "thing", "@thing") }
+      expect_raises(ArgumentError, /@ are DataDungeon's/) { db.rename_tag("icon", "thing", "@thing") }
     end
   end
 
   it "keeps an animation's checkpoints, measuring the content box at each" do
     with_db("dd-image-keyframes") do |db|
       frames = [0, 1, 2].map { |n| rgba(16, 16) { |x, y| x < 4 + n * 4 && y < 8 ? RED : CLEAR } }
-      spin = db.store("blimp", {"motion" => "spin"}, bytes: animated_webp(16, 16, frames, 100), content_type: "image/webp",
+      spin = db.store("plug", {"motion" => "spin"}, bytes: animated_webp(16, 16, frames, 100), content_type: "image/webp",
         image: DataDungeon::ImageMeta.new(view: DataDungeon::Direction.new("front"), world_depth: 40.0))
-      still = db.store("blimp", {"motion" => "none"}, bytes: png(3, 3) { RED }, content_type: "image/png",
+      still = db.store("plug", {"motion" => "none"}, bytes: png(3, 3) { RED }, content_type: "image/png",
         image: DataDungeon::ImageMeta.new(view: DataDungeon::Direction.new("front")))
 
       set = db.set_keyframes(spin.id, [
@@ -345,7 +345,7 @@ describe "Image fields" do
       set[2].held?.should be_true
       db.load_keyframes(spin.id).should eq set
 
-      ever = ->(filter : DataDungeon::ImageFilter) { db.list_assets("blimp", image: filter).map(&.id) }
+      ever = ->(filter : DataDungeon::ImageFilter) { db.list_assets("plug", image: filter).map(&.id) }
       ever.call(DataDungeon::ImageFilter.new(direction: "back")).should eq [spin.id] # at a checkpoint
       ever.call(DataDungeon::ImageFilter.new(direction: "front")).should eq [still.id, spin.id]
       ever.call(DataDungeon::ImageFilter.new({"content_w" => {10, 12}})).should eq [spin.id]
@@ -368,7 +368,7 @@ describe "Image fields" do
     with_db("dd-image-measure") do |db|
       rec = db.store("prop", {"thing" => "lamp"}, bytes: png(6, 6) { |x, _| x < 3 ? GREEN : CLEAR }, content_type: "image/png")
       db.connection.exec("UPDATE image_meta SET measured = NULL, content_w = NULL, dominant_color = NULL")
-      gif_rec = db.store("anim", bytes: gif, content_type: "image/gif")
+      gif_rec = db.store("sequence", bytes: gif, content_type: "image/gif")
       db.connection.exec("DELETE FROM image_meta WHERE asset_id = ?", gif_rec.id)
       db.connection.exec("DELETE FROM image_animation WHERE asset_id = ?", gif_rec.id)
 
@@ -388,13 +388,13 @@ end
 describe "Best matches on image fields" do
   it "ranks a cycle's neighbours before its opposite" do
     with_db("dd-match-cycle") do |db|
-      db.register_type("scene", pool_traits: %w[place time], cycles: {"time" => %w[Dawn day dusk night]})
+      db.register_type("drop", pool_traits: %w[place time], cycles: {"time" => %w[Dawn day dusk night]})
       ids = %w[day dusk dawn].to_h do |time|
-        {time, db.store("scene", {"place" => "park", "time" => time}, bytes: time.to_slice, content_type: "text/plain").id}
+        {time, db.store("drop", {"place" => "park", "time" => time}, bytes: time.to_slice, content_type: "text/plain").id}
       end
       index = DataDungeon::MatchIndex.new(db)
       begin
-        found = index.best_matches("scene", {"time" => "night"})
+        found = index.best_matches("drop", {"time" => "night"})
         found.first(2).map(&.asset.id).sort.should eq [ids["dusk"], ids["dawn"]].sort
         found.first(2).each { |match| match.score.should be_close(0.5, 1e-9) }
         found.last.asset.id.should eq ids["day"]
@@ -402,8 +402,8 @@ describe "Best matches on image fields" do
       ensure
         index.close
       end
-      expect_raises(ArgumentError, /at least three/) { db.register_type("t", pool_traits: %w[a], cycles: {"a" => %w[x y]}) }
-      expect_raises(ArgumentError, /can't be matched on/) { db.register_type("t", pool_traits: %w[a], match_fields: %w[mood]) }
+      expect_raises(ArgumentError, /at least three/) { db.register_type("data", pool_traits: %w[a], cycles: {"a" => %w[x y]}) }
+      expect_raises(ArgumentError, /can't be matched on/) { db.register_type("data", pool_traits: %w[a], match_fields: %w[mood]) }
     end
   end
 

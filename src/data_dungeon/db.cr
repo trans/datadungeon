@@ -937,6 +937,7 @@ module DataDungeon
       image : ImageMeta?, audio : AudioMeta?, video : VideoMeta?, text : TextMeta?,
     ) : Nil
       registered(asset_type)
+      standard!(asset_type) # a registration from before 0.16 may hold another name
       unless (unknown = custom - tags.keys).empty?
         raise ArgumentError.new("custom names #{unknown.join(", ")}, which have no tag")
       end
@@ -2237,6 +2238,7 @@ module DataDungeon
       rekey : Bool = false,
     ) : AssetType
       writable!
+      standard!(asset_type)
       scales = scales.transform_values { |values| values.compact_map { |value| TraitKey.normalize(value) } }
       cycles = cycles.transform_values { |values| values.compact_map { |value| TraitKey.normalize(value) } }
       definition = AssetType.new(asset_type, pool_traits, group_traits, labels, sets, facets,
@@ -2371,6 +2373,7 @@ module DataDungeon
       unless to.matches?(TYPE_NAME)
         raise ArgumentError.new("asset type #{to.inspect} must be lowercase letters and digits, joined by '_' or '-'")
       end
+      standard!(to)
       moved = [] of Int64
       rekeyed = [] of Int64
       @object_lock.synchronize do
@@ -2619,6 +2622,16 @@ module DataDungeon
     private def registered(asset_type : String) : AssetType
       @types[asset_type]? || stored_type(asset_type).try { |(type, _)| @types[asset_type] = type } ||
         raise ArgumentError.new("#{asset_type} is not a registered asset type (see register_type)")
+    end
+
+    # Since 0.16 a type is one of DataDungeon's (STANDARD_TYPES), so another
+    # app can tell what an asset is; an app tells its own kinds apart with
+    # the `subtype` tag (Thomas, 2026-10-19).
+    private def standard!(asset_type : String) : Nil
+      return if DB.standard_type?(asset_type)
+      raise ArgumentError.new("#{asset_type} isn't one of DataDungeon's asset types (DB::STANDARD_TYPES, GET /vocabulary): " \
+                              "use the one that says what it is, and tell your own kinds apart with the subtype tag; " \
+                              "rename_type moves what's stored under another name")
     end
 
     private def validate_type(type : AssetType) : Nil

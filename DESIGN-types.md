@@ -13,8 +13,9 @@ to the hub, later. **Standard types stay: without them sharing would be
 impossible** (Thomas, 2026-10-19). The list is in 0.15.2
 (`DB::STANDARD_TYPES`, `GET /vocabulary`), and the apps move onto it in
 pieces (Thomas, 2026-10-19): one type first, Pirateship's voices to
-`speech`; then a few more; then the rest, Overlore's. Once all have
-moved, `register_type` takes only the listed names (0.16).
+`speech`; then a few more; then the rest, Overlore's. All had moved by
+2026-10-20, and since 0.16 `register_type`, `rename_type` and storing take
+only the listed names.
 `register_type` stays: with one owner per store, the owner registers each
 type with the traits its own lookups need, so keys needn't become the
 apps' indexes. An app tells its own kinds of a type apart with one shared
@@ -182,10 +183,13 @@ Subtitles, timed lines, are closer to a track than to a transcript; where
 they go is open.
 
 `audio_meta.transcript_id`, from 0.2 (2026-03), before recipes and tracks,
-pointed a clip at one text asset; Overlore was the only app to use it. It
-is dropped in 0.16, with the strict type names. Until then, deleting an
-asset clears any clip's `transcript_id` that names it (0.15.5; the foreign
-key refused the delete before).
+pointed a clip at one text asset; Overlore was the only app to use it, and
+no live store sets it now (2026-10-20). It is deprecated: link a transcript
+`transcript-of` its recording instead. The column stays (Thomas,
+2026-10-20: "You never know we might find some other need for the column
+and then we can just rename it"). Deleting an asset clears any clip's
+`transcript_id` that names it (0.15.5; the foreign key refused the delete
+before).
 
 **Scripts** use Yarn Spinner's line syntax (`@overlore`'s proposal; notes
 in Overlore's `docs/SCRIPT-FORMATS.md`): `Veteran: This isn't a stage,
@@ -577,7 +581,13 @@ again and rewrote their search rows on each start).
 | 2 | Cattacula | voice → `speech` |
 | 2 | the park | stage-standup → `speech`; prop is already `prop` |
 | 2 | Owl | owl_scene, owl_frame → `drop`; owl_depth → `map`, `pass` since 0.15.6; owl_voice → `speech`; owl_prop → `prop` |
-| 3 | Overlore | room, door_view, background, backdrop → `drop`; panel, heroshot, portrait → `plug`; banter, narration → `speech`; banter_script → `script`; decree → `prose`; comic → `document`, `subtype` `comicbook`; layer → `prop` or `scrim`; its `transcript` assets are deleted (Thomas, 2026-10-20: each is its clip's prompt, byte for byte); `legacy`, to decide |
+| 3 | Overlore | room, door_view, background, backdrop → `drop`; panel, heroshot, portrait → `plug`; banter, narration → `speech`; banter_script → `script`; decree → `prose`; comic → `document`, `subtype` `comicbook`; layer → `prop`; its `transcript` assets are deleted (Thomas, 2026-10-20: each is its clip's prompt, byte for byte); `legacy`: one portrait kept as a `plug`, three deleted |
+
+Every store had moved by 2026-10-20: Pirateship (piece 1), Cattacula, the
+park and Owl (piece 2; Owl's depth maps `pass` since its `16748f9`), and
+Overlore (piece 3, its `f9c472ee`). An app with a store that hasn't moved yet, a deployed copy
+say, moves it on a 0.15 build before taking 0.16, which refuses to register
+the old names.
 
 ## Open, collected
 
@@ -600,5 +610,6 @@ again and rewrote their search rows on each start).
   2026-10-16: a freeze on what no app uses yet); uses and owner tags are
   dropped. 0.15 is a small cleanup, without them (Thomas, 2026-10-17).
   The types' list is 0.15.2, the apps move in pieces, and 0.16 refuses
-  unlisted names (Thomas, 2026-10-19). 0.16 also drops `audio_meta.transcript_id`
-  (Thomas, 2026-10-20); 0.15.5 lets a transcript it names be deleted.
+  unlisted names (Thomas, 2026-10-19; released 2026-10-20).
+  `audio_meta.transcript_id` stays, deprecated (Thomas, 2026-10-20), not
+  dropped as first planned; 0.15.5 lets a transcript it names be deleted.

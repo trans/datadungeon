@@ -603,6 +603,8 @@ module DataDungeon
     getter sample_rate : Int32?
     getter bitrate : Int32?
     getter channels : Int32
+    # Deprecated: link a transcript `transcript-of` its recording instead
+    # (DESIGN-types). The column stays, unused, in case another use turns up.
     getter transcript_id : Int64?
     getter compression : String
     getter target_format : String?

@@ -21,7 +21,7 @@ PORTRAIT_TRAITS = %w[art_style rating gender race hair_color facial_hair]
 PORTRAIT_GROUP  = %w[art_style rating gender]
 
 private def register_portraits(db : DataDungeon::DB) : Nil
-  db.register_type("portrait", pool_traits: PORTRAIT_TRAITS, group_traits: PORTRAIT_GROUP,
+  db.register_type("plug", pool_traits: PORTRAIT_TRAITS, group_traits: PORTRAIT_GROUP,
     labels: {"hair_color" => "hair"})
 end
 
@@ -32,7 +32,7 @@ private def portrait(**overrides) : Hash(String, String)
 end
 
 private def store_portrait(db : DataDungeon::DB, traits : Hash(String, String), bytes : String, custom = [] of String)
-  db.store("portrait", traits, bytes: bytes.to_slice, content_type: "image/webp", custom: custom)
+  db.store("plug", traits, bytes: bytes.to_slice, content_type: "image/webp", custom: custom)
 end
 
 # An asset of a type nobody has registered, as a store from before 0.12 could
@@ -67,19 +67,19 @@ describe DataDungeon::TraitKey do
   it "starts with the type, then the trait values in order, with an empty segment for an absent trait" do
     traits = %w[art_style rating gender race]
     values = {"art_style" => "golden", "rating" => "pg", "gender" => "f", "race" => "human"}
-    DataDungeon::TraitKey.key("portrait", traits, values).should eq "portrait.golden.pg.f.human"
-    DataDungeon::TraitKey.key("portrait", traits, values.reject("rating")).should eq "portrait.golden..f.human"
-    DataDungeon::TraitKey.prefix("portrait", traits, values, 2).should eq "portrait.golden.pg."
-    DataDungeon::TraitKey.prefix("portrait", traits, values, 0).should eq "portrait."
+    DataDungeon::TraitKey.key("plug", traits, values).should eq "plug.golden.pg.f.human"
+    DataDungeon::TraitKey.key("plug", traits, values.reject("rating")).should eq "plug.golden..f.human"
+    DataDungeon::TraitKey.prefix("plug", traits, values, 2).should eq "plug.golden.pg."
+    DataDungeon::TraitKey.prefix("plug", traits, values, 0).should eq "plug."
   end
 
   it "suffixes labelled traits so their values read unambiguously" do
     traits = %w[race skin hair_length hair_texture hair_color]
     values = {"race" => "human", "skin" => "tan", "hair_length" => "long", "hair_texture" => "straight", "hair_color" => "black"}
     labels = {"skin" => "skin", "hair_length" => "hair", "hair_texture" => "hair", "hair_color" => "hair"}
-    DataDungeon::TraitKey.key("hero", traits, values, labels).should eq "hero.human.tan-skin.long-hair.straight-hair.black-hair"
-    DataDungeon::TraitKey.key("hero", traits, values.reject("hair_texture"), labels).should eq "hero.human.tan-skin.long-hair..black-hair"
-    DataDungeon::TraitKey.prefix("hero", traits, values, 3, labels).should eq "hero.human.tan-skin.long-hair."
+    DataDungeon::TraitKey.key("figure", traits, values, labels).should eq "figure.human.tan-skin.long-hair.straight-hair.black-hair"
+    DataDungeon::TraitKey.key("figure", traits, values.reject("hair_texture"), labels).should eq "figure.human.tan-skin.long-hair..black-hair"
+    DataDungeon::TraitKey.prefix("figure", traits, values, 3, labels).should eq "figure.human.tan-skin.long-hair."
   end
 
   it "normalizes a set: members normalized, deduplicated, sorted" do
@@ -110,18 +110,18 @@ end
 describe "DataDungeon::DB type registry" do
   it "rejects malformed registrations" do
     with_db("dd-reg-invalid") do |db|
-      expect_raises(ArgumentError, /must not be empty/) { db.register_type("t", pool_traits: [] of String) }
-      expect_raises(ArgumentError, /lowercase/) { db.register_type("t", pool_traits: %w[Hair]) }
-      expect_raises(ArgumentError, /lowercase/) { db.register_type("t", pool_traits: %w[hair-]) }
-      expect_raises(ArgumentError, /lowercase/) { db.register_type("t", pool_traits: %w[hair--color]) }
-      expect_raises(ArgumentError, /twice/) { db.register_type("t", pool_traits: %w[race race]) }
+      expect_raises(ArgumentError, /must not be empty/) { db.register_type("data", pool_traits: [] of String) }
+      expect_raises(ArgumentError, /lowercase/) { db.register_type("data", pool_traits: %w[Hair]) }
+      expect_raises(ArgumentError, /lowercase/) { db.register_type("data", pool_traits: %w[hair-]) }
+      expect_raises(ArgumentError, /lowercase/) { db.register_type("data", pool_traits: %w[hair--color]) }
+      expect_raises(ArgumentError, /twice/) { db.register_type("data", pool_traits: %w[race race]) }
       expect_raises(ArgumentError, /asset type/) { db.register_type("hero.shot", pool_traits: %w[race]) }
       expect_raises(ArgumentError, /first pool traits/) do
-        db.register_type("t", pool_traits: %w[race rating], group_traits: %w[rating])
+        db.register_type("data", pool_traits: %w[race rating], group_traits: %w[rating])
       end
-      expect_raises(ArgumentError, /not a pool trait/) { db.register_type("t", pool_traits: %w[race], labels: {"skin" => "skin"}) }
-      expect_raises(ArgumentError, /lowercase words/) { db.register_type("t", pool_traits: %w[skin], labels: {"skin" => "Skin"}) }
-      db.registration("t").should be_nil
+      expect_raises(ArgumentError, /not a pool trait/) { db.register_type("data", pool_traits: %w[race], labels: {"skin" => "skin"}) }
+      expect_raises(ArgumentError, /lowercase words/) { db.register_type("data", pool_traits: %w[skin], labels: {"skin" => "Skin"}) }
+      db.registration("data").should be_nil
     end
   end
 
@@ -130,14 +130,14 @@ describe "DataDungeon::DB type registry" do
       register_portraits(db)
       rec = store_portrait(db, portrait(art_style: "Golden", race: " Human ").merge({"note" => "Keep As Is"}), "a")
 
-      rec.key.should eq "portrait.golden.pg.f.human.red-hair." # facial_hair absent
-      rec.key.should eq db.key_for("portrait", portrait)
-      db.group_key_for("portrait", portrait).should eq "portrait.golden.pg.f."
-      db.group_key_for("portrait", portrait, 4).should eq "portrait.golden.pg.f.human."
+      rec.key.should eq "plug.golden.pg.f.human.red-hair." # facial_hair absent
+      rec.key.should eq db.key_for("plug", portrait)
+      db.group_key_for("plug", portrait).should eq "plug.golden.pg.f."
+      db.group_key_for("plug", portrait, 4).should eq "plug.golden.pg.f.human."
       db.load_tags(rec.id).should eq portrait.merge({"note" => "Keep As Is"}) # traits normalized, other tags not
 
-      db.key_for("portrait", portrait(facial_hair: "Braided Beard")).should eq "portrait.golden.pg.f.human.red-hair.braided-beard"
-      expect_raises(ArgumentError, /not traits/) { db.key_for("portrait", portrait.merge({"note" => "x"})) }
+      db.key_for("plug", portrait(facial_hair: "Braided Beard")).should eq "plug.golden.pg.f.human.red-hair.braided-beard"
+      expect_raises(ArgumentError, /not traits/) { db.key_for("plug", portrait.merge({"note" => "x"})) }
     end
   end
 
@@ -157,9 +157,9 @@ describe "DataDungeon::DB type registry" do
       other = store_portrait(db, portrait(hair_color: "blue"), "c")
 
       a.id.should_not eq b.id
-      db.find_pool("portrait", portrait).map(&.id).should eq [a.id, b.id]
+      db.find_pool("plug", portrait).map(&.id).should eq [a.id, b.id]
       db.find_pool(a.key.not_nil!).map(&.id).should eq [a.id, b.id] # the key alone
-      db.find_pool("portrait", portrait(hair_color: "blue")).map(&.id).should eq [other.id]
+      db.find_pool("plug", portrait(hair_color: "blue")).map(&.id).should eq [other.id]
     end
   end
 
@@ -171,32 +171,32 @@ describe "DataDungeon::DB type registry" do
       store_portrait(db, portrait(gender: "fem"), "c") # "f" must not match "fem"
       store_portrait(db, portrait(rating: "r"), "d")
 
-      db.find_group("portrait", portrait).map(&.id).should eq [human.id, elf.id]
-      db.find_group("portrait", portrait, 4).map(&.id).should eq [human.id]
-      db.find_group("portrait.golden.pg.f.").map(&.id).should eq [human.id, elf.id]
-      db.find_group("portrait", portrait, 0).size.should eq 4 # the whole type
-      expect_raises(ArgumentError, /must end with/) { db.find_group("portrait.golden.pg.f") }
+      db.find_group("plug", portrait).map(&.id).should eq [human.id, elf.id]
+      db.find_group("plug", portrait, 4).map(&.id).should eq [human.id]
+      db.find_group("plug.golden.pg.f.").map(&.id).should eq [human.id, elf.id]
+      db.find_group("plug", portrait, 0).size.should eq 4 # the whole type
+      expect_raises(ArgumentError, /must end with/) { db.find_group("plug.golden.pg.f") }
     end
   end
 
   it "keeps types apart by the key alone" do
     with_db("dd-reg-types") do |db|
-      db.register_type("portrait", pool_traits: %w[art_style rating])
-      db.register_type("tile", pool_traits: %w[art_style rating])
+      db.register_type("plug", pool_traits: %w[art_style rating])
+      db.register_type("texture", pool_traits: %w[art_style rating])
       traits = {"art_style" => "golden", "rating" => "pg"}
-      portrait = db.store("portrait", traits, bytes: "a".to_slice, content_type: "image/webp")
-      tile = db.store("tile", traits, bytes: "b".to_slice, content_type: "image/webp")
+      portrait = db.store("plug", traits, bytes: "a".to_slice, content_type: "image/webp")
+      tile = db.store("texture", traits, bytes: "b".to_slice, content_type: "image/webp")
 
-      portrait.key.should eq "portrait.golden.pg"
-      tile.key.should eq "tile.golden.pg"
-      db.find_pool("portrait.golden.pg").map(&.id).should eq [portrait.id]
-      db.find_group("tile.golden.").map(&.id).should eq [tile.id]
+      portrait.key.should eq "plug.golden.pg"
+      tile.key.should eq "texture.golden.pg"
+      db.find_pool("plug.golden.pg").map(&.id).should eq [portrait.id]
+      db.find_group("texture.golden.").map(&.id).should eq [tile.id]
     end
   end
 
   it "keys room pictures by state and items, finding a set seen before in any order" do
     with_db("dd-reg-sets") do |db|
-      db.register_type("room", pool_traits: %w[room art_style rating state items],
+      db.register_type("drop", pool_traits: %w[room art_style rating state items],
         group_traits: %w[room art_style rating], labels: {"room" => "room"},
         sets: %w[state items])
       scene = ->(state : String?, items : String?) do
@@ -205,43 +205,43 @@ describe "DataDungeon::DB type registry" do
         traits["items"] = items if items
         traits
       end
-      bare = db.store("room", scene.call("troll dead", nil), bytes: "a".to_slice, content_type: "image/webp")
-      lantern = db.store("room", scene.call("troll dead", "Lantern"), bytes: "b".to_slice, content_type: "image/webp")
-      both = db.store("room", scene.call("Troll dead", "sword, lantern"), bytes: "c".to_slice, content_type: "image/webp")
-      alive = db.store("room", scene.call("troll alive", "lantern"), bytes: "d".to_slice, content_type: "image/webp")
+      bare = db.store("drop", scene.call("troll dead", nil), bytes: "a".to_slice, content_type: "image/webp")
+      lantern = db.store("drop", scene.call("troll dead", "Lantern"), bytes: "b".to_slice, content_type: "image/webp")
+      both = db.store("drop", scene.call("Troll dead", "sword, lantern"), bytes: "c".to_slice, content_type: "image/webp")
+      alive = db.store("drop", scene.call("troll alive", "lantern"), bytes: "d".to_slice, content_type: "image/webp")
 
-      bare.key.should eq "room.17-room.golden.pg.troll-dead."
-      lantern.key.should eq "room.17-room.golden.pg.troll-dead.lantern"
-      both.key.should eq "room.17-room.golden.pg.troll-dead.lantern,sword"
+      bare.key.should eq "drop.17-room.golden.pg.troll-dead."
+      lantern.key.should eq "drop.17-room.golden.pg.troll-dead.lantern"
+      both.key.should eq "drop.17-room.golden.pg.troll-dead.lantern,sword"
       db.load_tags(both.id)["items"].should eq "lantern,sword"
 
       # Picking things up and dropping them again finds what was drawn before.
-      db.find_pool("room", scene.call("troll dead", nil)).map(&.id).should eq [bare.id]
-      db.find_pool("room", scene.call("troll dead", "LANTERN, Sword")).map(&.id).should eq [both.id]
-      db.find_pool("room", scene.call("troll dead", "sword")).should be_empty # never drawn
+      db.find_pool("drop", scene.call("troll dead", nil)).map(&.id).should eq [bare.id]
+      db.find_pool("drop", scene.call("troll dead", "LANTERN, Sword")).map(&.id).should eq [both.id]
+      db.find_pool("drop", scene.call("troll dead", "sword")).should be_empty # never drawn
 
       # This room in this state, whatever is lying around.
-      db.find_group("room", scene.call("troll dead", nil), 4).map(&.id).should eq [bare.id, lantern.id, both.id]
-      db.find_pool("room", scene.call("troll dead", "sword"), custom: %w[items]).map(&.id)
+      db.find_group("drop", scene.call("troll dead", nil), 4).map(&.id).should eq [bare.id, lantern.id, both.id]
+      db.find_pool("drop", scene.call("troll dead", "sword"), custom: %w[items]).map(&.id)
         .should eq [bare.id, lantern.id, both.id]
-      db.find_assets_by_tags("room", {"items" => "sword,lantern"}).map(&.id).should eq [both.id]
-      db.find_group("room", scene.call(nil, nil)).map(&.id).should eq [bare.id, lantern.id, both.id, alive.id]
+      db.find_assets_by_tags("drop", {"items" => "sword,lantern"}).map(&.id).should eq [both.id]
+      db.find_group("drop", scene.call(nil, nil)).map(&.id).should eq [bare.id, lantern.id, both.id, alive.id]
     end
   end
 
   it "rejects malformed sets and keeps them across reopening" do
     with_db("dd-reg-sets-invalid") do |db, dir|
-      expect_raises(ArgumentError, /not a pool trait/) { db.register_type("t", pool_traits: %w[room], sets: %w[items]) }
+      expect_raises(ArgumentError, /not a pool trait/) { db.register_type("data", pool_traits: %w[room], sets: %w[items]) }
       expect_raises(ArgumentError, /can't be labelled/) do
-        db.register_type("t", pool_traits: %w[items], labels: {"items" => "item"}, sets: %w[items])
+        db.register_type("data", pool_traits: %w[items], labels: {"items" => "item"}, sets: %w[items])
       end
-      db.register_type("room", pool_traits: %w[room items], sets: %w[items])
+      db.register_type("plug", pool_traits: %w[room items], sets: %w[items])
       db.close
       reopened = open_db(dir)
       begin
-        reopened.registration("room").not_nil!.sets.should eq %w[items]
-        reopened.store("room", {"room" => "1", "items" => "b, a"}, bytes: "x".to_slice, content_type: "image/webp")
-          .key.should eq "room.1.a,b"
+        reopened.registration("plug").not_nil!.sets.should eq %w[items]
+        reopened.store("plug", {"room" => "1", "items" => "b, a"}, bytes: "x".to_slice, content_type: "image/webp")
+          .key.should eq "plug.1.a,b"
       ensure
         reopened.close
       end
@@ -250,14 +250,14 @@ describe "DataDungeon::DB type registry" do
 
   it "validates facets and keeps them across reopening" do
     with_db("dd-reg-facets") do |db, dir|
-      expect_raises(ArgumentError, /lowercase words/) { db.register_type("t", pool_traits: %w[race], facets: {"Hair" => %w[race]}) }
-      expect_raises(ArgumentError, /names no tags/) { db.register_type("t", pool_traits: %w[race], facets: {"hair" => [] of String}) }
-      expect_raises(ArgumentError, /twice/) { db.register_type("t", pool_traits: %w[race], facets: {"hair" => %w[race race]}) }
-      db.register_type("hero", pool_traits: %w[race], facets: {"identity" => %w[race skin description]})
+      expect_raises(ArgumentError, /lowercase words/) { db.register_type("data", pool_traits: %w[race], facets: {"Hair" => %w[race]}) }
+      expect_raises(ArgumentError, /names no tags/) { db.register_type("data", pool_traits: %w[race], facets: {"hair" => [] of String}) }
+      expect_raises(ArgumentError, /twice/) { db.register_type("data", pool_traits: %w[race], facets: {"hair" => %w[race race]}) }
+      db.register_type("figure", pool_traits: %w[race], facets: {"identity" => %w[race skin description]})
       db.close
       reopened = open_db(dir)
       begin
-        reopened.registration("hero").not_nil!.facets.should eq({"identity" => %w[race skin description]})
+        reopened.registration("figure").not_nil!.facets.should eq({"identity" => %w[race skin description]})
       ensure
         reopened.close
       end
@@ -266,17 +266,17 @@ describe "DataDungeon::DB type registry" do
 
   it "keeps every take of a key and gets the newest" do
     with_db("dd-reg-takes") do |db|
-      db.register_type("voice", pool_traits: %w[bit beat voice])
+      db.register_type("speech", pool_traits: %w[bit beat voice])
       tags = {"bit" => "b1", "beat" => "0", "voice" => "fable"}
-      first = db.store("voice", tags, bytes: "v1".to_slice, content_type: "audio/mpeg")
-      second = db.store("voice", tags.merge({"voice" => "Fable"}), bytes: "v2".to_slice, content_type: "audio/mpeg")
+      first = db.store("speech", tags, bytes: "v1".to_slice, content_type: "audio/mpeg")
+      second = db.store("speech", tags.merge({"voice" => "Fable"}), bytes: "v2".to_slice, content_type: "audio/mpeg")
 
       second.id.should_not eq first.id
       second.key.should eq first.key
-      db.find_pool("voice", tags).map(&.id).should eq [first.id, second.id]
-      got = db.get("voice", tags, touch: false).not_nil!
+      db.find_pool("speech", tags).map(&.id).should eq [first.id, second.id]
+      got = db.get("speech", tags, touch: false).not_nil!
       File.read(db.path_for(got)).should eq "v2"
-      db.get_with_meta("voice", tags, touch: false).not_nil![0].id.should eq second.id
+      db.get_with_meta("speech", tags, touch: false).not_nil![0].id.should eq second.id
       db.get(first.key.not_nil!, touch: false).not_nil!.id.should eq second.id # the key alone
       db.get_with_meta(first.key.not_nil!, touch: false).not_nil![0].id.should eq second.id
     end
@@ -284,17 +284,17 @@ describe "DataDungeon::DB type registry" do
 
   it "finds by prefix at a labelled trait without matching part of a value" do
     with_db("dd-reg-labelled") do |db|
-      db.register_type("hero", pool_traits: %w[race hair_length hair_texture hair_color], group_traits: %w[race],
+      db.register_type("figure", pool_traits: %w[race hair_length hair_texture hair_color], group_traits: %w[race],
         labels: {"hair_length" => "hair", "hair_texture" => "hair", "hair_color" => "hair"})
       hero = {"race" => "human", "hair_length" => "long", "hair_texture" => "straight", "hair_color" => "black"}
-      long = db.store("hero", hero, bytes: "a".to_slice, content_type: "image/webp")
-      curly = db.store("hero", hero.merge({"hair_texture" => "curly"}), bytes: "b".to_slice, content_type: "image/webp")
-      db.store("hero", hero.merge({"hair_length" => "longer"}), bytes: "c".to_slice, content_type: "image/webp")
+      long = db.store("figure", hero, bytes: "a".to_slice, content_type: "image/webp")
+      curly = db.store("figure", hero.merge({"hair_texture" => "curly"}), bytes: "b".to_slice, content_type: "image/webp")
+      db.store("figure", hero.merge({"hair_length" => "longer"}), bytes: "c".to_slice, content_type: "image/webp")
 
-      long.key.should eq "hero.human.long-hair.straight-hair.black-hair"
-      db.find_group("hero", hero, 2).map(&.id).should eq [long.id, curly.id] # "long" never matches "longer"
-      db.find_group("hero.human.long-hair.").map(&.id).should eq [long.id, curly.id]
-      db.find_pool("hero", hero, custom: %w[hair_texture]).map(&.id).should eq [long.id, curly.id]
+      long.key.should eq "figure.human.long-hair.straight-hair.black-hair"
+      db.find_group("figure", hero, 2).map(&.id).should eq [long.id, curly.id] # "long" never matches "longer"
+      db.find_group("figure.human.long-hair.").map(&.id).should eq [long.id, curly.id]
+      db.find_pool("figure", hero, custom: %w[hair_texture]).map(&.id).should eq [long.id, curly.id]
     end
   end
 
@@ -306,12 +306,12 @@ describe "DataDungeon::DB type registry" do
       store_portrait(db, portrait(race: "lizard"), "c", custom: %w[race])
 
       db.custom_traits(a.id).should eq %w[race]
-      db.find_pool("portrait", portrait(race: "ape")).map(&.id).should eq [a.id, b.id]
-      db.custom_values("portrait", "race").should eq({"ape" => 2, "lizard" => 1})
+      db.find_pool("plug", portrait(race: "ape")).map(&.id).should eq [a.id, b.id]
+      db.custom_values("plug", "race").should eq({"ape" => 2, "lizard" => 1})
 
-      db.promote("portrait", "race", "APE").should eq 2
+      db.promote("plug", "race", "APE").should eq 2
       db.custom_traits(a.id).should be_empty
-      db.custom_values("portrait", "race").should eq({"lizard" => 1})
+      db.custom_values("plug", "race").should eq({"lizard" => 1})
       db.find_asset_by_id(a.id).not_nil!.key.should eq a.key # promotion changes no key
     end
   end
@@ -326,41 +326,41 @@ describe "DataDungeon::DB type registry" do
       beard = store_portrait(db, portrait(facial_hair: "beard"), "e") # has a trait the request lacks
 
       request = portrait(race: "gorilla")
-      db.find_pool("portrait", request).should be_empty # race must match too
-      db.find_pool("portrait", request, custom: %w[race]).map(&.id).should eq [human.id, ape.id]
-      db.find_group("portrait", request).map(&.id).should eq [human.id, ape.id, blue.id, beard.id]
+      db.find_pool("plug", request).should be_empty # race must match too
+      db.find_pool("plug", request, custom: %w[race]).map(&.id).should eq [human.id, ape.id]
+      db.find_group("plug", request).map(&.id).should eq [human.id, ape.id, blue.id, beard.id]
 
-      found = db.find("portrait", request, custom: %w[race])
+      found = db.find("plug", request, custom: %w[race])
       found.pool.map(&.id).should eq [human.id, ape.id]
       found.group.map(&.id).should eq [blue.id, beard.id]
       found.all.map(&.id).should eq [human.id, ape.id, blue.id, beard.id]
 
       # A custom trait inside the group narrows by the traits before it.
-      db.find_pool("portrait", portrait, custom: %w[gender]).map(&.id).should eq [human.id, male.id]
+      db.find_pool("plug", portrait, custom: %w[gender]).map(&.id).should eq [human.id, male.id]
     end
   end
 
   it "finds without a group for a type that has none" do
     with_db("dd-reg-nogroup") do |db|
-      db.register_type("voice", pool_traits: %w[bit voice])
-      rec = db.store("voice", {"bit" => "b1", "voice" => "fable"}, bytes: "v".to_slice, content_type: "audio/mpeg")
-      found = db.find("voice", {"bit" => "b1", "voice" => "fable"})
+      db.register_type("speech", pool_traits: %w[bit voice])
+      rec = db.store("speech", {"bit" => "b1", "voice" => "fable"}, bytes: "v".to_slice, content_type: "audio/mpeg")
+      found = db.find("speech", {"bit" => "b1", "voice" => "fable"})
       found.pool.map(&.id).should eq [rec.id]
       found.group.should be_empty
-      expect_raises(ArgumentError, /no group traits/) { db.find_group("voice", {"bit" => "b1"}) }
-      db.find_group("voice", {"bit" => "b1"}, 1).map(&.id).should eq [rec.id]
+      expect_raises(ArgumentError, /no group traits/) { db.find_group("speech", {"bit" => "b1"}) }
+      db.find_group("speech", {"bit" => "b1"}, 1).map(&.id).should eq [rec.id]
     end
   end
 
   it "re-derives keys and normalizes tags when a type is registered or changes" do
     with_db("dd-reg-rekey") do |db|
       # Stored before 0.12, unregistered.
-      old = db.find_asset_by_id(store_legacy(db, "portrait", portrait(art_style: "Golden"))).not_nil!
+      old = db.find_asset_by_id(store_legacy(db, "plug", portrait(art_style: "Golden"))).not_nil!
       old.key.should be_nil
 
       register_portraits(db)
       rekeyed = db.find_asset_by_id(old.id).not_nil!
-      rekeyed.key.should eq "portrait.golden.pg.f.human.red-hair."
+      rekeyed.key.should eq "plug.golden.pg.f.human.red-hair."
       db.load_tags(old.id)["art_style"].should eq "golden"
 
       # Same definition again: nothing changes.
@@ -368,14 +368,14 @@ describe "DataDungeon::DB type registry" do
       db.find_asset_by_id(old.id).not_nil!.key.should eq rekeyed.key
 
       # A new label is a new definition.
-      db.register_type("portrait", pool_traits: PORTRAIT_TRAITS, group_traits: PORTRAIT_GROUP,
+      db.register_type("plug", pool_traits: PORTRAIT_TRAITS, group_traits: PORTRAIT_GROUP,
         labels: {"hair_color" => "hair-color"}, rekey: true)
-      db.find_asset_by_id(old.id).not_nil!.key.should eq "portrait.golden.pg.f.human.red-hair-color."
+      db.find_asset_by_id(old.id).not_nil!.key.should eq "plug.golden.pg.f.human.red-hair-color."
 
       # Fewer traits in another order: keys follow the new definition.
-      db.register_type("portrait", pool_traits: %w[race art_style rating], group_traits: %w[race],
+      db.register_type("plug", pool_traits: %w[race art_style rating], group_traits: %w[race],
         rekey: true)
-      db.find_asset_by_id(old.id).not_nil!.key.should eq "portrait.human.golden.pg"
+      db.find_asset_by_id(old.id).not_nil!.key.should eq "plug.human.golden.pg"
     end
   end
 
@@ -386,31 +386,31 @@ describe "DataDungeon::DB type registry" do
       register_portraits(db) # the same definition: nothing to do
 
       expect_raises(ArgumentError, /registered differently.*rekey: true/) do
-        db.register_type("portrait", pool_traits: %w[race art_style])
+        db.register_type("plug", pool_traits: %w[race art_style])
       end
-      db.registration("portrait").not_nil!.pool_traits.should eq PORTRAIT_TRAITS
+      db.registration("plug").not_nil!.pool_traits.should eq PORTRAIT_TRAITS
       db.find_asset_by_id(rec.id).not_nil!.key.should eq rec.key
 
-      db.register_type("portrait", pool_traits: %w[race art_style], rekey: true)
-      db.find_asset_by_id(rec.id).not_nil!.key.should eq "portrait.human.golden"
+      db.register_type("plug", pool_traits: %w[race art_style], rekey: true)
+      db.find_asset_by_id(rec.id).not_nil!.key.should eq "plug.human.golden"
 
       # What keys don't hold changes without re-keying.
-      db.register_type("portrait", pool_traits: %w[race art_style], scales: {"race" => %w[elf human orc]}, weights: {"race" => 2.0})
-      db.registration("portrait").not_nil!.weights.should eq({"race" => 2.0})
-      db.find_asset_by_id(rec.id).not_nil!.key.should eq "portrait.human.golden"
+      db.register_type("plug", pool_traits: %w[race art_style], scales: {"race" => %w[elf human orc]}, weights: {"race" => 2.0})
+      db.registration("plug").not_nil!.weights.should eq({"race" => 2.0})
+      db.find_asset_by_id(rec.id).not_nil!.key.should eq "plug.human.golden"
     end
   end
 
   it "gives assets the same key when a registration makes theirs equal" do
     with_db("dd-reg-collide") do |db|
       tags = {"bit" => "b1", "voice" => "fable"}
-      older = store_legacy(db, "voice", tags, "2026-01-01 00:00:00")
-      newer = store_legacy(db, "voice", tags.merge({"voice" => "FABLE"}), "2026-06-01 00:00:00")
+      older = store_legacy(db, "speech", tags, "2026-01-01 00:00:00")
+      newer = store_legacy(db, "speech", tags.merge({"voice" => "FABLE"}), "2026-06-01 00:00:00")
 
-      db.register_type("voice", pool_traits: %w[bit voice])
-      db.find_asset(db.key_for("voice", tags)).not_nil!.id.should eq newer # no object to serve, so not get
-      db.find_asset_by_id(older).not_nil!.key.should eq "voice.b1.fable"
-      db.find_pool("voice", tags).map(&.id).should eq [older, newer]
+      db.register_type("speech", pool_traits: %w[bit voice])
+      db.find_asset(db.key_for("speech", tags)).not_nil!.id.should eq newer # no object to serve, so not get
+      db.find_asset_by_id(older).not_nil!.key.should eq "speech.b1.fable"
+      db.find_pool("speech", tags).map(&.id).should eq [older, newer]
       db.load_tags(older).should eq tags
     end
   end
@@ -423,7 +423,7 @@ describe "DataDungeon::DB type registry" do
 
       reopened = open_db(dir)
       begin
-        reopened.registration("portrait").not_nil!.pool_traits.should eq PORTRAIT_TRAITS
+        reopened.registration("plug").not_nil!.pool_traits.should eq PORTRAIT_TRAITS
         store_portrait(reopened, portrait, "b").key.should eq rec.key
 
         # Simulate keys written in an older format.
@@ -442,18 +442,18 @@ describe "DataDungeon::DB type registry" do
     with_db("dd-reg-filters") do |db|
       register_portraits(db)
       rec = store_portrait(db, portrait, "a")
-      db.find_assets_by_tags("portrait", {"race" => "HUMAN"}).map(&.id).should eq [rec.id]
-      db.count_pool_assets("portrait", {"art_style" => " Golden"}).should eq 1
+      db.find_assets_by_tags("plug", {"race" => "HUMAN"}).map(&.id).should eq [rec.id]
+      db.count_pool_assets("plug", {"art_style" => " Golden"}).should eq 1
     end
   end
 
   it "takes dashes in trait names, keyed and embedded like underscores" do
     with_db("dd-reg-dashes") do |db|
-      db.register_type("portrait", pool_traits: %w[art-style hair_color], labels: {"hair_color" => "hair"},
+      db.register_type("plug", pool_traits: %w[art-style hair_color], labels: {"hair_color" => "hair"},
         facets: {"look" => %w[art-style]})
-      rec = db.store("portrait", {"art-style" => "Golden", "hair_color" => "red"}, bytes: "a".to_slice,
+      rec = db.store("plug", {"art-style" => "Golden", "hair_color" => "red"}, bytes: "a".to_slice,
         content_type: "image/webp")
-      rec.key.should eq "portrait.golden.red-hair"
+      rec.key.should eq "plug.golden.red-hair"
       db.load_tags(rec.id)["art-style"].should eq "golden"
     end
   end
@@ -463,27 +463,27 @@ describe "DataDungeon::DB type registry" do
       register_portraits(db)
       a = store_portrait(db, portrait, "a")
       b = store_portrait(db, portrait(hair_color: "black"), "b")
-      db.register_type("venue", pool_traits: %w[art_style])
-      db.store("venue", {"art_style" => "golden"}, bytes: "v".to_slice, content_type: "image/webp")
+      db.register_type("icon", pool_traits: %w[art_style])
+      db.store("icon", {"art_style" => "golden"}, bytes: "v".to_slice, content_type: "image/webp")
 
-      db.rename_tag("portrait", "hair_color", "hair-color").should eq 2
-      db.rename_tag("portrait", "art_style", "art-style").should eq 2
+      db.rename_tag("plug", "hair_color", "hair-color").should eq 2
+      db.rename_tag("plug", "art_style", "art-style").should eq 2
 
-      type = db.registration("portrait").not_nil!
+      type = db.registration("plug").not_nil!
       type.pool_traits.should eq %w[art-style rating gender race hair-color facial_hair]
       type.group_traits.should eq %w[art-style rating gender]
       type.labels.should eq({"hair-color" => "hair"})
       db.find_asset_by_id(a.id).not_nil!.key.should eq a.key
       db.load_tags(b.id)["hair-color"].should eq "black"
       dashed = portrait(hair_color: "black").transform_keys(&.tr("_", "-"))
-      db.find_pool("portrait", dashed).map(&.id).should eq [b.id]
-      db.find_assets_by_tags("venue", {"art_style" => "golden"}).size.should eq 1 # other types untouched
+      db.find_pool("plug", dashed).map(&.id).should eq [b.id]
+      db.find_assets_by_tags("icon", {"art_style" => "golden"}).size.should eq 1 # other types untouched
       db.close
 
       reopened = open_db(dir)
       begin
-        reopened.registration("portrait").not_nil!.pool_traits.first.should eq "art-style"
-        reopened.find_pool("portrait", dashed).map(&.id).should eq [b.id]
+        reopened.registration("plug").not_nil!.pool_traits.first.should eq "art-style"
+        reopened.find_pool("plug", dashed).map(&.id).should eq [b.id]
       ensure
         reopened.close
       end
@@ -492,45 +492,45 @@ describe "DataDungeon::DB type registry" do
 
   it "fixes keys when a type is registered under the new trait name before the rename" do
     with_db("dd-reg-rename-late") do |db|
-      db.register_type("backdrop", pool_traits: %w[art_style rating])
-      rec = db.store("backdrop", {"art_style" => "golden", "rating" => "pg"}, bytes: "b".to_slice,
+      db.register_type("drop", pool_traits: %w[art_style rating])
+      rec = db.store("drop", {"art_style" => "golden", "rating" => "pg"}, bytes: "b".to_slice,
         content_type: "image/webp")
-      db.register_type("backdrop", pool_traits: %w[art-style rating], rekey: true)
-      db.find_asset_by_id(rec.id).not_nil!.key.should eq "backdrop..pg" # its tag isn't art-style yet
+      db.register_type("drop", pool_traits: %w[art-style rating], rekey: true)
+      db.find_asset_by_id(rec.id).not_nil!.key.should eq "drop..pg" # its tag isn't art-style yet
 
-      db.rename_tag("backdrop", "art_style", "art-style").should eq 1
-      db.find_asset_by_id(rec.id).not_nil!.key.should eq "backdrop.golden.pg"
+      db.rename_tag("drop", "art_style", "art-style").should eq 1
+      db.find_asset_by_id(rec.id).not_nil!.key.should eq "drop.golden.pg"
     end
   end
 
   it "refuses a tag rename onto a tag an asset already has, changing nothing" do
     with_db("dd-reg-rename-clash") do |db|
-      db.register_type("venue", pool_traits: %w[style])
-      rec = db.store("venue", {"style" => "golden", "art-style" => "silver"}, bytes: "v".to_slice,
+      db.register_type("icon", pool_traits: %w[style])
+      rec = db.store("icon", {"style" => "golden", "art-style" => "silver"}, bytes: "v".to_slice,
         content_type: "image/webp")
-      expect_raises(ArgumentError, /already have a art-style tag/) { db.rename_tag("venue", "style", "art-style") }
+      expect_raises(ArgumentError, /already have a art-style tag/) { db.rename_tag("icon", "style", "art-style") }
       db.load_tags(rec.id).should eq({"style" => "golden", "art-style" => "silver"})
     end
   end
 
   it "renames a type, re-deriving its keys under the new name" do
     with_db("dd-reg-rename-type") do |db, dir|
-      db.register_type("banter_script", pool_traits: %w[character line])
-      rec = db.store("banter_script", {"character" => "wizard", "line" => "1"}, bytes: "w".to_slice,
+      db.register_type("prose", pool_traits: %w[character line])
+      rec = db.store("prose", {"character" => "wizard", "line" => "1"}, bytes: "w".to_slice,
         content_type: "text/plain")
 
-      db.rename_type("banter_script", "banter-script").should eq 1
-      db.registration("banter_script").should be_nil
-      moved = db.get("banter-script", {"character" => "wizard", "line" => "1"}, touch: false).not_nil!
+      db.rename_type("prose", "script").should eq 1
+      db.registration("prose").should be_nil
+      moved = db.get("script", {"character" => "wizard", "line" => "1"}, touch: false).not_nil!
       moved.id.should eq rec.id
-      moved.key.should eq "banter-script.wizard.1"
-      db.find_assets_by_tags("banter-script", {"character" => "wizard"}).map(&.id).should eq [rec.id]
+      moved.key.should eq "script.wizard.1"
+      db.find_assets_by_tags("script", {"character" => "wizard"}).map(&.id).should eq [rec.id]
       db.close
 
       reopened = open_db(dir)
       begin
-        reopened.registration("banter-script").not_nil!.pool_traits.should eq %w[character line]
-        reopened.registration("banter_script").should be_nil
+        reopened.registration("script").not_nil!.pool_traits.should eq %w[character line]
+        reopened.registration("prose").should be_nil
 
         # Done, it changes nothing however often it's called again, as an
         # app keeping it in its start-up calls it (@pirateship).
@@ -541,7 +541,7 @@ describe "DataDungeon::DB type registry" do
            File.info(File.join(dir, "assets.db-wal")).modification_time}
         }
         before = state.call
-        reopened.rename_type("banter_script", "banter-script").should eq 0
+        reopened.rename_type("prose", "script").should eq 0
         state.call.should eq before
       ensure
         reopened.close
@@ -551,21 +551,21 @@ describe "DataDungeon::DB type registry" do
 
   it "merges a renamed type into an existing one, under that one's registration" do
     with_db("dd-reg-merge-type") do |db|
-      db.register_type("backdrop", pool_traits: %w[art-style rating])
-      db.register_type("room", pool_traits: %w[game room art-style rating])
-      seed = db.store("backdrop", {"art-style" => "golden", "rating" => "pg"}, bytes: "s".to_slice,
+      db.register_type("drop", pool_traits: %w[art-style rating])
+      db.register_type("plug", pool_traits: %w[game room art-style rating])
+      seed = db.store("drop", {"art-style" => "golden", "rating" => "pg"}, bytes: "s".to_slice,
         content_type: "image/webp")
-      room = db.store("room", {"game" => "zork1", "room" => "west-of-house", "art-style" => "golden",
+      room = db.store("plug", {"game" => "zork1", "room" => "west-of-house", "art-style" => "golden",
                                "rating" => "pg"}, bytes: "r".to_slice, content_type: "image/webp")
       store_legacy(db, "background", {"art-style" => "golden", "rating" => "pg"}) # unregistered
 
-      db.rename_type("room", "backdrop").should eq 1
-      db.rename_type("background", "backdrop").should eq 1
-      db.registration("room").should be_nil
-      db.registration("backdrop").not_nil!.pool_traits.should eq %w[art-style rating]
-      pool = db.find_pool("backdrop", {"art-style" => "golden", "rating" => "pg"})
+      db.rename_type("plug", "drop").should eq 1
+      db.rename_type("background", "drop").should eq 1
+      db.registration("plug").should be_nil
+      db.registration("drop").not_nil!.pool_traits.should eq %w[art-style rating]
+      pool = db.find_pool("drop", {"art-style" => "golden", "rating" => "pg"})
       pool.size.should eq 3
-      pool.map(&.key).uniq.should eq ["backdrop.golden.pg"]
+      pool.map(&.key).uniq.should eq ["drop.golden.pg"]
       db.load_tags(room.id)["room"].should eq "west-of-house" # extra tags stay
       pool.map(&.id).should contain seed.id
     end
@@ -574,10 +574,10 @@ describe "DataDungeon::DB type registry" do
   it "renames an unregistered type's assets, stored before 0.12" do
     with_db("dd-reg-rename-plain") do |db|
       id = store_legacy(db, "hero_shot", {"style" => "golden"})
-      db.rename_type("hero_shot", "heroshot").should eq 1
-      db.find_assets_by_tags("heroshot", {"style" => "golden"}).map(&.id).should eq [id]
+      db.rename_type("hero_shot", "plug").should eq 1
+      db.find_assets_by_tags("plug", {"style" => "golden"}).map(&.id).should eq [id]
       db.find_asset_by_id(id).not_nil!.key.should be_nil
-      expect_raises(ArgumentError, /asset type/) { db.rename_type("heroshot", "hero.shot") }
+      expect_raises(ArgumentError, /asset type/) { db.rename_type("plug", "hero.shot") }
     end
   end
 
@@ -596,6 +596,39 @@ describe "DataDungeon::DB type registry" do
       begin
         reopened.registration("drop").not_nil!.embed.should be_empty
         reopened.register_type("drop", pool_traits: %w[world], embed: %w[description]).embed.should eq %w[description]
+      ensure
+        reopened.close
+      end
+    end
+  end
+
+  it "takes only DataDungeon's asset types (0.16), and moves a store's older ones onto them" do
+    with_db("dd-reg-standard") do |db, dir|
+      expect_raises(ArgumentError, /room isn't one of DataDungeon's asset types.*subtype tag/) do
+        db.register_type("room", pool_traits: %w[game])
+      end
+      db.registration("room").should be_nil
+
+      # A registration from before 0.16 still opens, reads and moves.
+      db.connection.exec("INSERT INTO asset_types (asset_type, pool_traits, group_traits, key_scheme) " \
+                         "VALUES ('room', '[\"game\"]', '[]', ?)", DataDungeon::TraitKey::SCHEME)
+      id = store_legacy(db, "room", {"game" => "zork1"})
+      db.close
+      reopened = open_db(dir)
+      begin
+        reopened.registration("room").not_nil!.pool_traits.should eq %w[game]
+        reopened.list_assets("room").map(&.id).should eq [id]
+        expect_raises(ArgumentError, /room isn't one of DataDungeon's asset types/) do
+          reopened.store("room", {"game" => "zork2"}, bytes: "r".to_slice, content_type: "image/webp")
+        end
+        expect_raises(ArgumentError, /attic isn't one of DataDungeon's asset types/) { reopened.rename_type("room", "attic") }
+        reopened.list_assets("room").map(&.id).should eq [id] # unchanged
+
+        reopened.register_type("drop", pool_traits: %w[subtype game], group_traits: %w[subtype])
+        reopened.rename_type("room", "drop").should eq 1
+        reopened.update_asset(id, tags: {"subtype" => "room", "game" => "zork1"})
+        reopened.find_asset_by_id(id).not_nil!.key.should eq "drop.room.zork1"
+        reopened.asset_types.should eq({"drop" => 1})
       ensure
         reopened.close
       end

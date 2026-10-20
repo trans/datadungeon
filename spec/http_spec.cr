@@ -6,7 +6,7 @@ private def with_api(name : String, read_token : String? = "r", write_token : St
   dir = File.tempname(name)
   Dir.mkdir_p(dir)
   db = DataDungeon::DB.new(File.join(dir, "assets.db"), cache_root: File.join(dir, "store"))
-  db.register_type("backdrop", pool_traits: %w[art-style rating])
+  db.register_type("drop", pool_traits: %w[art-style rating])
   api = DataDungeon::API.new(db, read_token: read_token, write_token: write_token, prefix: "/dd")
   yield api, db, dir
 ensure
@@ -48,7 +48,7 @@ private def json(response) : JSON::Any
 end
 
 private def store_backdrop(db, style : String, bytes : String) : DataDungeon::AssetRecord
-  db.store("backdrop", {"art-style" => style, "rating" => "pg"}, bytes: bytes.to_slice, content_type: "image/webp")
+  db.store("drop", {"art-style" => style, "rating" => "pg"}, bytes: bytes.to_slice, content_type: "image/webp")
 end
 
 describe DataDungeon::API do
@@ -59,11 +59,11 @@ describe DataDungeon::API do
       store_backdrop(db, "silver", "c")
 
       types = json(call(api, "GET", "/dd/types", "r"))
-      types[0]["name"].should eq "backdrop"
+      types[0]["name"].should eq "drop"
       types[0]["count"].should eq 3
       types[0]["registration"]["pool_traits"].should eq ["art-style", "rating"]
-      json(call(api, "GET", "/dd/types/backdrop/tags", "r")).should eq({"art-style" => 3, "rating" => 3})
-      json(call(api, "GET", "/dd/types/backdrop/tags/art-style?limit=1", "r")).should eq({"golden" => 2})
+      json(call(api, "GET", "/dd/types/drop/tags", "r")).should eq({"art-style" => 3, "rating" => 3})
+      json(call(api, "GET", "/dd/types/drop/tags/art-style?limit=1", "r")).should eq({"golden" => 2})
     end
   end
 
@@ -73,15 +73,15 @@ describe DataDungeon::API do
       store_backdrop(db, "silver", "b")
       c = store_backdrop(db, "golden", "c")
 
-      page = json(call(api, "GET", "/dd/assets?type=backdrop&tag.art-style=Golden&limit=1&count=1", "r"))
+      page = json(call(api, "GET", "/dd/assets?type=drop&tag.art-style=Golden&limit=1&count=1", "r"))
       page["total"].should eq 2
       page["assets"].as_a.map(&.["asset"]["id"]).should eq [c.id]
       page["assets"][0]["tags"]["art-style"].should eq "golden"
       page["next"].should eq c.id
-      last = json(call(api, "GET", "/dd/assets?type=backdrop&tag.art-style=golden&limit=1&before=#{c.id}", "r"))
+      last = json(call(api, "GET", "/dd/assets?type=drop&tag.art-style=golden&limit=1&before=#{c.id}", "r"))
       last["assets"][0]["asset"]["id"].should eq a.id
       last["total"].raw.should be_nil # counted only on request
-      second = json(call(api, "GET", "/dd/assets?type=backdrop&limit=2&page=2", "r"))
+      second = json(call(api, "GET", "/dd/assets?type=drop&limit=2&page=2", "r"))
       second["page"].should eq 2
       second["assets"].as_a.map(&.["asset"]["id"]).should eq [a.id]
       call(api, "GET", "/dd/assets?page=0", "r").status_code.should eq 400
@@ -89,7 +89,7 @@ describe DataDungeon::API do
       json(call(api, "GET", "/dd/assets?q=silv*", "r"))["assets"].size.should eq 1
 
       shown = json(call(api, "GET", "/dd/assets/#{a.id}", "r"))
-      shown["asset"]["key"].should eq "backdrop.golden.pg"
+      shown["asset"]["key"].should eq "drop.golden.pg"
       shown["tags"].should eq({"art-style" => "golden", "rating" => "pg"})
       object = call(api, "GET", "/dd/assets/#{a.id}/object", "r")
       object.status_code.should eq 200
@@ -101,7 +101,7 @@ describe DataDungeon::API do
       call(api, "GET", "/dd/assets/999", "r").status_code.should eq 404
       json(call(api, "GET", "/dd/assets", "r"))["assets"].size.should eq 3 # every type
       call(api, "GET", "/dd/assets?before=x", "r").status_code.should eq 400
-      call(api, "GET", "/dd/assets?type=backdrop&limit=9999", "r").status_code.should eq 400
+      call(api, "GET", "/dd/assets?type=drop&limit=9999", "r").status_code.should eq 400
     end
   end
 
@@ -133,22 +133,22 @@ describe DataDungeon::API do
       types = json(call(api, "GET", "/dd/types", "r"))
       types[0]["count"].should eq 1
       types[0]["retired"].should eq 1
-      json(call(api, "GET", "/dd/assets?type=backdrop&count=1", "r"))["total"].should eq 1
-      only = json(call(api, "GET", "/dd/assets?type=backdrop&retired=only", "r"))
+      json(call(api, "GET", "/dd/assets?type=drop&count=1", "r"))["total"].should eq 1
+      only = json(call(api, "GET", "/dd/assets?type=drop&retired=only", "r"))
       only["assets"].as_a.map(&.["asset"]["id"]).should eq [b.id]
       only["assets"][0]["asset"]["retired_at"].as_s.should_not be_empty
       json(call(api, "GET", "/dd/assets?retired=include&count=1", "r"))["total"].should eq 2
-      json(call(api, "GET", "/dd/types/backdrop/tags/art-style?retired=only", "r")).should eq({"silver" => 1})
+      json(call(api, "GET", "/dd/types/drop/tags/art-style?retired=only", "r")).should eq({"silver" => 1})
       call(api, "GET", "/dd/assets?retired=yes", "r").status_code.should eq 400
 
       json(call(api, "POST", "/dd/assets/#{b.id}/reinstate", "w"))["reinstated"].should be_true
       c = store_backdrop(db, "golden", "c")
       json(call(api, "POST", "/dd/assets/#{c.id}/links", "w", {rel: "supersedes", to: a.id}))
       db.find_asset_by_id(a.id).not_nil!.retired?.should be_true
-      json(call(api, "POST", "/dd/maintenance/prune", "w", {type: "backdrop", retired_before: "2000-01-01"}))["pruned"].should eq 0
-      json(call(api, "POST", "/dd/maintenance/prune", "w", {type: "backdrop"}))["pruned"].should eq 1
+      json(call(api, "POST", "/dd/maintenance/prune", "w", {type: "drop", retired_before: "2000-01-01"}))["pruned"].should eq 0
+      json(call(api, "POST", "/dd/maintenance/prune", "w", {type: "drop"}))["pruned"].should eq 1
       db.find_asset_by_id(a.id).should be_nil
-      call(api, "POST", "/dd/maintenance/prune", "w", {type: "backdrop", retired_before: "soon"}).status_code.should eq 400
+      call(api, "POST", "/dd/maintenance/prune", "w", {type: "drop", retired_before: "soon"}).status_code.should eq 400
     end
   end
 
@@ -186,12 +186,12 @@ describe DataDungeon::API do
       call(api, "GET", "/dd/assets?field.world_height=tall", "r").status_code.should eq 400
       call(api, "GET", "/dd/assets?view=north", "r").status_code.should eq 400
 
-      json(call(api, "POST", "/dd/maintenance/measure", "w", {type: "backdrop", all: true}))["measured"].should eq 2
-      json(call(api, "GET", "/dd/types/backdrop/views", "r")).should eq({"back-left" => 1})
-      rows = json(call(api, "GET", "/dd/assets?type=backdrop&meta=1", "r"))["assets"].as_a
+      json(call(api, "POST", "/dd/maintenance/measure", "w", {type: "drop", all: true}))["measured"].should eq 2
+      json(call(api, "GET", "/dd/types/drop/views", "r")).should eq({"back-left" => 1})
+      rows = json(call(api, "GET", "/dd/assets?type=drop&meta=1", "r"))["assets"].as_a
       rows.map { |row| row["view"].raw.nil? ? nil : row["view"]["name"].as_s }.should eq [nil, "back-left"]
       rows[1]["meta"]["world_height"].should eq 3.0
-      json(call(api, "GET", "/dd/assets?type=backdrop", "r"))["assets"][1]["meta"].raw.should be_nil # only on request
+      json(call(api, "GET", "/dd/assets?type=drop", "r"))["assets"][1]["meta"].raw.should be_nil # only on request
 
       db.update_asset(a.id, image: DataDungeon::ImageMeta.new(animation: DataDungeon::ImageAnimation.new(frame_count: 2, duration_ms: 500)))
       set = json(call(api, "PUT", "/dd/assets/#{a.id}/keyframes", "w", [{at_ms: 250, view: {side: "back", yaw: 0}}]))
@@ -206,7 +206,7 @@ describe DataDungeon::API do
       rating = db.rating_text("g")
       recipe = DataDungeon::Recipe.new("picture", settings: {"model" => "flux-dev"},
         prompt: "#{rating.text} A pier at dusk.", wordings: [rating], seed: 3)
-      made = db.store("backdrop", {"art-style" => "pixel", "rating" => "g"}, bytes: "m".to_slice,
+      made = db.store("drop", {"art-style" => "pixel", "rating" => "g"}, bytes: "m".to_slice,
         content_type: "image/webp", recipe: recipe)
       plain = store_backdrop(db, "golden", "p")
 
@@ -229,9 +229,9 @@ describe DataDungeon::API do
 
   it "finds assets by file and by description, and changes a shared description everywhere" do
     with_api("dd-api-shared") do |api, db|
-      a = db.store("backdrop", {"art-style" => "pixel", "rating" => "g"}, bytes: "a".to_slice,
+      a = db.store("drop", {"art-style" => "pixel", "rating" => "g"}, bytes: "a".to_slice,
         content_type: "image/webp", description: "A pier.")
-      b = db.store("backdrop", {"art-style" => "golden", "rating" => "g"}, bytes: "b".to_slice,
+      b = db.store("drop", {"art-style" => "golden", "rating" => "g"}, bytes: "b".to_slice,
         content_type: "image/webp", description: "A pier.")
       hash = json(call(api, "GET", "/dd/assets/#{a.id}", "r"))["asset"]["description_hash"].as_s
       listed = json(call(api, "GET", "/dd/assets?description_hash=#{hash}&count=1", "r"))
@@ -307,20 +307,20 @@ describe DataDungeon::API do
 
   it "edits, promotes and deletes with the write token" do
     with_api("dd-api-write") do |api, db|
-      rec = db.store("backdrop", {"art-style" => "golden", "rating" => "pg"}, custom: %w[art-style],
+      rec = db.store("drop", {"art-style" => "golden", "rating" => "pg"}, custom: %w[art-style],
         bytes: "a".to_slice, content_type: "image/webp")
 
       edited = json(call(api, "PATCH", "/dd/assets/#{rec.id}", "w",
         {description: "a beach", flagged: true, tags: {"art-style" => "silver", "rating" => "pg"}}))
       edited["asset"]["description"].should eq "a beach"
       edited["asset"]["flagged"].should be_true
-      edited["asset"]["key"].should eq "backdrop.silver.pg"
+      edited["asset"]["key"].should eq "drop.silver.pg"
 
       db.update_asset(rec.id, tags: {"art-style" => "golden", "rating" => "pg"}) # golden, not custom now
-      db.store("backdrop", {"art-style" => "bronze", "rating" => "pg"}, custom: %w[art-style],
+      db.store("drop", {"art-style" => "bronze", "rating" => "pg"}, custom: %w[art-style],
         bytes: "b".to_slice, content_type: "image/webp")
-      json(call(api, "POST", "/dd/types/backdrop/promote", "w", {trait: "art-style", value: "bronze"}))["promoted"].should eq 1
-      db.custom_values("backdrop", "art-style").should be_empty
+      json(call(api, "POST", "/dd/types/drop/promote", "w", {trait: "art-style", value: "bronze"}))["promoted"].should eq 1
+      db.custom_values("drop", "art-style").should be_empty
 
       call(api, "PATCH", "/dd/assets/#{rec.id}", "w", {rating: "high"}).status_code.should eq 400
       json(call(api, "DELETE", "/dd/assets/#{rec.id}", "w"))["deleted"].should eq rec.id
@@ -331,7 +331,7 @@ describe DataDungeon::API do
 
   it "stores a file added by hand, as not generated and with no recipe" do
     with_api("dd-api-upload") do |api, db|
-      asset = {type: "backdrop", tags: {"art-style" => "Golden", "rating" => "pg"}, description: "A pier at dusk, drawn by hand."}
+      asset = {type: "drop", tags: {"art-style" => "Golden", "rating" => "pg"}, description: "A pier at dusk, drawn by hand."}
       added = json(upload(api, "w", asset, "u"))
       id = added["asset"]["id"].as_i64
       added["asset"]["generated"].should be_false
@@ -342,7 +342,7 @@ describe DataDungeon::API do
       call(api, "GET", "/dd/assets/#{id}/object", "r").body.should eq "u"
 
       json(upload(api, "w", asset, "u"))["asset"]["id"].should eq id # the same again is the same asset
-      held = upload(api, "w", {type: "backdrop", tags: {"art-style" => "silver", "rating" => "pg"}}, "u")
+      held = upload(api, "w", {type: "drop", tags: {"art-style" => "silver", "rating" => "pg"}}, "u")
       held.status_code.should eq 409
       json(held)["asset_id"].should eq id
 
@@ -354,7 +354,7 @@ describe DataDungeon::API do
       refused.call(upload(api, "w", asset, "v", content_type: nil), "Content-Type is the asset's")
       refused.call(call(api, "POST", "/dd/assets", "w", asset), "takes multipart/form-data") # JSON, not a form
       upload(api, "r", asset, "v").status_code.should eq 403
-      db.asset_types.should eq({"backdrop" => 1})
+      db.asset_types.should eq({"drop" => 1})
     end
   end
 
