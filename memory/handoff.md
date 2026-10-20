@@ -40,14 +40,16 @@ store (`f42b5aea`).
 **Open (Thomas):** should the tiles be compressed? `@curio` relays
 (`mail/received/20261020-011926Z-@curio--…`) that Thomas wants the masters
 left uncompressed because the store is to be on transfs, "though he thinks
-Deflate is OK". 0.15.4 writes deflate. Measured on transfs, small stroke
-over 37 files, chunked and zstd'd:
+Deflate is OK". 0.15.4 writes deflate. Measured as transfs stores a TIFF
+(FastCDC 8 KiB, zstd level 3 per chunk, no dictionary; transfs-rs
+`docs/file-types.md`, "anything else"), for a small stroke over 37 files:
 - uncompressed 64×64 tiles: 1.9 MiB an edit, 69.7 MiB the first copy,
   162.7 MiB off transfs;
-- deflate tiles: 2.6 MiB an edit, 57.0 MiB the first copy, 56.8 MiB off
+- deflate tiles: 2.7 MiB an edit, 57.0 MiB the first copy, 56.8 MiB off
   transfs.
 
-Uncompressed comes out cheaper only after about 18 edits a picture.
+Per picture that's 53 against 75 KB an edit, and 1.9 against 1.5 MB stored.
+Uncompressed comes out cheaper only after about 16 edits a picture.
 
 **Released** on Thomas's "tag and message @boardwalk"; the branch and worktree are removed:
 - `require "data_dungeon/tiff"` links libtiff 4.5 or later; core DD links
