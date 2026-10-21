@@ -20,9 +20,14 @@ overlore"): its start-up registers old names on an unmoved store
 (its deploy) on its 0.15 build before bumping to `~> 0.16.0`. **Overlore is
 on `~> 0.16.0`** (`241d86e7`, lock not yet committed): no unmoved store was
 left (not deployed yet), so its move code is gone. The park store is on
-0.16.0 (assets `c9f3674`). Drafts held for Thomas: `@boardwalk` (two
-processes on the park store are safe, `c1f098b4`, with venue fronts are
-`prop`) and `@siliconcircus` (`39500d30`). Sent on Thomas's "send": `@owl` (Overlore's
+0.16.0 (assets `c9f3674`). Sent on Thomas's "send" 2026-10-21:
+`@boardwalk` `922772ba` (re `c1f098b4`: Thomas has the boardwalk serve
+pictures from a private R2 bucket through its own router, so it won't open
+the store; the index is `curio-name`/`key` → `file_path` from `GET
+/assets?link.used-by=boardwalk`; 36 of venues.json's 57 names are in the
+park store; venue fronts are `prop`) and `@siliconcircus` `3ed87299`
+(venue fronts are props). Curio dropped `/a/*name` in its 0.4.0
+(`510fadd`), so the boardwalk's pictures 404 locally; Thomas is fixing it. Sent on Thomas's "send": `@owl` (Overlore's
 door views are now places, `225e8d74`), `@memo` (duplicate service bug,
 `57d11aeb`). Open: `@curio` relayed Thomas's doubt (`872a7225`) that a
 `words` track can stand in for a transcript; see DESIGN-types "Text". Owl has moved too (`359e4306`: depth
