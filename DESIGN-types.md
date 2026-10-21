@@ -77,11 +77,12 @@ together, not the drop alone.
 | **plug** | a framed moment, shown as it is: a comic panel, a hero shot | never |
 | **placard** | words shown on their own, between scenes: an intro, a title card, end credits | never |
 | **scrim** | a frame's whole size, laid over a drop or plug | mostly |
-| **prop** | an object, cropped close to its edges, placed by the app | around it |
+| **prop** | an object, cropped close to its edges, placed by the app: anything from a cup to a building's front | around it |
 | **texture** | a material with no subject or edges, filling an area | either |
 | **icon** | a small indicator: a button, a rating; mostly SVG, or Lottie when it moves | either |
 | **pass** | for programs, not people: a depth map, a mask, a matte | n/a |
 | **automaton** | a character's moves as a graph of frames: which may follow which, walked afresh each play | n/a |
+| **figure** | a character's body on bones (Spine, Live2D), its pictures props linked from it; the same type as a 3D figure (below) | n/a |
 
 - **Opacity is part of the type,** so it's checked when stored: a drop, a
   plug or a placard with transparent pixels, in any frame, is refused. It's
@@ -92,6 +93,11 @@ together, not the drop alone.
 - **A placard's words** are its description, so they're searched like any.
 - **A scrim's link** (`placed-on`) names the one drop or plug it fits.
   Without one, it's generic and goes over any: rain, fog, a vignette.
+- **A building's front is a prop** when the app places it, however big
+  the building: "not a set or a figure" is about 3D models, where a place
+  is a `set` and a character's body a `figure` (the wording says so since
+  2026-10-21, after `@siliconcircus` asked about the park's venue fronts). A picture of a
+  building's inside is a `drop`.
 - **A sprite sheet** is a prop whose grid is data on it. DataDungeon has
   kept that since 0.11.1 (`ImageAnimation`: frame size and columns).
 - **A prop that holds something** (a picture frame, a sheet of paper, a
@@ -215,14 +221,14 @@ doesn't read the tags.
 | Type | What it is |
 |---|---|
 | **set** | a place, to be inside or look into |
-| **prop** | a 3D model of a thing (a chair, a sword), not a set or a figure, placed by the app: the same type as a picture's prop |
-| **figure** | a character's body, usually rigged |
+| **prop** | a 3D model of a thing (a chair, a sword) that isn't a set or a figure, placed by the app: the same type as a picture's prop |
+| **figure** | a character's body, usually rigged; also 2D, on bones (Pictures, above) |
 | **motion** | movement for a skeleton, without geometry |
 
 The form (mesh, Gaussian splats, point cloud, voxels) is a property, since
 a `.ply` can hold any of them. glTF 2.0 / GLB is the standard for meshes.
 A material's pictures reuse the picture types: its colour image is a
-texture, its normal and roughness images maps.
+texture, its normal and roughness images passes.
 
 ### Across media
 
@@ -595,11 +601,25 @@ the old names.
   `lighting` and `condition`, and the descriptions. A tag is added in a
   release for now (0.14).
 - The hub (`@curio`'s): what more it needs from each store.
-- Characters (`@mj`, 2026-10-19, reopening "tags are claims"' no
-  characters): a character as an asset, a sheet for making more of it,
-  that pictures, automata and speech link to (`depicts`, `voiced-by`).
-  Thomas leans to it, undecided. A speech's speaker waits on it: the
-  voice that spoke is in the recipe, but who is speaking is a character.
+- **2D and 3D don't line up** (Thomas, 2026-10-21: "Have to think about
+  that"). A `drop` is in effect a 2D `set`, but `prop` is both 2D and 3D,
+  and `figure` is 3D, or 2D only when rigged: a flat character with no
+  bones is a prop, or an automaton's frames. A 2D character on bones
+  (Spine, Live2D: the marionette setups Thomas expects) is a `figure`
+  since 2026-10-21 (Thomas chose adding the wording now over a to-do).
+- **Characters: to do** (Thomas, 2026-10-21, after `@mj` reopened "tags
+  are claims"' no characters on 2026-10-19). A character is an asset: a
+  standard record of the character's attributes. Other assets link to it
+  because the character is in them (a picture, an automaton) or speaks in
+  them (speech). How is open (Thomas: "I am not 100% sure about how we do
+  it, but that's the general notion"): a `character` type and its media;
+  which attributes are standard, and whether they're tags or the record's
+  own data; the link names (`depicts`, `voiced-by` were floated); the
+  sheet `@mj` wants for making more of one (reference pictures, its
+  `character` wording, which is already a named wording, DESIGN-recipes);
+  and copying a character between stores, which would have to follow its
+  links. A speech's speaker waits on it: the voice is in the recipe, but
+  who speaks is a character.
 - `q` over descriptions and a recipe's subject (`@owl` finds other stores'
   pictures by words, and Overlore's drops have none in their tags).
   Semantic search (0.15.7, `GET /search`) reads descriptions and the tags
