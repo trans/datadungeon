@@ -32,7 +32,8 @@ uses only standard names and none sets `transcript_id` (checked read-only
 2026-10-20), so 0.16 (unlisted type names refused, `transcript_id`
 dropped) is unblocked. Later: AI descriptions as
 linked text assets with their own recipe, read by search; hashes as blobs
-and prompt compression. Thomas's: characters as assets (mj's item 3); the
+and prompt compression; characters as assets (Thomas, 2026-10-21: on our
+list, how open; DESIGN-types "Open"). Thomas's: the
 live park store to 0.15.6+ with a re-measure (curio); Overlore's deploy;
 pushing transfs-rs `92d56d9`; the word to Owl on its depth maps' "depth of
 1" descriptions (not drafted); topic subscription hooks and topic posts
@@ -553,7 +554,10 @@ after a talk with Thomas. Only the first is settled:
    carry data (`DB#link`), but DD has no copy between stores, so "copying
    brings its kit along" needs a copy that follows links. A character's
    words are already a named wording (kind `character`, DESIGN-recipes),
-   so a sheet should name that wording, not copy it. **Open.**
+   so a sheet should name that wording, not copy it. **On our to-do list**
+   (Thomas, 2026-10-21: a standard record of a character's attributes,
+   other assets linked to it as in the picture or the speaker; how is
+   open). DESIGN-types "Open" lists the questions.
 
 **From `@overlore`, 2026-10-19 (`mail/received/20261019-174900Z-@overlore--…`),**
 after a talk with Thomas, sent to mj too:
