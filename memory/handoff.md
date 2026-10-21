@@ -8,7 +8,8 @@ done** (`f9c472ee`, below). **0.15.7, semantic search, is released** (v0.15.7 at
 `e31e97e`, Thomas's "tag", 2026-10-20; notice `#datadungeon` post 6; branch
 and worktree removed). **0.16.0 is released** (v0.16.0 at `2f9d585`,
 Thomas's "tag", 2026-10-20; notice `#datadungeon` post 7; branch and
-worktree removed): `register_type`, `rename_type`'s target and storing
+worktree removed; **v0.16.1** at `6ae9fb0` 2026-10-21, wording only,
+notice post 8): `register_type`, `rename_type`'s target and storing
 refuse names not in STANDARD_TYPES (`standard!`); an older registration
 still opens, reads and renames. **`transcript_id` stays, deprecated**
 (Thomas, 2026-10-20: "You never know we might find some other need for the
