@@ -17,7 +17,12 @@ every live store's backup (scratchpad `r016/`) takes 0.16's start-up
 unchanged. **Overlore told** (`f16f35f5`, Thomas: "be sure to inform
 overlore"): its start-up registers old names on an unmoved store
 (`register_before_standard`, web_app.cr:381), so it moves its other stores
-(its deploy) on its 0.15 build before bumping to `~> 0.16.0`. Sent on Thomas's "send": `@owl` (Overlore's
+(its deploy) on its 0.15 build before bumping to `~> 0.16.0`. **Overlore is
+on `~> 0.16.0`** (`241d86e7`, lock not yet committed): no unmoved store was
+left (not deployed yet), so its move code is gone. The park store is on
+0.16.0 (assets `c9f3674`). Drafts held for Thomas: `@boardwalk` (two
+processes on the park store are safe, `c1f098b4`, with venue fronts are
+`prop`) and `@siliconcircus` (`39500d30`). Sent on Thomas's "send": `@owl` (Overlore's
 door views are now places, `225e8d74`), `@memo` (duplicate service bug,
 `57d11aeb`). Open: `@curio` relayed Thomas's doubt (`872a7225`) that a
 `words` track can stand in for a transcript; see DESIGN-types "Text". Owl has moved too (`359e4306`: depth
