@@ -116,7 +116,17 @@ scope he called "about right" (2026-10-19). Built:
   its dd-serve) must move to `~> 0.14.0` with it: 0.13.1 has the bug (said in
   post 11). `@cyclops` was sent the deploy notes for 0.16.3 (`ea4213bd`), then
   told to build from 0.16.4 (`efa24520`), and that Overlore's `shard.yml` has
-  three local `path:` dependencies.
+  three local `path:` dependencies (stale: Overlore removed them in `0b48eb4`
+  six seconds before; correction not sent, waiting on Thomas).
+- **Memo 0.14.1** (`c33105f6`): filtered searches returned every source
+  sharing a text, outside the filter too. DD re-checks hits, so nothing
+  leaked, but a filtered search could miss (new spec: 5 copies outside a
+  key, 1 inside, limit 1: `[]` on 0.14.0). Also fixed: a deleted source's
+  queued work, which DD cleared itself since `a89e709`. **0.16.5,
+  prepared, not committed:** memo `~> 0.14.1`, DD's queue delete removed;
+  194 specs from a clean GitHub install; dd-serve smoke; five apps
+  type-check. Memo's note assumes DD builds against its working tree; it
+  no longer does (override removed 2026-10-22).
 - Checked: 187 specs (1 pending S3); the five apps type-check; dd-serve on
   an Owl copy (scratchpad `search/`, objects as symlinks) with the mock
   model: embeds 38 drops, searches, picks up another process's description
