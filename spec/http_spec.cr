@@ -266,7 +266,7 @@ describe DataDungeon::API do
       types.size.should eq DataDungeon::DB::STANDARD_TYPES.size
       types.find! { |type| type["name"] == "speech" }.should eq({"name" => "speech", "title" => "Speech", "media" => ["audio"],
                                                                  "description" => "one voice saying something, words or not (a laugh, a grunt)"})
-      json(call(api, "GET", "/dd/vocabulary", "r"))["tracks"].as_a.map(&.["name"]).should eq ["words", "mouth"]
+      json(call(api, "GET", "/dd/vocabulary", "r"))["tracks"].as_a.map(&.["name"]).should eq ["words", "mouth", "subtitles"]
       call(api, "GET", "/dd/vocabulary").status_code.should eq 401
     end
   end

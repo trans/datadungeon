@@ -44,12 +44,14 @@ module DataDungeon
 
   class DB
     # The tracks apps share (Thomas, 2026-10-19: a take's word times and
-    # mouth cues go in with the speech). Other names are an app's own.
+    # mouth cues go in with the speech; 2026-10-22: subtitles). Other names
+    # are an app's own.
     STANDARD_TRACKS = [
       StandardTrack.new("words", "Words", "when each word is spoken, its value the word with its punctuation: as written " \
                                           "when the tool aligns a known text, as heard when it transcribes (the tool says which)"),
       StandardTrack.new("mouth", "Mouth", "the mouth's shape over time, for lip sync, its values the tool's own " \
                                           "(Rhubarb Lip Sync's A to H, and X at rest)"),
+      StandardTrack.new("subtitles", "Subtitles", "the lines shown as subtitles, a cue for each, its value the line as shown"),
     ]
 
     # An asset's tracks, each replaced whole; its cues as JSON, each

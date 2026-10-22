@@ -124,7 +124,7 @@ together, not the drop alone.
 
 | Type | What it is | Its own data |
 |---|---|---|
-| **speech** | one voice saying something, words or not (a laugh, a grunt) | its tracks (0.15.3): when each word is spoken (`words`) and the mouth's shapes (`mouth`); the words, in its recipe; the speaker, open (below) |
+| **speech** | one voice saying something, words or not (a laugh, a grunt) | its tracks (0.15.3): when each word is spoken (`words`) and the mouth's shapes (`mouth`), and its subtitles (`subtitles`, 0.16.5); the words, in its recipe; the speaker, open (below) |
 | **dialogue** | voices in turns, a conversation | the speakers; the script it performs; each turn's start and end |
 | **music** | composed: a bed under a scene, or a cue (a fanfare, a sting) | |
 | **ambience** | a place's continuous sound (wind, a crowd, a hum) | |
@@ -150,6 +150,19 @@ about one take, as a picture's content box is. The choreography an app
 makes from them and an automaton is its own, kept in its own database,
 not in DataDungeon (Thomas, the same day: poses named in a script would
 tie it to one automaton's).
+
+**Later: a track's cues as an asset file** (Thomas, 2026-10-22): "in a
+future version we are going to move tracks to assets in [general] and only
+keep the name / tool and normal metadata -- the text itself can be a asset
+file, that way we can support standard formats (which we would want to do
+anyway)." A track's row keeps its name, tool and when it was made; its cues
+become a text asset in a standard format (WebVTT or SRT for subtitles),
+linked to the clip. They're still facts about one take (above), but that
+doesn't stop them being stored as assets: they hang on the clip by a
+*dependent* link (Thomas, the same day: "something we might want to think
+about more"). Open: what a dependent link means (does it go with its
+clip, travel with it when copied?), the format for each track (`words`,
+`mouth`), the link's name, and a track made by hand, which names no tool.
 
 ### Text
 
@@ -185,8 +198,9 @@ their clips' prompts, byte for byte, and were deleted in piece 3 (Thomas,
 2026-10-20). An earlier wording, "only when the words are a thing of their
 own", read as if a track were the transcript of an ordinary clip; Thomas
 (2026-10-20, through `@curio`): a words track isn't a transcript.
-Subtitles, timed lines, are closer to a track than to a transcript; where
-they go is open.
+Subtitles, timed lines, are a track for now, the shared `subtitles` track
+(0.16.5), a line to a cue (Thomas, 2026-10-22), and later an asset file in a standard format, as every
+track's cues will be ("Later", under a take's tracks).
 
 `audio_meta.transcript_id`, from 0.2 (2026-03), before recipes and tracks,
 pointed a clip at one text asset; Overlore was the only app to use it, and
@@ -601,6 +615,10 @@ the old names.
   `lighting` and `condition`, and the descriptions. A tag is added in a
   release for now (0.14).
 - The hub (`@curio`'s): what more it needs from each store.
+- **Tracks' cues as asset files** (Thomas, 2026-10-22; a future version):
+  the track keeps its name, tool and metadata, its cues a text asset in a
+  standard format, hanging on its clip by a *dependent* link, which wants
+  thinking about. Subtitles are a track (`subtitles`) until then.
 - **2D and 3D don't line up** (Thomas, 2026-10-21: "Have to think about
   that"). A `drop` is in effect a 2D `set`, but `prop` is both 2D and 3D,
   and `figure` is 3D, or 2D only when rigged: a flat character with no

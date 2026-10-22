@@ -360,8 +360,7 @@ module DataDungeon
     end
 
     private def delete_source(source_type : String, id : Int64) : Nil
-      if source_id = Memo::SourceRegistry.get_internal(@assets.connection, source_type, id)
-        @assets.connection.exec("DELETE FROM memo_embed_queue WHERE source_id = ?", source_id)
+      if Memo::SourceRegistry.get_internal(@assets.connection, source_type, id)
         @memo.delete(id, source_type)
       end
     end

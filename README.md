@@ -470,14 +470,15 @@ db.set_track(take.id, "words", [cue.new(0, 180, "My"), cue.new(180, 520, "friend
 db.set_track(take.id, "mouth", [cue.new(0, 60, "X"), cue.new(60, 120, "B")], tool: "rhubarb 1.14.0 --dialogFile")
 db.tracks(take.id)            # each track's name, tool, made_at and cues
 db.track(take.id, "mouth")    # one, or nil
-DataDungeon::DB::STANDARD_TRACKS  # the shared names: words, mouth
+DataDungeon::DB::STANDARD_TRACKS  # the shared names: words, mouth, subtitles
 ```
 
-- **`words` and `mouth` are shared:** when each word is spoken, its value
+- **`words`, `mouth` and `subtitles` are shared:** when each word is spoken, its value
   the word with its punctuation (`friend!`), as written when the tool
   aligns a known text (a voice engine's own timings, a forced aligner) and
   as heard when it transcribes (Whisper); and the mouth's shape, its values
-  the tool's (Rhubarb Lip Sync's A to H, and X at rest). Other names are an
+  the tool's (Rhubarb Lip Sync's A to H, and X at rest); and the lines shown
+  as subtitles, a cue for each, its value the line as shown (0.16.5). Other names are an
   app's own (`words-heard`, for a transcription kept beside the text's).
 - **A track names its tool,** with its version and any options that change
   its result (`rhubarb 1.14.0 --dialogFile`), so a better one can redo it:
@@ -693,7 +694,7 @@ the exhaustive top 10 found every time.
 Semantic search finds assets by meaning: "a wizard's study at night" finds
 the picture described as "a cosy scholar's study at night, crowded with
 books". `require "data_dungeon/semantic"` adds `DataDungeon::SemanticIndex`,
-which needs the `memo` shard, `~> 0.14.0` (and libmagic). It keeps Memo's tables in the
+which needs the `memo` shard, `~> 0.14.1` (and libmagic). It keeps Memo's tables in the
 same SQLite database and its USearch index file beside it.
 
 **What's embedded** is the type's to say, in its registration: `embed:`

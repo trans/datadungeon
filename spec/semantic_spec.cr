@@ -182,6 +182,30 @@ describe DataDungeon::SemanticIndex do
     FileUtils.rm_rf(dir) if dir
   end
 
+  it "finds the asset its filter names when one outside it has the same description" do
+    dir = File.tempname("dd-semantic-shared")
+    Dir.mkdir_p(dir)
+    db = DataDungeon::DB.new(File.join(dir, "assets.db"), cache_root: File.join(dir, "store"))
+    db.register_type("drop", pool_traits: %w[place], embed: %w[description])
+    index = DataDungeon::SemanticIndex.new(db, service: "mock", chunking_max_tokens: 50)
+    # Memo embeds a text once for every source holding it; before 0.14.1 its
+    # filtered search returned them all, those outside first, and more of
+    # them than the candidates asked for.
+    %w[north east west wold fen].each do |place|
+      db.store("drop", {"place" => place}, bytes: place.to_slice, content_type: "image/webp",
+        description: "A moonlit castle")
+    end
+    south = db.store("drop", {"place" => "south"}, bytes: "south".to_slice, content_type: "image/webp",
+      description: "A moonlit castle")
+    index.process_queue.should eq 6
+
+    pool = db.key_for("drop", {"place" => "south"})
+    index.search("castle", key: pool, limit: 1).map(&.asset.id).should eq [south.id]
+  ensure
+    db.try(&.close)
+    FileUtils.rm_rf(dir) if dir
+  end
+
   it "embeds a registered type's facets separately and ranks them alone or together" do
     dir = File.tempname("dd-semantic-facets")
     Dir.mkdir_p(dir)
