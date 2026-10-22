@@ -62,8 +62,9 @@ park store; venue fronts are `prop`) and `@siliconcircus` `3ed87299`
 (venue fronts are props). Curio dropped `/a/*name` in its 0.4.0
 (`510fadd`), so the boardwalk's pictures 404 locally; Thomas is fixing it. Sent on Thomas's "send": `@owl` (Overlore's
 door views are now places, `225e8d74`), `@memo` (duplicate service bug,
-`57d11aeb`). Open: `@curio` relayed Thomas's doubt (`872a7225`) that a
-`words` track can stand in for a transcript; see DESIGN-types "Text". Owl has moved too (`359e4306`: depth
+`57d11aeb`). Settled (Thomas, 2026-10-20, through `@curio` `872a7225`): a
+`words` track isn't a transcript; `transcript` says so since 0.15.6, DESIGN-types
+"Text"; only where subtitles go is open. Owl has moved too (`359e4306`: depth
 maps `pass`, `16748f9`; `f3572932`: on 0.15.6, `1f81c94`), and reads no
 other store now (Thomas's plan: curio's hub links stores). Every live store
 uses only standard names and none sets `transcript_id` (checked read-only
