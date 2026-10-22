@@ -1,6 +1,6 @@
 # DataDungeon handoff
 
-*Updated 2026-10-20*
+*Updated 2026-10-22*
 
 **0.16.3, released (v0.16.3 at `3f7d9bf`, Thomas's "tag", 2026-10-21; notice post 10):** a security-focused Codex
 review of all of v0.16.2 (Thomas: "no holes that some one could exploit";
@@ -105,7 +105,12 @@ scope he called "about right" (2026-10-19). Built:
 - **Memo 0.13.1 bug:** asked by format+model, it adds a `<format>/<model>`
   service beside a listed one of another name (`openai`, `mock`), and the
   next open fails "more than one row". Worked around (`known_service`);
-  reported to `@memo` (`57d11aeb`).
+  reported to `@memo` (`57d11aeb`). **Fixed in Memo 0.13.2** (2026-10-22,
+  `f786dff0`): a fresh `~> 0.13.1` install takes it; the workaround can stay.
+  **Memo 0.14.0** (`72bcd42a`): needs arcana-core `~> 0.20.0`, arcana-ai
+  `~> 0.6.1`; no code, schema or API change. DD's dev pin `~> 0.13.1` stays on
+  0.13.2 until moved; DD reads no token counts, so 0.14 should compile. Not
+  moved (Thomas's call).
 - Checked: 187 specs (1 pending S3); the five apps type-check; dd-serve on
   an Owl copy (scratchpad `search/`, objects as symlinks) with the mock
   model: embeds 38 drops, searches, picks up another process's description
