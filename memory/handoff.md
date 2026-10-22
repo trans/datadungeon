@@ -108,9 +108,12 @@ scope he called "about right" (2026-10-19). Built:
   reported to `@memo` (`57d11aeb`). **Fixed in Memo 0.13.2** (2026-10-22,
   `f786dff0`): a fresh `~> 0.13.1` install takes it; the workaround can stay.
   **Memo 0.14.0** (`72bcd42a`): needs arcana-core `~> 0.20.0`, arcana-ai
-  `~> 0.6.1`; no code, schema or API change. DD's dev pin `~> 0.13.1` stays on
-  0.13.2 until moved; DD reads no token counts, so 0.14 should compile. Not
-  moved (Thomas's call).
+  `~> 0.6.1`; no code, schema or API change. **0.16.4, prepared, not
+  committed** (Thomas, 2026-10-22: "no fucking workarounds. update."): memo
+  `~> 0.14.0`, `known_service` removed. From a clean GitHub install: 193
+  specs, dd-serve builds and opens a mock store twice with one `mock`
+  service; five apps type-check. The park's own memo pin (`~> 0.13.1`, for
+  its dd-serve) must move to `~> 0.14.0` with it: 0.13.1 has the bug.
 - Checked: 187 specs (1 pending S3); the five apps type-check; dd-serve on
   an Owl copy (scratchpad `search/`, objects as symlinks) with the mock
   model: embeds 38 drops, searches, picks up another process's description
