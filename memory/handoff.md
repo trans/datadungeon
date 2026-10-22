@@ -140,7 +140,9 @@ scope he called "about right" (2026-10-19). Built:
   CLI and file indexing, none DD uses; 0.15.2: `delete_service` refuses
   the open service and raises `USearchIndex::InUse` when another process
   holds that index (DD's `switch_model` deletes only others). **0.16.6,
-  prepared, not committed** (Thomas, "memo is at 0.15.4"): memo
+  released** (v0.16.6 at `d928a53`, Thomas's "tag"; post 13; `@cyclops`
+  `93199973`, `@overlore` `e0803a5e` at Thomas's ask, `@memo` `e31fcc00`
+  told DD no longer builds against its working tree; Thomas, "memo is at 0.15.4"): memo
   `~> 0.15.4`; `recipe_spec.cr:445` expected sqlite3 to raise a refused
   statement's error again on close, which 0.24 fixed (#114: finalize's
   code unchecked), so it just closes; README's memo line. `src/` is
