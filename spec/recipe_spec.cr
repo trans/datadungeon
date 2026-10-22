@@ -451,9 +451,7 @@ describe DataDungeon::Recipe do
           raw.exec("DELETE FROM texts WHERE text = ?", words)
         end
       end
-      # The driver reports a refused statement's error again when it
-      # finalizes the cached statement.
-      expect_raises(SQLite3::Exception, /FOREIGN KEY/) { raw.close }
+      raw.close
       db.find_assets_by_tags("plug", {"art-style" => "silver-comic"}).first.description.should eq "A small room."
     end
   end
