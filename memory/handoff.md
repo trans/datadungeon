@@ -65,8 +65,8 @@ door views are now places, `225e8d74`), `@memo` (duplicate service bug,
 `57d11aeb`). Settled (Thomas, 2026-10-20, through `@curio` `872a7225`): a
 `words` track isn't a transcript; `transcript` says so since 0.15.6, DESIGN-types
 "Text"; subtitles are a track for now, and later every track's cues become an asset
-file in a standard format (Thomas, 2026-10-22; DESIGN-types "Later", in the
-0.16.5 working tree). Owl has moved too (`359e4306`: depth
+file in a standard format (Thomas, 2026-10-22; DESIGN-types "Later", released in
+0.16.5). Owl has moved too (`359e4306`: depth
 maps `pass`, `16748f9`; `f3572932`: on 0.15.6, `1f81c94`), and reads no
 other store now (Thomas's plan: curio's hub links stores). Every live store
 uses only standard names and none sets `transcript_id` (checked read-only
@@ -120,13 +120,14 @@ scope he called "about right" (2026-10-19). Built:
   post 11). `@cyclops` was sent the deploy notes for 0.16.3 (`ea4213bd`), then
   told to build from 0.16.4 (`efa24520`), and that Overlore's `shard.yml` has
   three local `path:` dependencies (stale: Overlore removed them in `0b48eb4`
-  six seconds before; correction not sent, waiting on Thomas).
+  six seconds before; corrected to `@cyclops` in `f7cad751`).
 - **Memo 0.14.1** (`c33105f6`): filtered searches returned every source
   sharing a text, outside the filter too. DD re-checks hits, so nothing
   leaked, but a filtered search could miss (new spec: 5 copies outside a
   key, 1 inside, limit 1: `[]` on 0.14.0). Also fixed: a deleted source's
-  queued work, which DD cleared itself since `a89e709`. **0.16.5,
-  prepared, not committed:** memo `~> 0.14.1`, DD's queue delete removed;
+  queued work, which DD cleared itself since `a89e709`. **0.16.5, released**
+  (v0.16.5 at `f022fa3`, Thomas's "tag"; post 12; with a shared
+  `subtitles` track): memo `~> 0.14.1`, DD's queue delete removed;
   194 specs from a clean GitHub install; dd-serve smoke; five apps
   type-check. Memo's note assumes DD builds against its working tree; it
   no longer does (override removed 2026-10-22).
