@@ -2,6 +2,10 @@ require "spec"
 require "file_utils"
 require "../src/data_dungeon/http"
 
+lib LibSQLite3
+  fun memory_used = sqlite3_memory_used : Int64
+end
+
 private def with_api(name : String, read_token : String? = "r", write_token : String? = "w", &)
   dir = File.tempname(name)
   Dir.mkdir_p(dir)
@@ -372,6 +376,21 @@ describe DataDungeon::API do
       json(big)["error"].as_s.should contain "over 4 bytes"
       upload(small, "w", {type: "drop", tags: tags}, "1234").status_code.should eq 200
       db.asset_types.should eq({"drop" => 1})
+    end
+  end
+
+  it "keeps no statement for each shape of listing asked for, so requests can't grow its memory" do
+    with_api("dd-api-shapes") do |api, db|
+      store_backdrop(db, "golden", "a")
+      ask = ->(seed : Int32) do
+        fields = DataDungeon::DB::RANGE_FIELDS.shuffle(Random.new(seed)).map { |field| "field.#{field}=0..1" }.join("&")
+        call(api, "GET", "/dd/assets?limit=1&#{fields}", "r").status_code.should eq 200
+        call(api, "GET", "/dd/assets?limit=1&count=1&#{fields}", "r").status_code.should eq 200
+      end
+      10.times { |seed| ask.call(seed) } # what the first requests settle
+      before = LibSQLite3.memory_used
+      300.times { |seed| ask.call(seed + 10) }
+      (LibSQLite3.memory_used - before).should be < 2_000_000 # before 0.16.3, about 49 KB a shape, kept
     end
   end
 

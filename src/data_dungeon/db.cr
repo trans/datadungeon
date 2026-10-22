@@ -1756,9 +1756,9 @@ module DataDungeon
         args << before
       end
       results = [] of AssetRecord
-      @db.query("SELECT #{ASSET_COLUMNS} FROM #{from} WHERE #{where} ORDER BY #{order} DESC LIMIT ? OFFSET ?",
-        args: args + [limit, offset] of ::DB::Any) do |rs|
-        rs.each { results << read_asset_record(rs) }
+      uncached("SELECT #{ASSET_COLUMNS} FROM #{from} WHERE #{where} ORDER BY #{order} DESC LIMIT ? OFFSET ?",
+        args + [limit, offset] of ::DB::Any) do |statement, all|
+        statement.query(args: all) { |rs| rs.each { results << read_asset_record(rs) } }
       end
       results
     end
@@ -1772,7 +1772,25 @@ module DataDungeon
                      texts : Hash(String, String) = {} of String => String) : Int64
       from, where, args, _ = asset_filter(asset_type, tags, q, links, unlinked, retired, image, nil,
         file_hash, description_hash, texts) || return 0_i64
-      @db.scalar("SELECT COUNT(*) FROM #{from} WHERE #{where}", args: args).as(Int64)
+      uncached("SELECT COUNT(*) FROM #{from} WHERE #{where}", args) { |statement, all| statement.scalar(args: all).as(Int64) }
+    end
+
+    # Runs SQL its caller shapes from what was asked (list_assets' and
+    # count_assets' filters, in any number and order) through a statement
+    # prepared for this one use. crystal-db keeps every statement it
+    # prepares, per connection, for the connection's life, so caching one a
+    # shape would let requests grow the server's memory without bound (a
+    # security review, 2026-10-21). Fixed queries, the hot paths, stay
+    # cached; preparing costs these some tens of microseconds.
+    private def uncached(sql : String, args : Array(::DB::Any), & : ::DB::Statement, Array(::DB::Any) -> T) : T forall T
+      @db.using_connection do |conn|
+        statement = conn.build_prepared_statement(sql)
+        begin
+          yield statement, args
+        ensure
+          statement.close
+        end
+      end
     end
 
     # The FROM, WHERE, arguments and ordering column for list_assets, which
