@@ -131,6 +131,23 @@ scope he called "about right" (2026-10-19). Built:
   194 specs from a clean GitHub install; dd-serve smoke; five apps
   type-check. Memo's note assumes DD builds against its working tree; it
   no longer does (override removed 2026-10-22).
+- **Memo 0.14.2 to 0.15.4** (2026-10-22; mail filed in `received/`,
+  ai `25bd295`; 0.15.4 had no mail, Thomas pointed it out). 0.14.2/0.14.3:
+  no chunk over `chunking_max_tokens`, per-database index file names (one
+  beside a SQLite file keeps its name); a fresh v0.16.5 install takes
+  0.14.3 (194 specs, dd-serve builds). 0.15.0: pg `~> 0.31.0`, so
+  crystal-db 0.15 and sqlite3 0.24; 0.15.1/0.15.3/0.15.4: memo-arcana, the
+  CLI and file indexing, none DD uses; 0.15.2: `delete_service` refuses
+  the open service and raises `USearchIndex::InUse` when another process
+  holds that index (DD's `switch_model` deletes only others). **0.16.6,
+  prepared, not committed** (Thomas, "memo is at 0.15.4"): memo
+  `~> 0.15.4`; `recipe_spec.cr:445` expected sqlite3 to raise a refused
+  statement's error again on close, which 0.24 fixed (#114: finalize's
+  code unchecked), so it just closes; README's memo line. `src/` is
+  unchanged, so 0.16.5's app type-checks hold. From a clean GitHub
+  install: 194 specs (1 pending S3), dd-serve builds, opens the mock store
+  twice with one `mock` service, `/search` answers. The park's memo pin
+  (`~> 0.13.1`) must go to `~> 0.15.4`, with crystal-db 0.15.
 - Checked: 187 specs (1 pending S3); the five apps type-check; dd-serve on
   an Owl copy (scratchpad `search/`, objects as symlinks) with the mock
   model: embeds 38 drops, searches, picks up another process's description
