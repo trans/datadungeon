@@ -693,7 +693,7 @@ the exhaustive top 10 found every time.
 Semantic search finds assets by meaning: "a wizard's study at night" finds
 the picture described as "a cosy scholar's study at night, crowded with
 books". `require "data_dungeon/semantic"` adds `DataDungeon::SemanticIndex`,
-which needs the `memo` shard (and libmagic). It keeps Memo's tables in the
+which needs the `memo` shard, `~> 0.14.0` (and libmagic). It keeps Memo's tables in the
 same SQLite database and its USearch index file beside it.
 
 **What's embedded** is the type's to say, in its registration: `embed:`

@@ -1,5 +1,5 @@
 name: data_dungeon
-version: 0.16.3
+version: 0.16.4
 
 authors:
   - Thomas Sawyer <transfire@gmail.com>
@@ -17,7 +17,7 @@ development_dependencies:
   # For SemanticIndex (data_dungeon/semantic) and dd-serve's search; needs libmagic.
   memo:
     github: openbohemians/memo
-    version: ~> 0.13.1
+    version: ~> 0.14.0
   # For MatchIndex (data_dungeon/matches): USearch, with its C library.
   usearch:
     github: trans/usearch.cr

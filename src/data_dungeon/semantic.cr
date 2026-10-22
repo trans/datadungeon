@@ -60,7 +60,6 @@ module DataDungeon
       query_cache_size : Int32 = 1024,
       switch_model : Bool = false,
     )
-      service ||= known_service(format, model)
       @memo = Memo::Service.new(
         db: @assets.connection,
         service: service,
@@ -84,20 +83,6 @@ module DataDungeon
         raise ex
       end
       @assets.attach_indexer(self)
-    end
-
-    # The service Memo already has for this format and model, if any, by
-    # name. Asked by format and model, Memo 0.13.1 adds a second service when
-    # it lists the model under another name (`openai` for
-    # text-embedding-3-small), and then can't choose between them on the
-    # next open. The one holding vectors comes first.
-    private def known_service(format : String?, model : String?) : String?
-      return unless format && model
-      Memo::Database.init(@assets.connection) # its tables and listed models, as Memo::Service makes them
-      @assets.connection.query_one?(<<-SQL, format, model, as: String)
-        SELECT s.name FROM memo_services s WHERE s.format = ? AND s.model = ?
-        ORDER BY EXISTS (SELECT 1 FROM memo_embeddings e WHERE e.service_id = s.id) DESC, s.id LIMIT 1
-      SQL
     end
 
     # The store's model is the one its vectors were made with. Another
