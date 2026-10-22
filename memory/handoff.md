@@ -108,12 +108,15 @@ scope he called "about right" (2026-10-19). Built:
   reported to `@memo` (`57d11aeb`). **Fixed in Memo 0.13.2** (2026-10-22,
   `f786dff0`): a fresh `~> 0.13.1` install takes it; the workaround can stay.
   **Memo 0.14.0** (`72bcd42a`): needs arcana-core `~> 0.20.0`, arcana-ai
-  `~> 0.6.1`; no code, schema or API change. **0.16.4, prepared, not
-  committed** (Thomas, 2026-10-22: "no fucking workarounds. update."): memo
+  `~> 0.6.1`; no code, schema or API change. **0.16.4, released** (v0.16.4 at
+  `bbfcd02`, Thomas's "tag"; notice post 11; Thomas, 2026-10-22: "no fucking workarounds. update."): memo
   `~> 0.14.0`, `known_service` removed. From a clean GitHub install: 193
   specs, dd-serve builds and opens a mock store twice with one `mock`
   service; five apps type-check. The park's own memo pin (`~> 0.13.1`, for
-  its dd-serve) must move to `~> 0.14.0` with it: 0.13.1 has the bug.
+  its dd-serve) must move to `~> 0.14.0` with it: 0.13.1 has the bug (said in
+  post 11). `@cyclops` was sent the deploy notes for 0.16.3 (`ea4213bd`), then
+  told to build from 0.16.4 (`efa24520`), and that Overlore's `shard.yml` has
+  three local `path:` dependencies.
 - Checked: 187 specs (1 pending S3); the five apps type-check; dd-serve on
   an Owl copy (scratchpad `search/`, objects as symlinks) with the mock
   model: embeds 38 drops, searches, picks up another process's description
