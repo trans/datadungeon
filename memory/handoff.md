@@ -132,7 +132,7 @@ scope he called "about right" (2026-10-19). Built:
   type-check. Memo's note assumes DD builds against its working tree; it
   no longer does (override removed 2026-10-22).
 - **Memo 0.14.2 to 0.15.4** (2026-10-22; mail filed in `received/`,
-  ai `25bd295`; 0.15.4 had no mail, Thomas pointed it out). 0.14.2/0.14.3:
+  ai `25bd295`; 0.15.4, Thomas pointed it out first, then `689e019a`). 0.14.2/0.14.3:
   no chunk over `chunking_max_tokens`, per-database index file names (one
   beside a SQLite file keeps its name); a fresh v0.16.5 install takes
   0.14.3 (194 specs, dd-serve builds). 0.15.0: pg `~> 0.31.0`, so
