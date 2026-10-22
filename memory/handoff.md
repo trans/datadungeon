@@ -2,7 +2,7 @@
 
 *Updated 2026-10-20*
 
-**0.16.2, built, not committed (2026-10-21):** fixes from an independent
+**0.16.2, released (v0.16.2 at `cb0a356`, Thomas's "tag", 2026-10-21; notice post 9):** fixes from an independent
 Codex review of `v0.15.0..v0.16.1` (Thomas offered it before deployment;
 brief in `outtake/review-brief.md`, git-ignored). All seven findings checked
 and fixed: a bad PNG with `compression` aborted the process (webp.cr's old
@@ -14,7 +14,7 @@ the lock; `store_webp` deletes a WebP it just made when the link fails;
 `catch_up` refreshes on its first pass; `data_dungeon/tiff` requires the
 core. 192 specs; old code fails the catch-up spec and aborts on the PNG
 probe; five apps type-check; a built dd-serve answered 400, 413, 200 and
-stayed up. Waits on Thomas's "tag".
+stayed up. A fresh `~> 0.16.0` install resolves it, and `data_dungeon/tiff` builds alone.
 
 **Where things stand (2026-10-20, afternoon):** every app is on 0.15.4 or
 later; 0.15.6 (`8236d73`) is the latest release. **Overlore's piece 3 is
