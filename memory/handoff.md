@@ -2,6 +2,24 @@
 
 *Updated 2026-10-20*
 
+**0.16.3, built, not committed (2026-10-21):** a security-focused Codex
+review of all of v0.16.2 (Thomas: "no holes that some one could exploit";
+brief `outtake/security-brief.md`) found one hole, confirmed: crystal-db
+0.14 caches every prepared statement per connection with no eviction, and
+`GET /assets` (and `count=1`) build SQL from the filters' order and
+number (18 image fields, links, texts), so a read-token holder (anyone,
+without `DD_READ_TOKEN`) could grow dd-serve's memory ~60 KB a request
+without bound. Fix: `list_assets` and `count_assets` run through
+`DB#uncached` (a statement built for one use, closed after); fixed queries
+stay cached. Turning the cache off everywhere was measured and rejected
+(lookups 3.5-30x slower, and crystal-db then failed to close: "unfinalized
+statements"). Listings pay ~13-26 µs; get by traits unchanged (~21 µs).
+A built dd-serve under 10,000 shuffled listings levels at ~55 MB (v0.16.2:
++121 MB per 2,000, unbounded). New spec fails on v0.16.2. 193 specs; five
+apps type-check. Residual, bounded: search's and the pool lookups' SQL
+grows with the number of tags (all bound, sorted), capped by SQLite's
+expression depth; search isn't deployed. Waits on Thomas's "tag".
+
 **0.16.2, released (v0.16.2 at `cb0a356`, Thomas's "tag", 2026-10-21; notice post 9):** fixes from an independent
 Codex review of `v0.15.0..v0.16.1` (Thomas offered it before deployment;
 brief in `outtake/review-brief.md`, git-ignored). All seven findings checked
