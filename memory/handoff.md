@@ -64,7 +64,9 @@ park store; venue fronts are `prop`) and `@siliconcircus` `3ed87299`
 door views are now places, `225e8d74`), `@memo` (duplicate service bug,
 `57d11aeb`). Settled (Thomas, 2026-10-20, through `@curio` `872a7225`): a
 `words` track isn't a transcript; `transcript` says so since 0.15.6, DESIGN-types
-"Text"; only where subtitles go is open. Owl has moved too (`359e4306`: depth
+"Text"; subtitles are a track for now, and later every track's cues become an asset
+file in a standard format (Thomas, 2026-10-22; DESIGN-types "Later", in the
+0.16.5 working tree). Owl has moved too (`359e4306`: depth
 maps `pass`, `16748f9`; `f3572932`: on 0.15.6, `1f81c94`), and reads no
 other store now (Thomas's plan: curio's hub links stores). Every live store
 uses only standard names and none sets `transcript_id` (checked read-only
