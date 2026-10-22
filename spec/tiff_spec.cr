@@ -83,6 +83,28 @@ private def png16(width : Int32, height : Int32, & : Int32, Int32 -> Pixel16) : 
   io.to_slice
 end
 
+# These bytes with the width and height in the header changed to 20000 ×
+# 20000 (400 million pixels), and nothing else: a small upload claiming a
+# huge picture.
+private def claiming_huge(bytes : Bytes, type : String) : Bytes
+  bytes = bytes.dup
+  if type == "image/tiff" # the first two IFD entries' values, little-endian
+    {18, 30}.each { |at| IO::ByteFormat::LittleEndian.encode(20000_u32, bytes[at, 4]) }
+  else # IHDR's width and height, big-endian, and its CRC
+    {16, 20}.each { |at| IO::ByteFormat::BigEndian.encode(20000_u32, bytes[at, 4]) }
+    IO::ByteFormat::BigEndian.encode(Digest::CRC32.checksum(bytes[12, 17]), bytes[29, 4])
+  end
+  bytes
+end
+
+# A store whose picture another process deletes while its WebP is made, so
+# linking the WebP to it fails.
+private class GoneDB < DataDungeon::DB
+  def link(from_id : Int64, rel : String, to : Int64 | String, data : String? = nil) : Nil
+    raise ArgumentError.new("No asset #{to}")
+  end
+end
+
 # The first IFD's tags, each with its first value, as libtiff writes a
 # little-endian file: the layout a stored TIFF has.
 private def tags(bytes : Bytes) : Hash(Int32, Int32)
@@ -207,6 +229,48 @@ describe "TIFF" do
       xcf.file_path.should end_with ".xcf"
       expect_raises(ArgumentError, /image\/x-xcf/) { db.store_webp(xcf.id) }
     end
+  end
+
+  it "keeps no WebP of a picture deleted while it was made, but never drops one made before" do
+    with_db("dd-tiff-webp-gone") do |db, dir|
+      master = db.store("prop", {"thing" => "barrel", "fmt" => "tif"}, bytes: tiff(70, 50, 8) { |x, y| cut_out(x, y) },
+        content_type: "image/tiff")
+      gone = GoneDB.new(File.join(dir, "assets.db"), cache_root: File.join(dir, "store"))
+      begin
+        expect_raises(ArgumentError, /No asset/) { gone.store_webp(master.id, {"fmt" => "webp"}) }
+        db.asset_types.should eq({"prop" => 1})
+        webp = db.store_webp(master.id, {"fmt" => "webp"})
+        expect_raises(ArgumentError, /No asset/) { gone.store_webp(master.id, {"fmt" => "webp"}) } # a repeat
+        db.find_asset_by_id(webp.id).should_not be_nil
+      ensure
+        gone.close
+      end
+    end
+  end
+
+  it "refuses to decode a picture claiming more pixels than it takes, before allocating them" do
+    red = {65535_u16, 0_u16, 0_u16, 65535_u16}
+    huge_tiff = claiming_huge(tiff(4, 4, 8) { red }, "image/tiff")
+    huge_png = claiming_huge(png16(4, 4) { red }, "image/png")
+    {"image/tiff" => huge_tiff, "image/png" => huge_png}.each do |type, bytes|
+      expect_raises(DataDungeon::ImageProbe::Error, /20000×20000 has more pixels than DataDungeon decodes/) do
+        DataDungeon::ImageProbe.decode(bytes, type)
+      end
+      DataDungeon::ImageProbe.measure(bytes, type).should be_nil
+    end
+    with_db("dd-tiff-huge") do |db|
+      held = db.store("prop", {"thing" => "barrel", "fmt" => "tif"}, bytes: huge_tiff, content_type: "image/tiff") # unmeasured
+      expect_raises(DataDungeon::ImageProbe::Error, /more pixels/) { db.store_webp(held.id) }
+    end
+
+    webp = DataDungeon::WebP.encode_webp_bytes(Bytes.new(64, 255_u8), 4, 4)
+    DataDungeon::ImageProbe.max_pixels = 15 # an application's own limit
+    begin
+      expect_raises(DataDungeon::ImageProbe::Error, /4×4 has more pixels/) { DataDungeon::ImageProbe.decode(webp, "image/webp") }
+    ensure
+      DataDungeon::ImageProbe.max_pixels = 64_i64 * 1024 * 1024
+    end
+    DataDungeon::ImageProbe.decode(webp, "image/webp")[0].should eq 4
   end
 
   it "stores uploads as TIFF tiles and makes their WebP over HTTP" do

@@ -76,7 +76,8 @@ module DataDungeon
   #                                          with no recipe; image as PATCH takes it, plus how
   #                                          to store the file ({compression: "normalize",
   #                                          target_format: "tiff"} for 8-bit 64x64 tiles); 409
-  #                                          with asset_id when its type already holds the bytes
+  #                                          with asset_id when its type already holds the bytes;
+  #                                          413 for a file over max_upload (256 MiB)
   #     POST   /assets/:id/webp            {tags, quality}: a picture's WebP as an asset of its
   #                                          own, its tags with these over them, linked
   #                                          derived-from it (DB#store_webp); 409 as above
@@ -102,9 +103,18 @@ module DataDungeon
 
     PAGE     =  50
     MAX_PAGE = 500
+    # The most an upload's file may hold unless `max_upload:` says otherwise,
+    # and its asset part (JSON): read no further than that, so a body of any
+    # size can't fill the server's memory.
+    MAX_UPLOAD     = 256_i64 * 1024 * 1024
+    MAX_ASSET_PART = 1_i64 * 1024 * 1024
+
+    # A part of a request bigger than the server takes (413).
+    class TooLarge < Exception
+    end
 
     def initialize(@db : DB, *, @read_token : String? = nil, @write_token : String? = nil, prefix : String = "",
-                   @matcher : Matcher? = nil, @searcher : Searcher? = nil)
+                   @matcher : Matcher? = nil, @searcher : Searcher? = nil, @max_upload : Int64 = MAX_UPLOAD)
       @prefix = prefix.rstrip('/')
     end
 
@@ -116,7 +126,7 @@ module DataDungeon
       write = method.in?("PATCH", "DELETE", "PUT") || (method == "POST" && parts != ["maintenance", "check"])
       return unless authorized?(context, write)
       route(context, method, parts)
-    rescue ex : ArgumentError | JSON::ParseException | TypeCastError | KeyError | Time::Format::Error
+    rescue ex : ArgumentError | JSON::ParseException | TypeCastError | KeyError | Time::Format::Error | ImageProbe::Error
       error(context, 400, ex.message)
     rescue ex : ReadOnlyError
       error(context, 409, ex.message)
@@ -381,10 +391,13 @@ module DataDungeon
       HTTP::FormData.parse(context.request) do |part|
         case part.name
         when "file"
-          bytes = part.body.getb_to_end
+          raise ArgumentError.new("an upload has one file part") if bytes
+          bytes = read_part(part.body, @max_upload, "the file")
           content_type = part.headers["Content-Type"]?
-        when "asset" then fields = JSON.parse(part.body.gets_to_end)
-        else              raise ArgumentError.new("an upload's parts are file and asset, not #{part.name}")
+        when "asset"
+          raise ArgumentError.new("an upload has one asset part") if fields
+          fields = JSON.parse(String.new(read_part(part.body, MAX_ASSET_PART, "the asset part")))
+        else raise ArgumentError.new("an upload's parts are file and asset, not #{part.name}")
         end
       end
       file = bytes || raise ArgumentError.new("an upload has a file part: the asset's bytes")
@@ -401,6 +414,15 @@ module DataDungeon
       respond(context, {error: ex.message, asset_id: ex.asset_id, retired: ex.retired?})
     rescue ex : HTTP::FormData::Error | MIME::Multipart::Error
       error(context, 400, "POST /assets takes multipart/form-data, a file part and an asset part (#{ex.message})")
+    rescue ex : TooLarge
+      error(context, 413, ex.message)
+    end
+
+    # A part's bytes, reading no more than one past `limit`.
+    private def read_part(io : IO, limit : Int64, what : String) : Bytes
+      held = IO::Memory.new
+      raise TooLarge.new("#{what} is over #{limit} bytes") if IO.copy(io, held, limit + 1) > limit
+      held.to_slice
     end
 
     # A picture's WebP, stored as its own asset (DB#store_webp).

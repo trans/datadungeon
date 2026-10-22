@@ -1,4 +1,4 @@
-require "./image_probe"
+require "../data_dungeon"
 
 # libtiff 4.5 or later, read and written in memory, with its errors handed
 # back rather than printed.
@@ -93,7 +93,7 @@ module DataDungeon
     def self.decode(data : Bytes) : {Int32, Int32, Bytes}
       open(IO::Memory.new(data, writable: false), "r") do |tif|
         width, height = field_u32(tif, LibTIFF::IMAGEWIDTH), field_u32(tif, LibTIFF::IMAGELENGTH)
-        raise ImageProbe::Error.new("a TIFF #{width}×#{height}") unless width > 0 && height > 0
+        ImageProbe.check_size(width, height, "TIFF")
         {width.to_i32, height.to_i32, read_samples(tif, width, height) || read_rgba(tif, width, height)}
       end
     end
@@ -186,7 +186,9 @@ module DataDungeon
         end
       end
       if LibTIFF.TIFFIsTiled(tif) != 0
-        tile_width, tile_height = field_u32(tif, LibTIFF::TILEWIDTH).to_i32, field_u32(tif, LibTIFF::TILELENGTH).to_i32
+        tile_width, tile_height = field_u32(tif, LibTIFF::TILEWIDTH), field_u32(tif, LibTIFF::TILELENGTH)
+        ImageProbe.check_size(tile_width, tile_height, "TIFF tile") # its buffer, as big as the header says
+        tile_width, tile_height = tile_width.to_i32, tile_height.to_i32
         block = Bytes.new(LibTIFF.TIFFTileSize(tif))
         (0...h).step(tile_height) do |top|
           (0...w).step(tile_width) do |left|

@@ -11,6 +11,8 @@
 #   DD_READ_TOKEN       needed to read; required unless only this machine listens
 #   DD_WRITE_TOKEN      enables writes; without it the database opens read-only
 #   DD_HOST, DD_PORT    where to listen (127.0.0.1:7077)
+#   DD_MAX_UPLOAD       the most bytes a file added by hand (POST /assets) may
+#                       hold (268435456, 256 MiB); a bigger one gets 413
 #   DD_MATCHES_DIR      where best-match files go (beside the database)
 #   DD_EMBED_MODEL      an embedding model (text-embedding-3-small): with one,
 #                       dd-serve embeds what the types' registrations say to
@@ -55,6 +57,7 @@ read_token = setting("DD_READ_TOKEN")
 write_token = setting("DD_WRITE_TOKEN")
 host = setting("DD_HOST") || "127.0.0.1"
 port = (setting("DD_PORT") || "7077").to_i
+max_upload = setting("DD_MAX_UPLOAD").try(&.to_i64) || DataDungeon::API::MAX_UPLOAD
 
 embed_model = setting("DD_EMBED_MODEL")
 embed_format = setting("DD_EMBED_FORMAT") || "openai"
@@ -93,7 +96,7 @@ searcher.try do |index|
   end
 end
 server = HTTP::Server.new([DataDungeon::API.new(db, read_token: read_token, write_token: write_token,
-  matcher: matcher, searcher: searcher)])
+  matcher: matcher, searcher: searcher, max_upload: max_upload)])
 Process.on_terminate do
   server.close
 end

@@ -375,7 +375,13 @@ frames and a JPEG its size, from their headers. `measure_images(type, all:)`
 measures pictures stored before (each object is read, which for a bucket is
 a download). Before 0.15.4 a 16-bit PNG with no gamma chunk was read as
 linear light, too bright, and wrongly when interlaced; `all: true` measures
-such pictures again.
+such pictures again. A picture whose header claims more than
+`ImageProbe.max_pixels` (64 Mi, 8192 × 8192) isn't decoded, since its pixels
+would be allocated before they're read: it's stored unmeasured, and
+converting it raises. An application with bigger pictures raises the limit.
+A file that isn't the picture it claims to be raises `ImageProbe::Error`
+when it's converted (before 0.16.2, a PNG through libpng's own reader
+ended the process).
 
 **The application sets** what it asked the generator for: the view (where
 the camera stands, a unit vector in the thing's frame, and its roll), the
@@ -593,7 +599,9 @@ database, configured by `DD_*` environment variables (see
 `src/dd_serve.cr`). Reads need the read token, writes the write token
 (`Authorization: Bearer …`); without a write token there are no writes, and
 `dd-serve` opens the database read-only, unless it embeds for search
-(`DD_EMBED_MODEL`, see Semantic asset search).
+(`DD_EMBED_MODEL`, see Semantic asset search). A file added by hand is
+read no further than `max_upload:` (256 MiB, dd-serve's `DD_MAX_UPLOAD`),
+and a bigger one gets 413; a picture it can't decode gets 400.
 
 ```crystal
 api = DataDungeon::API.new(db, read_token: ENV["DD_READ_TOKEN"], write_token: ENV["DD_WRITE_TOKEN"]?,
@@ -615,7 +623,7 @@ HTTP::Server.new([api, app_handler])
 | `GET /objects` | every object key the store's rows use, for clearing a shared bucket |
 | `GET /vocabulary` | the shared tags and their values, with their titles; each rating with DataDungeon's words for it; DataDungeon's asset types; the shared tracks |
 | `GET /assets/:id/tracks[/:name]` | its tracks, or one (404 when it has none of that name) |
-| `POST /assets` | a file added by hand, as `multipart/form-data`: `file` (its `Content-Type` the asset's) and `asset`, JSON `{type, tags, custom, description, permanent, made_at, supersedes, image}`; stored as not generated, with no recipe; `image` as `PATCH` takes it, plus how to store the file (`{"compression": "normalize", "target_format": "tiff"}` for a TIFF master); 409 with `asset_id` when its type already holds the bytes (write token) |
+| `POST /assets` | a file added by hand, as `multipart/form-data`: `file` (its `Content-Type` the asset's) and `asset`, JSON `{type, tags, custom, description, permanent, made_at, supersedes, image}`; stored as not generated, with no recipe; `image` as `PATCH` takes it, plus how to store the file (`{"compression": "normalize", "target_format": "tiff"}` for a TIFF master); 409 with `asset_id` when its type already holds the bytes; 413 over `max_upload` (write token) |
 | `POST /assets/:id/webp` | `{tags, quality}`: the picture's WebP, as an asset of its own (`store_webp`); 409 as above (write token) |
 | `PATCH`, `DELETE /assets/:id` | edit (with `image` fields, views readably, and `everywhere` for a shared description) or delete (write token) |
 | `PUT /assets/:id/keyframes` | an animation's checkpoints (write token) |

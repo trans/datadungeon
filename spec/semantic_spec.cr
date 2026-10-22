@@ -368,6 +368,24 @@ describe DataDungeon::SemanticIndex do
     FileUtils.rm_rf(dir) if dir
   end
 
+  it "embeds, on its first pass, a type another process registered after this one opened" do
+    dir = File.tempname("dd-semantic-first-pass")
+    Dir.mkdir_p(dir)
+    path = File.join(dir, "assets.db")
+    db = DataDungeon::DB.new(path)
+    other = DataDungeon::DB.new(path)
+    other.register_type("drop", pool_traits: %w[world], embed: %w[description])
+    other.store_asset("drop", "image", "image/webp", "drop/0.webp", tags: {"world" => "alps"}, description: "A mountain hut")
+    index = DataDungeon::SemanticIndex.new(db, service: "mock", chunking_max_tokens: 50)
+    index.catch_up.should eq 1
+    index.process_queue.should eq 1
+    embedded_text(db, 1_i64).should eq "A mountain hut"
+  ensure
+    other.try(&.close)
+    db.try(&.close)
+    FileUtils.rm_rf(dir) if dir
+  end
+
   it "keeps one embedding model per store, and switches only when asked" do
     dir = File.tempname("dd-semantic-model")
     Dir.mkdir_p(dir)

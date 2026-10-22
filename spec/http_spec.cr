@@ -358,6 +358,23 @@ describe DataDungeon::API do
     end
   end
 
+  it "refuses an upload it can't decode, or bigger than it takes, and goes on serving" do
+    with_api("dd-api-upload-refused") do |api, db|
+      tags = {"art-style" => "golden", "rating" => "pg"}
+      bad = upload(api, "w", {type: "drop", tags: tags, image: {compression: "normalize"}}, "not PNG", content_type: "image/png")
+      bad.status_code.should eq 400
+      json(bad)["error"].as_s.should contain "not a PNG"
+      call(api, "GET", "/dd/types", "r").status_code.should eq 200 # libpng's own reader aborted the process, before 0.16.2
+
+      small = DataDungeon::API.new(db, write_token: "w", prefix: "/dd", max_upload: 4)
+      big = upload(small, "w", {type: "drop", tags: tags}, "12345")
+      big.status_code.should eq 413
+      json(big)["error"].as_s.should contain "over 4 bytes"
+      upload(small, "w", {type: "drop", tags: tags}, "1234").status_code.should eq 200
+      db.asset_types.should eq({"drop" => 1})
+    end
+  end
+
   it "has no writes without a write token, reads freely without a read token, and refuses writes on a read-only DB" do
     with_api("dd-api-modes", read_token: nil, write_token: nil) do |api, db, dir|
       rec = store_backdrop(db, "golden", "a")

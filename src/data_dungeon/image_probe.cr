@@ -124,6 +124,23 @@ module DataDungeon
     # noise a cut-out's matting leaves doesn't widen its content box.
     VISIBLE_ALPHA = 16
 
+    # The most pixels decoded from one picture: 64 Mi (8192 × 8192, 256 MiB
+    # as RGBA), forty times the largest any store held in October 2026. A
+    # header can claim any size, so a small file could otherwise make
+    # DataDungeon allocate gigabytes; this is checked before allocating. An
+    # application with bigger pictures raises it. A picture over it is
+    # stored unmeasured, and converting it raises.
+    class_property max_pixels : Int64 = 64_i64 * 1024 * 1024
+
+    # Raises unless a picture of this size may be decoded.
+    def self.check_size(width : Int, height : Int, format : String) : Nil
+      raise Error.new("a #{format} #{width}×#{height}") unless width > 0 && height > 0
+      pixels = width.to_i64 * height.to_i64
+      return if pixels <= max_pixels
+      raise Error.new("a #{format} #{width}×#{height} has more pixels than DataDungeon decodes " \
+                      "(#{pixels}, over ImageProbe.max_pixels: #{max_pixels})")
+    end
+
     # Formats read and written through a library an application links by
     # requiring it (`data_dungeon/tiff`), by content type: a decoder gives
     # {width, height, RGBA pixels}, an encoder takes them.
@@ -140,7 +157,7 @@ module DataDungeon
       when "image/jpeg", "image/jpg" then jpeg(data)
       else                                DECODERS[type]?.try { |decoder| from_pixels(*decoder.call(data)) }
       end
-    rescue Error | IndexError
+    rescue Error | IndexError | OverflowError
       nil
     end
 
@@ -172,6 +189,12 @@ module DataDungeon
       image.version = LibPNGImage::VERSION
       if LibPNGImage.png_image_begin_read_from_memory(pointerof(image), data.to_unsafe.as(Void*), data.size) == 0
         raise Error.new("not a PNG: #{String.new(image.message.to_unsafe)}")
+      end
+      begin
+        check_size(image.width, image.height, "PNG")
+      rescue ex
+        LibPNGImage.png_image_free(pointerof(image))
+        raise ex
       end
       width, height = image.width.to_i32, image.height.to_i32
       if sixteen_bits_as_stored?(data)
@@ -237,7 +260,9 @@ module DataDungeon
     end
 
     def self.decode_webp(data : Bytes) : {Int32, Int32, Bytes}
-      if webp_features(data).has_animation != 0 # its first frame
+      features = webp_features(data)
+      check_size(features.width, features.height, "WebP")
+      if features.has_animation != 0 # its first frame
         return decode_webp_frames(data, [0]).first?.try(&.[1]) || raise Error.new("an animated WebP with no frames")
       end
       width = height = 0
@@ -253,6 +278,8 @@ module DataDungeon
     # its start): {moment, {width, height, pixels}}. Frames are decoded in
     # order, up to the last moment asked for.
     def self.decode_webp_frames(data : Bytes, moments : Array(Int32)) : Array({Int32, {Int32, Int32, Bytes}})
+      features = webp_features(data) # the canvas, before libwebp allocates one
+      check_size(features.width, features.height, "WebP")
       webp_data = LibWebPDemux::Data.new(bytes: data.to_unsafe, size: data.size)
       options = LibWebPDemux::AnimOptions.new
       LibWebPDemux.WebPAnimDecoderOptionsInitInternal(pointerof(options), LibWebPDemux::ABI)

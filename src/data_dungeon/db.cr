@@ -1140,15 +1140,24 @@ module DataDungeon
       width, height, rgba = ImageProbe.decode(read(rec), type)
       given = load_tags(id)
       own = load_image_meta(id)
+      bytes = WebP.encode_webp_bytes(rgba, width, height, quality.to_f32)
+      held = find_by_hash(Digest::SHA256.hexdigest(bytes)).map(&.id) # a repeat returns one of these
       webp = store(rec.asset_type, given.merge(tags),
-        bytes: WebP.encode_webp_bytes(rgba, width, height, quality.to_f32), content_type: "image/webp",
+        bytes: bytes, content_type: "image/webp",
         description: rec.description, custom: custom_traits(id).select { |name| tags[name]?.nil? || tags[name] == given[name]? },
         image: own.try { |meta| ImageMeta.new(usage_class: meta.usage_class, presentation: meta.presentation,
           view_x: meta.view_x, view_y: meta.view_y, view_z: meta.view_z, view_roll: meta.view_roll,
           light_x: meta.light_x, light_y: meta.light_y, light_z: meta.light_z,
           anchor_x: meta.anchor_x, anchor_y: meta.anchor_y,
           world_width: meta.world_width, world_height: meta.world_height, world_depth: meta.world_depth) })
-      link(webp.id, "derived-from", id, {quality: quality}.to_json)
+      begin
+        link(webp.id, "derived-from", id, {quality: quality}.to_json)
+      rescue ex
+        # The picture went while this was made (another process deleted it):
+        # a WebP stored just now, of nothing, goes too.
+        delete_asset(webp.id) unless held.includes?(webp.id)
+        raise ex
+      end
       rec.rating.try { |rating| update_asset(webp.id, rating: rating) unless webp.rating == rating }
       find_asset_by_id(webp.id).not_nil!
     end
@@ -1515,9 +1524,7 @@ module DataDungeon
                   when "compress" then (meta.quality_floor || 80).to_f32
                   else                 (meta.quality_floor || 90).to_f32 # normalize
                   end
-        if type == "image/png"
-          {WebP.png_to_webp_bytes(data, quality), "image/webp"}
-        elsif ImageProbe::DECODERS.has_key?(type) # a TIFF, with data_dungeon/tiff
+        if type == "image/png" || ImageProbe::DECODERS.has_key?(type) # a TIFF, with data_dungeon/tiff
           width, height, rgba = ImageProbe.decode(data, type)
           {WebP.encode_webp_bytes(rgba, width, height, quality), "image/webp"}
         else
@@ -1528,7 +1535,7 @@ module DataDungeon
         encoder = ImageProbe::ENCODERS["image/tiff"]? ||
                   raise ArgumentError.new(%(storing as TIFF needs `require "data_dungeon/tiff"`))
         return {data, content_type} unless type == "image/png" || type == "image/tiff"
-        width, height, rgba = type == "image/png" ? ImageProbe.decode(data, type) : ImageProbe.decode(data, type)
+        width, height, rgba = ImageProbe.decode(data, type)
         {encoder.call(width, height, rgba), "image/tiff"}
       else
         {data, content_type} # an output DataDungeon doesn't write
@@ -2356,9 +2363,13 @@ module DataDungeon
     # Read the registrations again, so a long-running process (dd-serve)
     # sees types another process registered or changed since it opened.
     # SemanticIndex#catch_up calls it when the change log has moved.
+    # Read under the lock, as register_type writes, so a registration made
+    # here meanwhile isn't replaced by the rows read before it.
     def refresh_registrations : Nil
-      rows = @db.query_all("SELECT #{type_columns} FROM asset_types") { |rs| read_type(rs) }
-      @object_lock.synchronize { @types = rows.to_h { |(type, _)| {type.name, type} } }
+      @object_lock.synchronize do
+        rows = @db.query_all("SELECT #{type_columns} FROM asset_types") { |rs| read_type(rs) }
+        @types = rows.to_h { |(type, _)| {type.name, type} }
+      end
     end
 
     # Rename an asset type: its assets, their tags and its registration move

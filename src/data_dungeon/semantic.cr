@@ -177,7 +177,9 @@ module DataDungeon
       latest = latest_change # read first: changes made meanwhile come next time
       seen = @seen
       return 0_i64 if seen && latest <= seen
-      @assets.refresh_registrations if seen # what's embedded may have changed too
+      # What's embedded may have changed too, and on the first pass another
+      # process may have registered since this one opened.
+      @assets.refresh_registrations
       oldest = @assets.connection.query_one("SELECT min(seq) FROM asset_changes", as: Int64?)
       queued = 0_i64
       if seen.nil? || oldest.nil? || oldest > seen + 1
