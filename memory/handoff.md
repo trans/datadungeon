@@ -1,6 +1,6 @@
 # DataDungeon handoff
 
-*Updated 2026-10-22*
+*Updated 2026-10-23*
 
 **0.16.3, released (v0.16.3 at `3f7d9bf`, Thomas's "tag", 2026-10-21; notice post 10):** a security-focused Codex
 review of all of v0.16.2 (Thomas: "no holes that some one could exploit";
@@ -74,7 +74,7 @@ uses only standard names and none sets `transcript_id` (checked read-only
 dropped) is unblocked. Later: AI descriptions as
 linked text assets with their own recipe, read by search; hashes as blobs
 and prompt compression; characters as assets (Thomas, 2026-10-21: on our
-list, how open; DESIGN-types "Open"). Thomas's: the
+list, how open; DESIGN-types "Open"); credits and licenses for found assets (Thomas raised it 2026-10-23, freesound sounds; an open design in DESIGN-types "Credits and licenses", not committed: a credit per source URL, the license a shared value saying what it asks, derived assets credited by link, designed with the dependent link). Thomas's: the
 live park store to 0.15.6+ with a re-measure (curio); Overlore's deploy;
 pushing transfs-rs `92d56d9`; the word to Owl on its depth maps' "depth of
 1" descriptions (not drafted); topic subscription hooks and topic posts
