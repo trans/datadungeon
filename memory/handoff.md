@@ -1,6 +1,6 @@
 # DataDungeon handoff
 
-*Updated 2026-10-23*
+*Updated 2026-10-24*
 
 **0.16.3, released (v0.16.3 at `3f7d9bf`, Thomas's "tag", 2026-10-21; notice post 10):** a security-focused Codex
 review of all of v0.16.2 (Thomas: "no holes that some one could exploit";
@@ -150,6 +150,15 @@ scope he called "about right" (2026-10-19). Built:
   install: 194 specs (1 pending S3), dd-serve builds, opens the mock store
   twice with one `mock` service, `/search` answers. The park's memo pin
   (`~> 0.13.1`) must go to `~> 0.15.4`, with crystal-db 0.15.
+- **Memo 0.15.5** (`a9e66ff0`, 2026-10-24): jargon from its new home,
+  `openbohemians/jargon.cr`; @memo noted DD builds from releases at its pin.
+  **0.16.7, prepared, not committed** (Thomas: "Please update the
+  dependency"): memo `~> 0.15.5`, README's line, and DESIGN-types' new
+  "Credits and licenses" (an open design). From a clean GitHub install:
+  memo 0.15.5, jargon 0.23.0; 194 specs; dd-serve builds, opens the mock
+  store twice with one `mock` service, `/search` answers. The checkout's
+  lock moved with `shards update memo jargon`. Notices drafted, held for
+  "tag": post, `@cyclops`, `@overlore` (if Thomas wants it again).
 - Checked: 187 specs (1 pending S3); the five apps type-check; dd-serve on
   an Owl copy (scratchpad `search/`, objects as symlinks) with the mock
   model: embeds 38 drops, searches, picks up another process's description
