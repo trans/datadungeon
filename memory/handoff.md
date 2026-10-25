@@ -161,6 +161,15 @@ scope he called "about right" (2026-10-19). Built:
   store twice with one `mock` service, `/search` answers. The checkout's
   lock moved with `shards update memo jargon`. Notices drafted, held for
   "tag": post, `@cyclops`, `@overlore` (if Thomas wants it again).
+- **Backups** (Thomas, 2026-10-25; DESIGN-backups.md, not committed):
+  snapshots, not Litestream; `VACUUM INTO`, gzip, `<time>-<sha256>.db.gz`
+  plus a `.keys` list; the bucket listing is the history. Where is open:
+  the `backup` bucket by project (`backup/overlore/`) or `index/<store>/`
+  in the assets bucket; asked `@cyclops` (`4c53047b`): contents, keys,
+  anything serving the assets bucket, database sizes. Thomas: "Nothing
+  should [ever] delete something if it doesn't know what it is": `vacuum`'s
+  `delete_orphan_objects` deletes any unused key under an unshared root, so
+  it should count only `xx/<sha256>.<ext>` keys (a small fix, open).
 - Checked: 187 specs (1 pending S3); the five apps type-check; dd-serve on
   an Owl copy (scratchpad `search/`, objects as symlinks) with the mock
   model: embeds 38 drops, searches, picks up another process's description
