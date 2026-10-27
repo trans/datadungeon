@@ -694,7 +694,7 @@ the exhaustive top 10 found every time.
 Semantic search finds assets by meaning: "a wizard's study at night" finds
 the picture described as "a cosy scholar's study at night, crowded with
 books". `require "data_dungeon/semantic"` adds `DataDungeon::SemanticIndex`,
-which needs the `memo` shard, `~> 0.15.4` (and libmagic; Memo brings crystal-db 0.15,
+which needs the `memo` shard, `~> 0.15.6` (and libmagic; Memo brings crystal-db 0.15,
 so sqlite3 0.24). It keeps Memo's tables in the
 same SQLite database and its USearch index file beside it.
 

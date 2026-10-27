@@ -545,6 +545,11 @@ anything written since the run began), since stores rely on it. A copy
 could later skip sending the bytes again: a call that records a row for a
 file already in the bucket and refreshes its date there.
 
+**Backups** (DESIGN-backups, 2026-10-25) add two rules to the clearing:
+a file stays while a kept backup's key list names it, and nothing deletes
+what it doesn't know, so the clearing, and `vacuum`, touch only keys of an
+asset object's shape.
+
 **Shared styles are the hub's** (Thomas, 2026-10-17; not needed yet). With
 no standard styles, the hub is the one thing that can coordinate sharing
 them: a lookup table of the styles each store uses, its name and words. A
@@ -609,6 +614,54 @@ Overlore (piece 3, its `f9c472ee`). An app with a store that hasn't moved yet, a
 say, moves it on a 0.15 build before taking 0.16, which refuses to register
 the old names.
 
+## Credits and licenses
+
+*Open design, not built (2026-10-23): Thomas raised it; the outline is
+DataDungeon's, written down at his ask.*
+
+Some assets are found, not made: a few of Thomas's sound effects come from
+freesound.org, credited like "Pigeons & Doves - Green Imperial Pigeon,
+Other Bird in Background by TheKingOfGeeks360 --
+https://freesound.org/s/855913/ -- License: Creative Commons 0". A recipe
+says how a generated asset was made. Nothing says where a found one came
+from, under what license, or whom to credit.
+
+That line has the four parts Creative Commons asks for: title, author,
+source and license. CC BY also asks you to say what you changed. So the
+parts are kept, not just the line.
+
+- **A credit for each source, shared by its assets:** keyed by the source's
+  URL, with its title, author, URL, license, and the line as the site gives
+  it. One freesound sound is one credit however many assets come from it
+  (trimmed, looped, re-encoded), so the credits list each source once.
+- **The license, a shared value** like `rating`: `cc0`, `cc-by`,
+  `cc-by-sa`, `cc-by-nc`, `own` and so on. Each says what it asks:
+  credit, no commercial use, no changes, the same license for what's made
+  from it. Then an app can find what in a build is non-commercial, and
+  which credits it must show. CC0, the example's, asks no credit; showing
+  one is a courtesy.
+- **What's made from a source carries its credit.** A trimmed sound, or a
+  mix of three, credits what it was made from, found through its links,
+  not copied onto each asset. What was changed belongs to the asset made
+  (the trim), not the source. This is the dependent link again (a track's
+  cues, above) from another side, so the two are designed together.
+- **DataDungeon answers, the app shows:** something like
+  `credits_for(assets)`, the distinct credits behind a set of assets, those
+  a license requires marked. The app makes its end credits (a `placard`)
+  from them.
+- **Gaps are findable:** the assets with no license recorded can be listed,
+  so they turn up before a release.
+- **Generated assets:** the recipe names the tool, and the license is the
+  service's terms, which can depend on the account's plan. A license value
+  is probably enough, with no credit.
+
+Open: whether a credit is a row of its own or a record asset that assets
+link to, as a character is to be (Open, below); the link names; whether a
+license value carries its version (CC BY 3.0 and 4.0 differ; SPDX names
+them `CC-BY-3.0` and `CC-BY-4.0`); whether every asset needs a license, or
+only found ones; and copying assets between stores, which has to bring
+their credits.
+
 ## Open, collected
 
 - The first shared vocabulary beyond `rating`: the names
@@ -619,6 +672,10 @@ the old names.
   the track keeps its name, tool and metadata, its cues a text asset in a
   standard format, hanging on its clip by a *dependent* link, which wants
   thinking about. Subtitles are a track (`subtitles`) until then.
+- **Credits and licenses** (Thomas, 2026-10-23; above): a credit for each
+  source a found asset came from, the license a shared value saying what it
+  asks, and assets made from others carrying their credits by link: the
+  dependent link again, designed with the tracks'.
 - **2D and 3D don't line up** (Thomas, 2026-10-21: "Have to think about
   that"). A `drop` is in effect a 2D `set`, but `prop` is both 2D and 3D,
   and `figure` is 3D, or 2D only when rigged: a flat character with no
