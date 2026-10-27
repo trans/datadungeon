@@ -1,5 +1,6 @@
 require "../data_dungeon"
 require "awscr-s3"
+require "openssl/hmac"
 
 module DataDungeon
   # Stores objects in an S3-compatible bucket: Cloudflare R2, Garage, MinIO or
@@ -28,10 +29,20 @@ module DataDungeon
     @access_key : String
     @secret_key : String
     @public_url : String?
+    @sign_key : String?
 
     # `public_url` (e.g. a custom domain or CDN in front of the bucket) makes
     # `resolve` return plain URLs; without it, `resolve` returns presigned
     # URLs valid for `url_expires`.
+    #
+    # `sign_key` turns on signed `public_url`s: `resolve` appends `?exp=&sig=`,
+    # where `sig` is the lowercase hex HMAC-SHA256 of `"<object>\n<exp>"` under
+    # this key. A Worker in front of a *private* bucket (see worker/) verifies
+    # the signature and expiry before serving, so the bucket need not be public
+    # yet the URLs still carry your own domain and are CDN-cacheable. It only
+    # applies when `public_url` is set, and the object path must be the signed
+    # subject — so use it with an empty `prefix` (the Worker serves root-level
+    # content-addressed keys). Without `sign_key`, `public_url`s stay plain.
     def initialize(
       @bucket : String,
       *,
@@ -41,6 +52,7 @@ module DataDungeon
       secret_key : String,
       prefix : String = "",
       public_url : String? = nil,
+      sign_key : String? = nil,
       @url_expires : Time::Span = 1.hour,
       @retries : Int32 = 3,
       pool_size : Int32 = 8,
@@ -51,6 +63,7 @@ module DataDungeon
       @endpoint = URI.parse(endpoint)
       @prefix = prefix.empty? || prefix.ends_with?('/') ? prefix : "#{prefix}/"
       @public_url = public_url.try(&.rstrip('/'))
+      @sign_key = sign_key.presence
       @factory = PooledClientFactory.new(pool_size)
       @signer = Awscr::Signer::Signers::V4.new(service: "s3", region: @region,
         aws_access_key: access_key, aws_secret_key: secret_key)
@@ -60,11 +73,12 @@ module DataDungeon
 
     # A Cloudflare R2 bucket in the given account.
     def self.r2(account_id : String, bucket : String, *, access_key : String, secret_key : String,
-                prefix : String = "", public_url : String? = nil, url_expires : Time::Span = 1.hour,
+                prefix : String = "", public_url : String? = nil, sign_key : String? = nil,
+                url_expires : Time::Span = 1.hour,
                 retries : Int32 = 3, pool_size : Int32 = 8, shared : Bool = false) : S3Storage
       new(bucket, endpoint: "https://#{account_id}.r2.cloudflarestorage.com", region: "auto",
         access_key: access_key, secret_key: secret_key, prefix: prefix, public_url: public_url,
-        url_expires: url_expires, retries: retries, pool_size: pool_size, shared: shared)
+        sign_key: sign_key, url_expires: url_expires, retries: retries, pool_size: pool_size, shared: shared)
     end
 
     def write(key : String, bytes : Bytes, content_type : String? = nil) : Nil
@@ -107,6 +121,12 @@ module DataDungeon
 
     def resolve(key : String) : String
       if base = @public_url
+        if sk = @sign_key
+          obj = object(key)
+          exp = (Time.utc + @url_expires).to_unix
+          sig = OpenSSL::HMAC.hexdigest(OpenSSL::Algorithm::SHA256, sk, "#{obj}\n#{exp}")
+          return "#{base}/#{obj}?exp=#{exp}&sig=#{sig}"
+        end
         return "#{base}/#{object(key)}"
       end
       options = Awscr::S3::Presigned::Url::Options.new(

@@ -1,0 +1,25 @@
+# DataDungeon asset Worker. UNWIRED — nothing is deployed until you run
+# `wrangler deploy` and point DNS at it. See README.md.
+
+name = "dungeon-assets"
+main = "worker.js"
+compatibility_date = "2026-01-01"
+
+# Bind the PRIVATE bucket. The Worker reads it over this binding; the bucket
+# itself stays private (no public access, no r2.dev). Rename if your bucket
+# isn't "dungeon".
+[[r2_buckets]]
+binding = "DUNGEON"
+bucket_name = "dungeon"
+
+# The public asset host(s), shared by every product that uses this bucket.
+# Point the DNS at this Worker; Cloudflare manages the cert. Add more entries
+# for more brand hostnames — all one Worker, one bucket.
+routes = [
+  { pattern = "assets.overlore.xyz", custom_domain = true },
+]
+
+# ASSET_SIGNING_KEY is a secret, NOT stored here:
+#   wrangler secret put ASSET_SIGNING_KEY
+# The SAME value goes in each product's env (the vault) as the `sign_key` it
+# passes to DataDungeon::S3Storage.
