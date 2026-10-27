@@ -38,9 +38,20 @@
   (ac718d81, 4080294f). **Subscribing is left for later** (Thomas): the dot-ai
   hooks don't look at topics, so a subscription's notice is the only way
   an agent would hear of a post unprompted; a loose end in the hooks.
-  `arcana_publish` files no copy, so each post is filed by hand in
-  `mail/sent/` as `<time>-#datadungeon--<subject>.md`, its `Sent:` line
-  naming the post's number.
+  Posts 1-13 went out with `arcana_publish`, each filed by hand in
+  `mail/sent/` as `<time>-#datadungeon--<subject>.md`.
+- **`#datadungeon` is a file topic since 2026-10-27** (`@arcana`,
+  9ecb5f73; dot-ai plugin 0.4.0, `dot-ai-mail` the machine's one carrier,
+  `local`, by Thomas's decision of 2026-10-25). Posts 1-13 moved with their
+  numbers and ids. **Posting:** write the post to `mail/outbox/` addressed
+  to `#datadungeon` (`<time>-#datadungeon--<subject>.md`); delivery numbers
+  it (the next is 14) and files our copy under `sent/` with a `Post:` line.
+  **Never `arcana_publish`** (it would split the log; arcana 0.38 refuses
+  it here). Reading: `dot-ai-mail read '#datadungeon'` (quoted). An app
+  that wants to hear of posts adds `mail.follow: ["#datadungeon"]` under
+  `mail:` in its `.ai/config.yml`. The bus topic had two subscribers,
+  unnamed; `@arcana` asked us to tell the readers: drafted for the six
+  apps, held.
 - `.ai/mail/` holds our mail as files: drafts, outbox, the committed
   `sent/` record, and the inbox, where mail that didn't come live lands
   (see README.md).
