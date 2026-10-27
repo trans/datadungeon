@@ -1,6 +1,6 @@
 # DataDungeon handoff
 
-*Updated 2026-10-25*
+*Updated 2026-10-27*
 
 **0.16.3, released (v0.16.3 at `3f7d9bf`, Thomas's "tag", 2026-10-21; notice post 10):** a security-focused Codex
 review of all of v0.16.2 (Thomas: "no holes that some one could exploit";
@@ -153,7 +153,8 @@ scope he called "about right" (2026-10-19). Built:
 - **Memo 0.15.5** (`a9e66ff0`, 2026-10-24): jargon from its new home,
   `openbohemians/jargon.cr`; @memo noted DD builds from releases at its pin.
   **Memo 0.15.6** (`2c0bdffc`, 2026-10-25): the CLI on jargon 0.22.2,
-  library unchanged. **0.16.7, prepared, not committed** (Thomas: "Please
+  library unchanged. **0.16.7, committed `dfd0442` and pushed, not
+  tagged** (2026-10-27, Thomas: "commit and push"; "Please
   update the dependency", meaning 0.15.6, which was still being released):
   memo `~> 0.15.6`, README's line, and DESIGN-types' new
   "Credits and licenses" (an open design). From a clean GitHub install:
@@ -161,7 +162,7 @@ scope he called "about right" (2026-10-19). Built:
   store twice with one `mock` service, `/search` answers. The checkout's
   lock moved with `shards update memo jargon`. Notices drafted, held for
   "tag": post, `@cyclops`, `@overlore` (if Thomas wants it again).
-- **Backups** (Thomas, 2026-10-25; DESIGN-backups.md, not committed):
+- **Backups** (Thomas, 2026-10-25; DESIGN-backups.md, in `dfd0442`):
   snapshots, not Litestream; `VACUUM INTO`, gzip, `<time>-<sha256>.db.gz`
   plus a `.keys` list; the bucket listing is the history. Where is open:
   the `backup` bucket by project (`backup/overlore/`) or `index/<store>/`
@@ -170,6 +171,13 @@ scope he called "about right" (2026-10-19). Built:
   should [ever] delete something if it doesn't know what it is": `vacuum`'s
   `delete_orphan_objects` deletes any unused key under an unshared root, so
   it should count only `xx/<sha256>.<ext>` keys (a small fix, open).
+- **Export** (`@overlore` for Thomas, `67807ebe`, 2026-10-27; DESIGN-export.md,
+  not committed): the store as files, one per type, by id, nightly into git;
+  an import into a new database later, tested by export-import-export
+  identical. The database stays the record; the files could become it once
+  import round-trips (Thomas's call). Thomas: YAML, or perhaps C0DATA
+  (github.com/c0data). Embeddings and usage counts are open. Reply to
+  `@overlore` drafted, held.
 - Checked: 187 specs (1 pending S3); the five apps type-check; dd-serve on
   an Owl copy (scratchpad `search/`, objects as symlinks) with the mock
   model: embeds 38 drops, searches, picks up another process's description
