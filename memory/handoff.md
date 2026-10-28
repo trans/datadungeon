@@ -176,8 +176,9 @@ scope he called "about right" (2026-10-19). Built:
   an import into a new database later, tested by export-import-export
   identical. The database stays the record; the files could become it once
   import round-trips (Thomas's call). Thomas: YAML, or perhaps C0DATA
-  (github.com/c0data). Embeddings and usage counts are open. Replied to
-  `@overlore` 2026-10-28 (asks whether it needs the usage counts).
+  (github.com/c0data). Embeddings are open. Replied to `@overlore` (`b2ef96d9`); it agreed,
+  and wants usage counts in their own file (271dc96d: rooms draw from their
+  most used picture, rare states pruned by use), now in the note.
 - Checked: 187 specs (1 pending S3); the five apps type-check; dd-serve on
   an Owl copy (scratchpad `search/`, objects as symlinks) with the mock
   model: embeds 38 drops, searches, picks up another process's description
