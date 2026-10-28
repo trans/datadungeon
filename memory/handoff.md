@@ -165,8 +165,9 @@ scope he called "about right" (2026-10-19). Built:
 - **Backups** (Thomas, 2026-10-25; DESIGN-backups.md, in `dfd0442`):
   snapshots, not Litestream; `VACUUM INTO`, gzip, `<time>-<sha256>.db.gz`
   plus a `.keys` list; the bucket listing is the history. Where is open:
-  the `backup` bucket by project (`backup/overlore/`) or `index/<store>/`
-  in the assets bucket; asked `@cyclops` (`4c53047b`): contents, keys,
+  the `backup` bucket by project (`backup/overlore/`) or `_index/<store>/`
+  in the assets bucket (Thomas leans to `_index/`, 2026-10-28, still working
+  it out; `worker/`'s README, `529fb52`, already names it); asked `@cyclops` (`4c53047b`): contents, keys,
   anything serving the assets bucket, database sizes. Thomas: "Nothing
   should [ever] delete something if it doesn't know what it is": `vacuum`'s
   `delete_orphan_objects` deletes any unused key under an unshared root, so
