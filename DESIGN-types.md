@@ -545,10 +545,12 @@ anything written since the run began), since stores rely on it. A copy
 could later skip sending the bytes again: a call that records a row for a
 file already in the bucket and refreshes its date there.
 
-**Backups** (DESIGN-backups, 2026-10-25) add two rules to the clearing:
-a file stays while a kept backup's key list names it, and nothing deletes
-what it doesn't know, so the clearing, and `vacuum`, touch only keys of an
-asset object's shape.
+**Backups** (DESIGN-backups, 2026-10-25, rewritten 2026-10-28) add two
+rules to the clearing. Names are roots: a file stays while any store's
+rows, or any kept line of a name in the `names` bucket, reaches it (a
+backup's snapshot, its key list and every file the list names). And
+nothing deletes what it doesn't know: the clearing, and `vacuum`, touch
+only keys of an object's shape, and never a name.
 
 **Shared styles are the hub's** (Thomas, 2026-10-17; not needed yet). With
 no standard styles, the hub is the one thing that can coordinate sharing
