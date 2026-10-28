@@ -163,7 +163,7 @@ scope he called "about right" (2026-10-19). Built:
   lock moved with `shards update memo jargon`. Notices drafted, held for
   "tag": post, `@cyclops`, `@overlore` (if Thomas wants it again).
 - **Backups** (Thomas, 2026-10-25; DESIGN-backups.md, in `dfd0442`, then
-  **rewritten 2026-10-28, not committed**): snapshots, not Litestream;
+  **rewritten 2026-10-28, committed `da1d254`**): snapshots, not Litestream;
   `VACUUM INTO`, gzip with the header time zeroed. Thomas, 2026-10-28:
   everything is an object by hash, names find them. The snapshot and its
   key list are objects in the assets bucket (`dungeon`), `xx/<sha256>.db.gz`
@@ -175,9 +175,9 @@ scope he called "about right" (2026-10-19). Built:
   open), and count what names reach. The `worker/` pattern should allow
   only media extensions. `@cyclops` was asked about the `backup` bucket
   (`4c53047b`) before the rewrite; a follow-up about the `names` bucket's
-  keys is drafted, held.
+  keys was sent 2026-10-28.
 - **Export** (`@overlore` for Thomas, `67807ebe`, 2026-10-27; DESIGN-export.md,
-  not committed): the store as files, one per type, by id, nightly into git;
+  committed `da1d254`): the store as files, one per type, by id, nightly into git;
   an import into a new database later, tested by export-import-export
   identical. The database stays the record; the files could become it once
   import round-trips (Thomas's call). Thomas: YAML, or perhaps C0DATA
