@@ -3,7 +3,8 @@
 *Draft 2026-10-25, rewritten 2026-10-28, with Thomas. Not built.
 Snapshots, not Litestream (Thomas, 2026-10-25). A snapshot is an object
 like any other, kept by its hash in the assets bucket, and found by a name
-in a `names` bucket (Thomas, 2026-10-28).*
+in a `names` bucket (Thomas, 2026-10-28; `@cyclops` reports the same model
+settled with him, e4b649f0).*
 
 ## Why
 
@@ -69,13 +70,16 @@ transfs's (blobs by SHA-256, names in a log, SQLite a rebuildable index).
   update; whether R2 takes it on PUT is to check.
 - **The assets bucket holds only objects by hash.** No `_index/` or other
   prefix (Thomas leaned toward `_index/`, 2026-10-28, before this). The
-  `names` bucket is never served: the asset Worker drafted in `worker/`
-  (`529fb52`, not deployed) binds only the assets bucket.
-- **The Worker should refuse snapshots.** It serves any
-  `hh/<sha256>.<ext>` with a valid signature. Apps sign only asset keys,
-  but its pattern should allow only media extensions, so a database or a
-  key list can't go out through it even signed: a database holds prompts,
-  recipes and costs.
+  `names` bucket is never served: the asset Worker in `worker/` (deployed
+  for Overlore, 2026-10-29) binds only the assets bucket.
+- **The Worker must never serve a snapshot or a key list,** even signed: a
+  database holds prompts, recipes and costs. It serves any
+  `hh/<sha256>.<ext>` with a valid signature, and apps sign only asset
+  keys. Its pattern takes one extension, so `.db.gz` already fails it, but
+  `.keys` passes. How to make that a rule is to settle with `@cyclops`
+  (Thomas, 2026-10-29): a list of the extensions it serves (every new asset
+  type then needs a Worker change), or assets with one extension and
+  everything else with two (`.db.gz`, `.keys.gz`), which needs none.
 - **Names, limited for now:** backups, and the export if it goes to R2.
   DataDungeon goes on naming assets by type and key in its database. A
   name for every asset would be a second index of what the store holds,
@@ -140,9 +144,11 @@ know what it is."
 
 ## Open
 
-- The `names` bucket's credentials: an app's key has to write its own
-  project's names (`@cyclops` was asked about the `backup` bucket and its
-  keys on 2026-10-25, before this rewrite).
+- The `names` bucket isn't created yet (`@cyclops`, 2026-10-29). R2
+  tokens scope to one bucket and a key prefix, so each app's key can write
+  only its own project's names; that's why `names` is a bucket of its own
+  and not a prefix in `dungeon`. The `backup` bucket is another project's
+  (encrypted database dumps) and isn't used here.
 - How often, and the retention policy.
 - The name: the project and the database file's name (`overlore/assets.db`),
   or the store's consumer name.
