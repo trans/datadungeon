@@ -13,7 +13,7 @@
 // (e.g. _index/ DBs, backups) share the bucket but are never routable here, so
 // they stay unreachable from the web. See ../DESIGN-store.md.
 //
-// UNWIRED: not deployed yet. See README.md for the deploy + signing wiring.
+// Deployed for Overlore (2026-10-29). See README.md for the deploy + signing wiring.
 
 const KEY_RE = /^[0-9a-f]{2}\/[0-9a-f]{64}\.[a-z0-9]+$/; // hh/<sha256>.<ext>, root-level
 

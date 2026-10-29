@@ -9,7 +9,8 @@ separate edge artifact deployed on its own with `wrangler`; it lives here only
 so the signer (the app, via DataDungeon) and the verifier (this Worker) share
 one scheme and can't drift apart.
 
-**Status: UNWIRED.** Nothing is deployed and no app passes `sign_key` yet.
+**Status: deployed** for Overlore on `assets.overlore.xyz` (`@cyclops`,
+2026-10-29), checked end to end against `S3Storage#resolve`'s signatures.
 
 ## How it fits together
 

@@ -1,9 +1,21 @@
-# DataDungeon asset Worker. UNWIRED — nothing is deployed until you run
-# `wrangler deploy` and point DNS at it. See README.md.
+# DataDungeon asset Worker, deployed for Overlore on assets.overlore.xyz
+# (2026-10-29). Deploy with `wrangler deploy`. See README.md.
 
 name = "dungeon-assets"
 main = "worker.js"
 compatibility_date = "2026-01-01"
+
+# The public asset host(s), shared by every product that uses this bucket.
+# Point the DNS at this Worker; Cloudflare manages the cert. Add more entries
+# for more brand hostnames — all one Worker, one bucket.
+#
+# NOTE: this top-level `routes` key MUST appear BEFORE the [[r2_buckets]] table
+# below. TOML assigns every key after a table header to that table, so if
+# `routes` follows [[r2_buckets]] it is folded into it, flagged as an
+# "unexpected field", and the custom domain is silently dropped.
+routes = [
+  { pattern = "assets.overlore.xyz", custom_domain = true },
+]
 
 # Bind the PRIVATE bucket. The Worker reads it over this binding; the bucket
 # itself stays private (no public access, no r2.dev). Rename if your bucket
@@ -11,13 +23,6 @@ compatibility_date = "2026-01-01"
 [[r2_buckets]]
 binding = "DUNGEON"
 bucket_name = "dungeon"
-
-# The public asset host(s), shared by every product that uses this bucket.
-# Point the DNS at this Worker; Cloudflare manages the cert. Add more entries
-# for more brand hostnames — all one Worker, one bucket.
-routes = [
-  { pattern = "assets.overlore.xyz", custom_domain = true },
-]
 
 # ASSET_SIGNING_KEY is a secret, NOT stored here:
 #   wrangler secret put ASSET_SIGNING_KEY
