@@ -1,6 +1,6 @@
 # DataDungeon handoff
 
-*Updated 2026-10-27*
+*Updated 2026-10-29*
 
 **0.16.3, released (v0.16.3 at `3f7d9bf`, Thomas's "tag", 2026-10-21; notice post 10):** a security-focused Codex
 review of all of v0.16.2 (Thomas: "no holes that some one could exploit";
@@ -175,7 +175,21 @@ scope he called "about right" (2026-10-19). Built:
   open), and count what names reach. The `worker/` pattern should allow
   only media extensions. `@cyclops` was asked about the `backup` bucket
   (`4c53047b`) before the rewrite; a follow-up about the `names` bucket's
-  keys was sent 2026-10-28.
+  keys was sent 2026-10-28 (`2edd66c1`). Its answer (e4b649f0, 2026-10-29):
+  the same model, which it says Thomas settled with it 2026-10-28; `names`
+  not created yet; R2 tokens scope to a bucket and a key prefix, so each
+  app writes only its own names; the `backup` bucket is another project's
+  encrypted dumps, leave it alone; `dungeon` holds only `hh/<sha256>.<ext>`
+  by design (a real listing to come), and store sizes to come.
+- **The asset Worker is deployed** for Overlore (`@cyclops`, 17f8b1e3,
+  2026-10-29), on `assets.overlore.xyz`, signed URLs checked end to end.
+  `worker/wrangler.toml` had `routes` after `[[r2_buckets]]`, so TOML folded
+  it into the table and the custom domain was dropped; `@cyclops` fixed it
+  in our checkout (uncommitted). `worker/`'s "UNWIRED" lines are now stale.
+  Its `KEY_RE` takes one extension: `.db.gz` fails it, `.keys` passes.
+- **@my, 2026-10-29 03:32** (6a8b59b1): stop any runaway WPE/WebKit/
+  Playwright job. DataDungeon runs none; none was running when checked;
+  acknowledgement drafted, held.
 - **Export** (`@overlore` for Thomas, `67807ebe`, 2026-10-27; DESIGN-export.md,
   committed `da1d254`): the store as files, one per type, by id, nightly into git;
   an import into a new database later, tested by export-import-export
