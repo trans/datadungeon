@@ -188,8 +188,8 @@ scope he called "about right" (2026-10-19). Built:
   in our checkout (uncommitted). `worker/`'s "UNWIRED" lines are now stale.
   Its `KEY_RE` takes one extension: `.db.gz` fails it, `.keys` passes.
 - **@my, 2026-10-29 03:32** (6a8b59b1): stop any runaway WPE/WebKit/
-  Playwright job. DataDungeon runs none; none was running when checked;
-  acknowledgement drafted, held.
+  Playwright job. DataDungeon runs none; none was running when checked.
+  Thomas, 2026-10-29: fixed; the acknowledgement wasn't sent.
 - **Export** (`@overlore` for Thomas, `67807ebe`, 2026-10-27; DESIGN-export.md,
   committed `da1d254`): the store as files, one per type, by id, nightly into git;
   an import into a new database later, tested by export-import-export
