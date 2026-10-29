@@ -153,8 +153,8 @@ scope he called "about right" (2026-10-19). Built:
 - **Memo 0.15.5** (`a9e66ff0`, 2026-10-24): jargon from its new home,
   `openbohemians/jargon.cr`; @memo noted DD builds from releases at its pin.
   **Memo 0.15.6** (`2c0bdffc`, 2026-10-25): the CLI on jargon 0.22.2,
-  library unchanged. **0.16.7, committed `dfd0442` and pushed, not
-  tagged** (2026-10-27, Thomas: "commit and push"; "Please
+  library unchanged. **0.16.7 tagged at `4b18430`, 2026-10-29**
+  (Thomas: "commit and release the fix"; release.md) (2026-10-27, Thomas: "commit and push"; "Please
   update the dependency", meaning 0.15.6, which was still being released):
   memo `~> 0.15.6`, README's line, and DESIGN-types' new
   "Credits and licenses" (an open design). From a clean GitHub install:
