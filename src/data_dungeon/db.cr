@@ -974,13 +974,17 @@ module DataDungeon
     # returns that asset.
     #
     # The type must be registered (register_type). Provide the source as
-    # exactly one of `source_path` or `bytes`.
+    # exactly one of `source_path` or `bytes`. `filename` is the name of the
+    # file `bytes` came from, if any (an upload's): only a format DataDungeon
+    # doesn't know uses it, to keep that file's extension, as it does
+    # `source_path`'s.
     def store(
       asset_type : String,
       tags : Hash(String, String) = {} of String => String,
       *,
       source_path : String? = nil,
       bytes : Bytes? = nil,
+      filename : String? = nil,
       content_type : String,
       media : String? = nil,
       permanent : Bool = false,
@@ -1024,7 +1028,7 @@ module DataDungeon
       end
 
       file_hash = Digest::SHA256.hexdigest(data)
-      storage_key = object_key(file_hash, ct)
+      storage_key = object_key(file_hash, ct, filename || source_path)
       if held = held_asset(asset_type, file_hash, tags)
         return held
       end
@@ -1282,7 +1286,7 @@ module DataDungeon
 
       data = File.open(rec.file_path, "rb", &.getb_to_end)
       file_hash = Digest::SHA256.hexdigest(data)
-      storage_key = object_key(file_hash, rec.content_type)
+      storage_key = object_key(file_hash, rec.content_type, rec.file_path)
 
       @object_lock.synchronize do
         wrote = store.shared? || !store.exists?(storage_key)
@@ -1552,56 +1556,15 @@ module DataDungeon
       end
     end
 
-    # Application types that are text to read.
-    STRUCTURED_TEXT = %w[application/json application/xml application/yaml application/x-yaml application/toml]
-
-    # A content type's medium, when the caller gives none: its top-level
-    # type (image, audio, video, text, model, font), with JSON, XML and YAML
-    # counted as text, and any other type (a PDF, raw bytes) "data".
-    def self.media_of(content_type : String) : String
-      type = content_type.downcase.split(';').first.strip
-      top, _, sub = type.partition('/')
-      case top
-      when "image", "audio", "video", "text", "model", "font"
-        top
-      when "application"
-        STRUCTURED_TEXT.includes?(type) || sub.ends_with?("+json") || sub.ends_with?("+xml") ? "text" : "data"
-      else
-        "data"
-      end
-    end
-
     # ── Objects ──
 
     # Content-addressed storage key: the SHA-256 of the stored bytes, under a
-    # directory named for its first two hex characters, with an extension from
-    # the content type so files served or opened by path keep their type.
-    private def object_key(file_hash : String, content_type : String) : String
-      "#{file_hash[0, 2]}/#{file_hash}.#{ext_for(content_type)}"
-    end
-
-    # The extension for a content type, ignoring parameters such as
-    # `; charset=utf-8`
-    private def ext_for(content_type : String) : String
-      case content_type.split(';').first.strip.downcase
-      when "image/webp"               then "webp"
-      when "image/png"                then "png"
-      when "image/jpeg", "image/jpg"  then "jpg"
-      when "image/gif"                then "gif"
-      when "image/svg+xml"            then "svg"
-      when "image/tiff"               then "tif"
-      when "image/x-xcf"              then "xcf"
-      when "audio/mpeg", "audio/mp3"  then "mp3"
-      when "audio/ogg"                then "ogg"
-      when "audio/opus"               then "opus"
-      when "audio/wav", "audio/x-wav" then "wav"
-      when "video/webm"               then "webm"
-      when "video/mp4"                then "mp4"
-      when "text/plain"               then "txt"
-      when "application/json"         then "json"
-      when "application/pdf"          then "pdf"
-      else                                 "bin"
-      end
+    # directory named for its first two hex characters, with its format's
+    # extension so files served or opened by path keep their type, or the
+    # extension of `name`, the file it came from, for a format DataDungeon
+    # doesn't know (DB.extension_for).
+    private def object_key(file_hash : String, content_type : String, name : String? = nil) : String
+      "#{file_hash[0, 2]}/#{file_hash}.#{DB.extension_for(content_type, name)}"
     end
 
     # Unlink an object once no row references it, unless other stores share

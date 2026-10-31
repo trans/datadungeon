@@ -213,15 +213,23 @@ added by hand (`POST /assets`) isn't generated and has no recipe; its
 description is whatever words it's given.
 
 `DB#store` stores objects by content: each object's storage key is the SHA-256
-of its bytes under a directory named for the first two hex characters, with an
-extension from its content type (`ab/ab12….webp`). Identical bytes are stored
+of its bytes under a directory named for the first two hex characters, with its
+format's extension (`ab/ab12….webp`). `DB::FORMATS` lists the formats
+DataDungeon knows: pictures, sound, video, text (Yarn among them, and
+`eyarn`, Yarn with emoji cues, specified in `formats/eyarn.md`),
+PDF, EPUB, glTF, fonts and subtitles; a type with a `+json` or `+xml` suffix
+takes `json` or `xml`. A format it doesn't know is stored too, with the
+extension of the file it came from: `source_path:`'s, an upload's, or
+`filename:`'s for bytes, in one part, lowercased, letters and digits
+(`.tar.gz` is `.tgz`), else `.bin`. A known format decides, never the name, so
+the same bytes don't become two objects (DESIGN-formats). Identical bytes are stored
 once and shared by every asset that holds them (of different types), and
 deleting or pruning an asset unlinks its object only when no other asset
 still uses it. Deleting an asset also clears any clip's `transcript_id`
 that names it (0.15.5). `transcript_id` is deprecated: link a transcript
-`transcript-of` its recording instead (DESIGN-types). An asset's `media` comes from its content type unless given: its
-top-level type (image, audio, video, text, model, font), JSON, XML and YAML
-counting as text, and anything else (a PDF, raw bytes) `data`.
+`transcript-of` its recording instead (DESIGN-types). An asset's `media` comes from its format unless given: a known format's,
+else its top-level type (image, audio, video, text, model, font), JSON, XML
+and YAML counting as text, and anything else (raw bytes) `data`.
 Existing rows keep the keys they were stored under. `DB#store_asset`
 indexes a file whose path the caller already owns. Existing SQLite asset tables
 are upgraded when DataDungeon opens the database.
@@ -520,6 +528,16 @@ Connections are kept alive, and requests the service turns away for load
 in one, of its own, or share it as below: `check_consistency` treats every
 object under it as the store's.
 
+A bucket can stay private and still be served from your own domain: give
+`S3Storage` a `sign_key` beside `public_url` (0.16.7), and `path_for` returns
+`<public_url>/<object>?exp=<unix time>&sig=<hex>`, the signature an
+HMAC-SHA256 of `"<object>\n<exp>"` under that key, valid for `url_expires`
+(an hour by default). The Cloudflare Worker in `worker/` checks the signature
+and the time before serving the object, so a link that leaks dies when it
+expires, and changing the key on both sides revokes them all. The Worker
+serves root-level `hh/<sha256>.<ext>` keys only, so use it with an empty
+`prefix`; `worker/README.md` has the deploy.
+
 With remote storage, lookups don't confirm that each record's object still
 exists, since that would cost a round trip per read; `check_consistency` finds
 any drift. Read objects with `DB#read`, or stream them with `DB#open`, rather
@@ -624,7 +642,7 @@ HTTP::Server.new([api, app_handler])
 | `GET /objects` | every object key the store's rows use, for clearing a shared bucket |
 | `GET /vocabulary` | the shared tags and their values, with their titles; each rating with DataDungeon's words for it; DataDungeon's asset types; the shared tracks |
 | `GET /assets/:id/tracks[/:name]` | its tracks, or one (404 when it has none of that name) |
-| `POST /assets` | a file added by hand, as `multipart/form-data`: `file` (its `Content-Type` the asset's) and `asset`, JSON `{type, tags, custom, description, permanent, made_at, supersedes, image}`; stored as not generated, with no recipe; `image` as `PATCH` takes it, plus how to store the file (`{"compression": "normalize", "target_format": "tiff"}` for a TIFF master); 409 with `asset_id` when its type already holds the bytes; 413 over `max_upload` (write token) |
+| `POST /assets` | a file added by hand, as `multipart/form-data`: `file` (its `Content-Type` the asset's; its file name gives a format DataDungeon doesn't know its extension) and `asset`, JSON `{type, tags, custom, description, permanent, made_at, supersedes, image}`; stored as not generated, with no recipe; `image` as `PATCH` takes it, plus how to store the file (`{"compression": "normalize", "target_format": "tiff"}` for a TIFF master); 409 with `asset_id` when its type already holds the bytes; 413 over `max_upload` (write token) |
 | `POST /assets/:id/webp` | `{tags, quality}`: the picture's WebP, as an asset of its own (`store_webp`); 409 as above (write token) |
 | `PATCH`, `DELETE /assets/:id` | edit (with `image` fields, views readably, and `everywhere` for a shared description) or delete (write token) |
 | `PUT /assets/:id/keyframes` | an animation's checkpoints (write token) |

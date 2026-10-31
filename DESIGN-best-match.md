@@ -13,7 +13,8 @@ embeddings can't either: a single detail barely moves them (measured
 2026-10-04).
 
 ```crystal
-db.best_matches("portrait", {"art-style" => "golden", "rating" => "pg", "hair" => "red", "skin" => "tan"},
+index = DataDungeon::MatchIndex.new(db)
+index.best_matches("plug", {"art-style" => "golden", "rating" => "pg", "hair" => "red", "skin" => "tan"},
   require: %w[art-style rating],   # must match exactly: the app's call
   weights: {"hair" => 3.0},        # this query's emphasis: the app's call
   limit: 10)                       # => [{record, score}, …], best first
@@ -67,7 +68,7 @@ product with a query's vector is the score:
 - A set is the sum of its members' word vectors, scaled to unit length, so
   its inner product with another set grows with the members they share.
 
-**One USearch file per asset type** beside the database (`portrait.usearch`),
+**One USearch file per asset type** beside the database (`plug.usearch`),
 one vector per asset, each the type's blocks side by side. A group (golden +
 pg) isn't a file of its own: `require:` filters the search. Types can't
 share a file because each has its own vector length.
@@ -131,7 +132,7 @@ Cited from memory; check the references before quoting them.
 ## Registration
 
 ```crystal
-db.register_type("portrait", pool_traits: %w[art-style rating gender race skin hair outfit],
+db.register_type("plug", pool_traits: %w[art-style rating gender race skin hair outfit],
   scales: {"rating" => %w[g pg r x]},   # ordered, low to high
   colors: %w[skin hair outfit],         # compared by appearance
   weights: {"art-style" => 4.0, "rating" => 4.0})  # optional defaults; queries can override

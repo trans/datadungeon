@@ -136,14 +136,14 @@ why a facet, compared on its own, separates better. A small synthetic test;
 
 ```crystal
 db = DataDungeon::DB.new("assets.db", consumer: "overlore")
-db.register_embedding("portrait", "default", parts: %w[description art-style race])
-db.register_embedding("portrait", "hair", parts: %w[hair-color hair-style])
-db.unregister_embedding("portrait", "hair")
-db.embeddings("portrait")  # every consumer's entries and their recipes
+db.register_embedding("plug", "default", parts: %w[description art-style race])
+db.register_embedding("plug", "hair", parts: %w[hair-color hair-style])
+db.unregister_embedding("plug", "hair")
+db.embeddings("plug")  # every consumer's entries and their recipes
 
 index = DataDungeon::SemanticIndex.new(db, model: "text-embedding-3-small", api_key: key)
-index.search("red braids", asset_type: "portrait", embedding: "hair")
-index.search({"hair" => "long red braids", "body" => "hulking"}, asset_type: "portrait")
+index.search("red braids", asset_type: "plug", embedding: "hair")
+index.search({"hair" => "long red braids", "body" => "hulking"}, asset_type: "plug")
   # several entries at once: an asset scores its weakest, as search_facets does today
 ```
 

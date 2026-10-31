@@ -16,8 +16,8 @@ one scheme and can't drift apart.
 
 - The bucket (`dungeon`) is the shared asset store for several products and
   stays **private** — no public access, no `r2.dev`. Objects are
-  content-addressed (`hh/<sha256>.<ext>`); non-asset keys like `_index/`
-  (the index/backup DBs) share the bucket but are never routable here.
+  content-addressed (`hh/<sha256>.<ext>`), and only keys of that shape are
+  routable here: anything else in the bucket has no route.
 - The app builds asset URLs with `S3Storage` configured with `public_url`
   **and** `sign_key`. `resolve(key)` then returns
   `https://<host>/<object>?exp=<unix>&sig=<hex>`, where

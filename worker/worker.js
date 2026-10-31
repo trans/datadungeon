@@ -9,9 +9,9 @@
 //   sig     = lowercase hex HMAC-SHA256(ASSET_SIGNING_KEY, subject)
 //   valid   = sig matches AND exp (unix seconds) is in the future
 //
-// The bucket stays private; this is its only public read path. Non-asset keys
-// (e.g. _index/ DBs, backups) share the bucket but are never routable here, so
-// they stay unreachable from the web. See ../DESIGN-store.md.
+// The bucket stays private; this is its only public read path. Only
+// content-addressed keys (KEY_RE) are routable, so any other key in the bucket
+// stays unreachable from the web.
 //
 // Deployed for Overlore (2026-10-29). See README.md for the deploy + signing wiring.
 
@@ -26,8 +26,8 @@ export default {
     const url = new URL(req.url);
     const key = decodeURIComponent(url.pathname).replace(/^\/+/, "");
 
-    // Only content-addressed asset keys are servable. Everything else — the
-    // index DBs, backups, anything — simply has no route here.
+    // Only content-addressed asset keys are servable. Everything else in the
+    // bucket simply has no route here.
     if (!KEY_RE.test(key)) return new Response("not found", { status: 404 });
 
     const exp = url.searchParams.get("exp");

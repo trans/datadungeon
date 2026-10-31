@@ -134,7 +134,8 @@ stored with `permanent: false` so eviction can drop it when recomputing is
 cheaper than keeping it, and with `compression: "original"` (the default),
 since converting it to lossy WebP would lose depth. Owl does this today:
 Depth Anything V2, about 30 ms a picture on the GPU and under a second on
-the CPU, one 8-bit grayscale PNG per picture, kept as an `owl_depth` asset.
+the CPU, one 8-bit grayscale PNG per picture, kept as a `pass` asset
+(`owl_depth` until 0.15.6).
 
 ## How it's stored
 

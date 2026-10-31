@@ -26,12 +26,13 @@ private def call(api, method : String, path : String, token : String? = nil, bod
 end
 
 # A file sent to POST /assets as a form, the way an upload button sends it.
-private def upload(api, token : String?, asset, bytes : String, content_type : String? = "image/webp") : HTTP::Client::Response
+private def upload(api, token : String?, asset, bytes : String, content_type : String? = "image/webp",
+                    filename : String = "pier.webp") : HTTP::Client::Response
   io = IO::Memory.new
   form = HTTP::FormData::Builder.new(io)
   file_headers = HTTP::Headers.new
   file_headers["Content-Type"] = content_type if content_type
-  form.file("file", IO::Memory.new(bytes), HTTP::FormData::FileMetadata.new(filename: "pier.webp"), file_headers)
+  form.file("file", IO::Memory.new(bytes), HTTP::FormData::FileMetadata.new(filename: filename), file_headers)
   form.field("asset", asset.to_json)
   form.finish
   headers = HTTP::Headers{"Content-Type" => form.content_type}
@@ -359,6 +360,17 @@ describe DataDungeon::API do
       refused.call(call(api, "POST", "/dd/assets", "w", asset), "takes multipart/form-data") # JSON, not a form
       upload(api, "r", asset, "v").status_code.should eq 403
       db.asset_types.should eq({"drop" => 1})
+    end
+  end
+
+  it "keeps an upload's own extension for a format it doesn't know" do
+    with_api("dd-api-upload-format") do |api, db|
+      db.register_type("data", pool_traits: %w[name])
+      walk = json(upload(api, "w", {type: "data", tags: {"name" => "walk"}}, "HIERARCHY",
+        content_type: "application/octet-stream", filename: "walk.bvh"))
+      db.find_asset_by_id(walk["asset"]["id"].as_i64).not_nil!.file_path.should end_with ".bvh"
+      pier = json(upload(api, "w", {type: "data", tags: {"name" => "pier"}}, "u", filename: "pier.jpeg"))
+      db.find_asset_by_id(pier["asset"]["id"].as_i64).not_nil!.file_path.should end_with ".webp" # the format's
     end
   end
 

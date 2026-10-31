@@ -52,9 +52,9 @@ comes from the content type (`object_key`), so an unknown one is `.bin`.
   `hh/<sha256>.<ext>` with one extension, and keeping snapshots off it
   may rest on that (DESIGN-backups).
 - **`.bin` only when there's no name:** `source_path:` gives one, and
-  `POST /assets` takes the upload's. Bytes passed to `store` have none; a
-  `filename:` for them waits for an app that stores bytes of a format
-  DataDungeon doesn't know (Thomas, 2026-10-31).
+  `POST /assets` takes the upload's, which reaches `store` as `filename:`,
+  the name of the file bytes came from. It's for that: apps generate known
+  formats (Thomas, 2026-10-31).
 - **No flag for unknown:** an asset is unmeasured when its format's probe
   hasn't written a record, which stays true until DataDungeon learns the
   format and the probe runs.
@@ -162,10 +162,13 @@ and each needs only the open questions listed under it settled.
 **1. Formats and extensions** (small; no schema change, no key moves)
 - A table of formats replaces `ext_for` and `DB.media_of`: content type,
   extension, media, probe. Everything known today keeps its extension.
-- Formats coming soon get theirs before any probe: glTF/GLB, BVH, TTF,
-  OTF, WOFF2, VTT, SRT, EPUB; Yarn (`text/x-yarn`, `.yarn`) and eyarn
-  (`text/vnd.datadungeon.eyarn`, `.eyarn`); a vendor `+json` type is
-  `.json`.
+- Formats coming soon get theirs before any probe: glTF/GLB, TTF, OTF,
+  WOFF, WOFF2, VTT, SRT, EPUB, CSV, XML, YAML, TOML; Yarn (`text/x-yarn`,
+  `.yarn`) and eyarn (`text/vnd.datadungeon.eyarn`, `.eyarn`); a vendor
+  `+json` or `+xml` type is `.json` or `.xml`. BVH and FBX have no
+  content type in common use, so they come as unknown formats
+  (`application/octet-stream`) and keep `.bvh` and `.fbx` from their
+  names.
 - An unknown format keeps the extension of its `source_path:` or its
   upload's name, in one part (`.tgz` for compressed tars); `.bin` without
   a name, as for bytes.
@@ -206,7 +209,8 @@ first). Stages 1 and 2 store them already; a probe only if one helps.
 once every app has moved)
 - `asset_type:`, `register_type` and `?type=` removed.
 - Roles that only name a format go, after a read-only check that no store
-  holds one (Overlore's comics are `document`).
+  holds one (on 2026-10-31 the five live stores hold only `drop`, `plug`,
+  `pass`, `prop`, `prose`, `script` and `speech`).
 - To settle first: the role list.
 
 ## Cattacula's bits and poses
@@ -232,11 +236,8 @@ database of its own, from before DataDungeon's types.
   stay as roles (`motion`, `font`, `document`, `data`, `set`, `figure`,
   `automaton`, `sequence` name what a format says; so does `script`, which
   is Yarn, kept for now).
-- **`eyarn`'s spec,** to write in DataDungeon's repo: an
-  emoji is a cue at its point in a line; followed by "…" it holds the words
-  and the voice until the action ends; a prop's emoji also sets the prop;
-  the voice is sent the line without them; the map from emoji to action is
-  the app's, as voice tags are.
+- **`eyarn`'s spec:** drafted in `formats/eyarn.md` (2026-10-31), with its
+  own open points.
 - **Search:** whether an asset with no role is embedded (stage 2).
 - **Measured details:** rows per field or a JSON column.
 - **Formats of our own:** where their specs live (DataDungeon's repo, or

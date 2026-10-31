@@ -70,7 +70,9 @@ module DataDungeon
   #                                          to be embedded or failed
   #
   #     POST   /assets                     a file added by hand, as multipart/form-data: file
-  #                                          (its Content-Type the asset's) and asset, JSON
+  #                                          (its Content-Type the asset's; its file name gives
+  #                                          a format DataDungeon doesn't know its extension)
+  #                                          and asset, JSON
   #                                          {type, tags, custom, description, permanent,
   #                                          made_at, supersedes, image}; stored as not generated,
   #                                          with no recipe; image as PATCH takes it, plus how
@@ -387,13 +389,14 @@ module DataDungeon
     # A file added by hand, with no prompt: not generated, so no recipe,
     # and what it shows in words, if anything, as its description.
     private def upload(context) : Nil
-      bytes, content_type, fields = nil, nil, nil
+      bytes, content_type, filename, fields = nil, nil, nil, nil
       HTTP::FormData.parse(context.request) do |part|
         case part.name
         when "file"
           raise ArgumentError.new("an upload has one file part") if bytes
           bytes = read_part(part.body, @max_upload, "the file")
           content_type = part.headers["Content-Type"]?
+          filename = part.filename
         when "asset"
           raise ArgumentError.new("an upload has one asset part") if fields
           fields = JSON.parse(String.new(read_part(part.body, MAX_ASSET_PART, "the asset part")))
@@ -404,7 +407,7 @@ module DataDungeon
       asset = fields || raise ArgumentError.new("an upload has an asset part: JSON with its type and tags")
       given_type = content_type.presence || raise ArgumentError.new("the file part's Content-Type is the asset's, and it has none")
       rec = @db.store(asset["type"].as_s, asset["tags"]?.try(&.as_h.transform_values(&.as_s)) || {} of String => String,
-        bytes: file, content_type: given_type, description: asset["description"]?.try(&.as_s),
+        bytes: file, filename: filename, content_type: given_type, description: asset["description"]?.try(&.as_s),
         custom: asset["custom"]?.try(&.as_a.map(&.as_s)) || [] of String, permanent: asset["permanent"]?.try(&.as_bool) || false,
         made_at: asset["made_at"]?.try { |made| time(made) }, supersedes: asset["supersedes"]?.try(&.as_i64),
         image: asset["image"]?.try { |fields| image_fields(fields, storing: true) })

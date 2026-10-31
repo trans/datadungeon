@@ -274,7 +274,7 @@ From `@curio`'s and `@mj`'s review:
   back a retired take, or `find_by_hash` to check first. One exception, so
   retries are safe: an exact repeat (the same bytes, type and traits, the
   asset current) returns the existing asset. Within a type only: the same
-  picture can be a `backdrop` and a `room`.
+  picture can be a `drop` and a `plug`.
 - Prefer is soft: it never outranks a better match, only orders otherwise
   equal candidates, newest first by `made_at` (below).
   `@mj`'s `version` is provenance, not a rank: it, `pool` and the model go
@@ -360,7 +360,7 @@ else's: no more re-keying everyone's assets in a shared store.
   `register_index` calls create, change and re-key only its own.
   ```crystal
   db = DataDungeon::DB.new(path, consumer: "cattacula")
-  db.register_index("voice", "lines", traits: %w[bit beat voice fmt])
+  db.register_index("speech", "lines", traits: %w[bit beat voice fmt])
   ```
 - **One table holds the keys**: `asset_keys (index_id, key, asset_id)`,
   indexed on `(index_id, key)`, one row per asset per index of its type. A
