@@ -207,6 +207,14 @@ scope he called "about right" (2026-10-19). Built:
   `filename:` for bytes waits for an app that needs it (Thomas). Bits are
   Yarn assets; Yarn with emoji cues is `eyarn` (`text/vnd.datadungeon.eyarn`),
   its spec DataDungeon's, not yet written (Thomas, 2026-10-31).
+  **Stage 1 built, not committed (2026-10-31):** `formats.cr` (`DB::FORMATS`,
+  `DB.format`, `DB.extension_for`; `media_of` moved there), `object_key`
+  takes a name (`store`'s `filename:` or `source_path:`, `adopt`'s path,
+  the upload's file name); `formats/eyarn.md` drafted; README keys, media,
+  signed URLs and the upload; the Worker's `_index/` lines; old type names in
+  four design notes. 204 specs (10 new). The five live stores hold only
+  types the old map knew (json mp3 png webp txt), so no extension changes.
+  Waits for Thomas's "release" (0.16.8, version not bumped yet).
   Open: the role list, how measured details are kept, FBX, our formats' names.
 - **Export** (`@overlore` for Thomas, `67807ebe`, 2026-10-27; DESIGN-export.md,
   committed `da1d254`): the store as files, one per type, by id, nightly into git;
