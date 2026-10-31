@@ -91,7 +91,10 @@ is, a `pass` a picture for programs.
 - **The roles for pictures, sound and text stay:** `drop`, `plug`,
   `placard`, `scrim`, `prop`, `texture`, `icon`, `pass`; `speech`,
   `dialogue`, `music`, `ambience`, `effect`, `recording`; `prose`,
-  `transcript`, `log`. `script` names what Yarn says (below).
+  `script`\*, `transcript`, `log`.
+
+  \* `script` names what Yarn says (below), so it may go; it stays for now
+  (Thomas, 2026-10-31).
 
 **Pictures,** Thomas: it mostly comes down to whether a picture is a
 backdrop or an object with transparency around it. Both are measured
@@ -228,7 +231,7 @@ database of its own, from before DataDungeon's types.
   any word, with a shared list for roles apps share. Which of today's 26
   stay as roles (`motion`, `font`, `document`, `data`, `set`, `figure`,
   `automaton`, `sequence` name what a format says; so does `script`, which
-  is Yarn).
+  is Yarn, kept for now).
 - **`eyarn`'s spec,** to write in DataDungeon's repo: an
   emoji is a cue at its point in a line; followed by "…" it holds the words
   and the voice until the action ends; a prop's emoji also sets the prop;
