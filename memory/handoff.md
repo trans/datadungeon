@@ -193,6 +193,14 @@ scope he called "about right" (2026-10-19). Built:
 - **@my, 2026-10-29 03:32** (6a8b59b1): stop any runaway WPE/WebKit/
   Playwright job. DataDungeon runs none; none was running when checked.
   Thomas, 2026-10-29: fixed; the acknowledgement wasn't sent.
+- **Formats and roles** (Thomas, 2026-10-30; DESIGN-formats.md, not yet
+  committed): an asset's type becomes its file format (the content type,
+  with an extension and a probe per format; formats of our own where none
+  exists, e.g. Kitty's poses), and today's types become an optional role
+  on any asset; keys stay by role. Measured details belong to the format,
+  set ones to the role. Came from `@cattacula`'s held draft asking whether
+  Kitty Marionette's poses are a `motion` (in its own drafts, not sent).
+  Open: the role list, how measured details are kept, FBX, our formats' names.
 - **Export** (`@overlore` for Thomas, `67807ebe`, 2026-10-27; DESIGN-export.md,
   committed `da1d254`): the store as files, one per type, by id, nightly into git;
   an import into a new database later, tested by export-import-export
