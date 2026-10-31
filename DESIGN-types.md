@@ -1,5 +1,8 @@
 # Standard asset types
 
+*Rethought 2026-10-30: an asset's type becomes its file format, and these
+types become roles, which any asset may have. See DESIGN-formats.*
+
 *Draft 2026-10-13, from Thomas and `@overlore`; reviewed the same day by
 `@curio`, `@overlore`, `@owl` and `@mj`. The vocabulary is built (0.14);
 the rest waits for an app that needs it. **Each store is one owner's**
