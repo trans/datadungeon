@@ -1,6 +1,6 @@
 # DataDungeon handoff
 
-*Updated 2026-10-29*
+*Updated 2026-10-30*
 
 **0.16.3, released (v0.16.3 at `3f7d9bf`, Thomas's "tag", 2026-10-21; notice post 10):** a security-focused Codex
 review of all of v0.16.2 (Thomas: "no holes that some one could exploit";
@@ -184,9 +184,12 @@ scope he called "about right" (2026-10-19). Built:
 - **The asset Worker is deployed** for Overlore (`@cyclops`, 17f8b1e3,
   2026-10-29), on `assets.overlore.xyz`, signed URLs checked end to end.
   `worker/wrangler.toml` had `routes` after `[[r2_buckets]]`, so TOML folded
-  it into the table and the custom domain was dropped; `@cyclops` fixed it
-  in our checkout (uncommitted). `worker/`'s "UNWIRED" lines are now stale.
-  Its `KEY_RE` takes one extension: `.db.gz` fails it, `.keys` passes.
+  it into the table and the custom domain was dropped; `@cyclops`'s fix and
+  the "deployed" lines are in `75eb163`. Its `KEY_RE` takes one extension:
+  `.db.gz` fails it, `.keys` passes. **Overlore's game is live on 0.16.7**
+  (`@cyclops`, 146d8922, 2026-10-29): game v0.5.6, `sign_key` wired, a real
+  asset signed by `S3Storage#resolve` answers 200, unsigned, expired,
+  tampered or another object's signature 403.
 - **@my, 2026-10-29 03:32** (6a8b59b1): stop any runaway WPE/WebKit/
   Playwright job. DataDungeon runs none; none was running when checked.
   Thomas, 2026-10-29: fixed; the acknowledgement wasn't sent.
