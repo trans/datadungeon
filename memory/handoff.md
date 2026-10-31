@@ -193,8 +193,8 @@ scope he called "about right" (2026-10-19). Built:
 - **@my, 2026-10-29 03:32** (6a8b59b1): stop any runaway WPE/WebKit/
   Playwright job. DataDungeon runs none; none was running when checked.
   Thomas, 2026-10-29: fixed; the acknowledgement wasn't sent.
-- **Formats and roles** (Thomas, 2026-10-30; DESIGN-formats.md, not yet
-  committed): an asset's type becomes its file format (the content type,
+- **Formats and roles** (Thomas, 2026-10-30; DESIGN-formats.md, committed
+  `e5a5e9d` 2026-10-31, not pushed): an asset's type becomes its file format (the content type,
   with an extension and a probe per format; formats of our own where none
   exists, e.g. Kitty's poses), and today's types become an optional role
   on any asset; keys stay by role. Measured details belong to the format,
@@ -203,7 +203,10 @@ scope he called "about right" (2026-10-19). Built:
   the audience's response, and emoji cues Thomas wants supported). Reply
   held in drafts: bits are `script`, poses a format of its own, the
   audience its own state, emoji cues a proposal for Thomas. Five stages
-  in the note; stage 1 (formats, extensions) needs nothing settled.
+  in the note; stage 1 (formats, extensions) needs nothing settled; its
+  `filename:` for bytes waits for an app that needs it (Thomas). Bits are
+  Yarn assets; Yarn with emoji cues is `eyarn` (`text/vnd.datadungeon.eyarn`),
+  its spec DataDungeon's, not yet written (Thomas, 2026-10-31).
   Open: the role list, how measured details are kept, FBX, our formats' names.
 - **Export** (`@overlore` for Thomas, `67807ebe`, 2026-10-27; DESIGN-export.md,
   committed `da1d254`): the store as files, one per type, by id, nightly into git;
