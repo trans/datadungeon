@@ -1,6 +1,6 @@
 # DataDungeon handoff
 
-*Updated 2026-10-30*
+*Updated 2026-11-26*
 
 **0.16.3, released (v0.16.3 at `3f7d9bf`, Thomas's "tag", 2026-10-21; notice post 10):** a security-focused Codex
 review of all of v0.16.2 (Thomas: "no holes that some one could exploit";
@@ -193,6 +193,12 @@ scope he called "about right" (2026-10-19). Built:
 - **@my, 2026-10-29 03:32** (6a8b59b1): stop any runaway WPE/WebKit/
   Playwright job. DataDungeon runs none; none was running when checked.
   Thomas, 2026-10-29: fixed; the acknowledgement wasn't sent.
+- **Upkeep of many stores** (`@siliconcircus`, 58a7da40, 2026-11-26, at
+  Thomas's suggestion; venues keep their own stores, "a few dozen"): reply
+  held in drafts. The park's eight `before-*` copies (~92 MB each) were its
+  caution, not required: conversions run on open and never touch objects,
+  so only the 1.2 MB database needs copying. Proposals for Thomas: a version
+  stamp on each read-write open, and a database copy before converting.
 - **Formats and roles** (Thomas, 2026-10-30; DESIGN-formats.md, committed
   `e5a5e9d` 2026-10-31, not pushed): an asset's type becomes its file format (the content type,
   with an extension and a probe per format; formats of our own where none
