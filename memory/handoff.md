@@ -200,20 +200,20 @@ scope he called "about right" (2026-10-19). Built:
   so only the 1.2 MB database needs copying. Proposals for Thomas: a version
   stamp on each read-write open, and a database copy before converting.
 - **Formats and roles** (Thomas, 2026-10-30; DESIGN-formats.md, committed
-  `e5a5e9d` 2026-10-31, not pushed): an asset's type becomes its file format (the content type,
+  `e5a5e9d` 2026-10-31, pushed 2026-11-26): an asset's type becomes its file format (the content type,
   with an extension and a probe per format; formats of our own where none
   exists, e.g. Kitty's poses), and today's types become an optional role
   on any asset; keys stay by role. Measured details belong to the format,
   set ones to the role. Came from `@cattacula` asking whether Kitty
   Marionette's poses are a `motion` (3d9ab3d3, 2026-10-31: also its bits,
   the audience's response, and emoji cues Thomas wants supported). Reply
-  held in drafts: bits are `script`, poses a format of its own, the
-  audience its own state, emoji cues a proposal for Thomas. Five stages
-  in the note; stage 1 (formats, extensions) needs nothing settled; its
-  `filename:` for bytes waits for an app that needs it (Thomas). Bits are
+  held in drafts: bits are Yarn assets (`script` until a role is optional),
+  poses a format of Cattacula's own, the audience its own state, emoji cues
+  eyarn. Five stages
+  in the note; stage 1 (formats, extensions) needed nothing settled. Bits are
   Yarn assets; Yarn with emoji cues is `eyarn` (`text/vnd.datadungeon.eyarn`),
-  its spec DataDungeon's, not yet written (Thomas, 2026-10-31).
-  **Stage 1 built, not committed (2026-10-31):** `formats.cr` (`DB::FORMATS`,
+  its spec DataDungeon's (Thomas, 2026-10-31).
+  **Stage 1 built, `9af59ec`, pushed 2026-11-26, not released:** `formats.cr` (`DB::FORMATS`,
   `DB.format`, `DB.extension_for`; `media_of` moved there), `object_key`
   takes a name (`store`'s `filename:` or `source_path:`, `adopt`'s path,
   the upload's file name); `formats/eyarn.md` drafted; README keys, media,
