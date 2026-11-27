@@ -42,16 +42,13 @@ that a fresh `shards install` in the scratchpad resolves it.
 
 ## usearch.cr builds USearch's newest commit
 
-**Open (2026-11-27, Thomas to decide):** `trans/usearch.cr`'s postinstall
+**Fixed in usearch.cr `v0.1.2` (`e4a50dc`, 2026-11-27, Thomas: "go ahead and fix usearch"):** it clones USearch `v2.26.6`, moves an existing clone to it, and fails when `libusearch_static_c.a` isn't built. A fresh install of DD 0.16.8 resolves usearch 0.1.2 and builds: 209 specs, dd-serve serves. USearch 3.0 has no tag yet; moving to it is a port, later. Before: `trans/usearch.cr`'s postinstall
 (`scripts/setup.sh`) does `git clone --depth 1` of unum-cloud/usearch
 with no tag, and `git pull --ff-only` on a re-run. USearch merged its 3.0
 redesign on 2026-11-10 (`840374a`), which has no `usearch_static_c`
 target, so a fresh install builds no `libusearch_static_c.a` and anything
 linking it (DD's specs, dd-serve, memo's users) fails at the link.
-Existing installs keep 2.26.3. The fix is in usearch.cr (clone a 2.x tag,
-or move to 3.0), not DD. Verifying a DD release meanwhile: in the export,
-`git fetch --depth 1 origin tag v2.26.3`, check it out with its
-submodules, and run setup.sh's two cmake lines. Told the topic in post 14.
+Existing installs kept 2.26.3. Told the topic in post 14.
 
 ## awscr-s3 fork
 
