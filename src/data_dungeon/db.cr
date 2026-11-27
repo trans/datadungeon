@@ -8,6 +8,11 @@ module DataDungeon
   class ReadOnlyError < Exception
   end
 
+  # Raised by opening a store a newer DataDungeon has converted: its schema
+  # (DB::SCHEMA) is past what this one knows.
+  class NewerStoreError < Exception
+  end
+
   # Raised by `store` for a file its type already holds: an asset is its
   # bytes, so change its traits with `update_asset`, or bring a retired one
   # back with `reinstate`.
@@ -28,6 +33,12 @@ module DataDungeon
     # Uses counted in memory are written once there are this many
     # (touch_asset).
     USAGE_WRITE_AT = 100
+    # The store's layout, as a number in SQLite's `user_version` (the file's
+    # header), so anything can read it without DataDungeon (`sqlite3
+    # assets.db "PRAGMA user_version"`). It goes up by one with each release
+    # that converts a store. 0 is a store no DataDungeon since 0.16.8 has
+    # opened, known by its tables.
+    SCHEMA = 1
 
     @db : ::DB::Database
     @indexer : AssetIndexer? = nil
@@ -51,6 +62,12 @@ module DataDungeon
     getter? read_only = false
     # The database file.
     getter path : String
+    # The store's schema once open: SCHEMA after a read-write open, and as it
+    # was found after a read-only one (0 for a store not yet stamped).
+    getter schema : Int32 = 0
+    # The copy of the database this open made before converting the store
+    # (`assets.db.before-0.16.8`), or nil when it converted nothing.
+    getter copied_to : String? = nil
     # Who is using the store (`"cattacula"`), which says whose indexes
     # `register_index` creates and changes.
     getter consumer : String?
@@ -74,6 +91,9 @@ module DataDungeon
     # upgraded or re-keyed, every connection refuses writes (PRAGMA
     # query_only), and the methods that write raise ReadOnlyError. A database
     # an older DataDungeon wrote must be opened read-write once first.
+    # A read-write open that converts a store copies its database beside it
+    # first (`copied_to`). Either open raises NewerStoreError for a store a
+    # newer DataDungeon has converted.
     # `consumer` names the application, for its own indexes (register_index).
     def initialize(@path : String, storage : Storage? = nil, cache_root : String? = nil, *, read_only : Bool = false,
                    @consumer : String? = nil)
@@ -103,7 +123,12 @@ module DataDungeon
           raise ex
         end
       else
-        setup_schema
+        begin
+          setup_schema
+        rescue ex
+          @db.close
+          raise ex
+        end
         DB.opened(self)
       end
     end
@@ -658,9 +683,19 @@ module DataDungeon
       # and sidecar row; the pragma only changes outside a transaction.
       rebuilt = false
       @db.using_connection do |conn|
+        # A store whose schema is behind is copied before anything changes.
+        # VACUUM INTO can't run inside the transaction, so the copy comes
+        # first; a write between them only makes it an earlier state.
+        stamp = schema_of(conn)
+        refuse_newer(stamp)
+        raise BEFORE_012 if before_012?(conn)
+        @copied_to = copy_database(conn) if stamp < SCHEMA && any_tables?(conn)
+
         conn.exec("PRAGMA foreign_keys=OFF")
         begin
           immediate(conn) do
+            stamp = schema_of(conn) # another process may have converted it meanwhile
+            refuse_newer(stamp)
             raise BEFORE_012 if before_012?(conn)
             conn.exec(ASSETS_SCHEMA)
             conn.exec(TEXTS_SCHEMA)
@@ -697,6 +732,8 @@ module DataDungeon
             ASSET_KEYS_SCHEMA.split(";").each { |sql| conn.exec(sql.strip) unless sql.strip.empty? }
             conn.exec(ASSET_SEARCH_SCHEMA)
             conn.exec(ASSET_SEARCH_TERMS_SCHEMA)
+            # Committed with the conversion, or rolled back with it.
+            conn.exec("PRAGMA user_version = #{SCHEMA}") unless stamp == SCHEMA
           end
         ensure
           conn.exec("PRAGMA foreign_keys=ON")
@@ -706,7 +743,43 @@ module DataDungeon
           raise "asset schema migration left invalid references" unless violations.empty?
         end
       end
+      @schema = SCHEMA
       load_types
+    end
+
+    private def schema_of(conn : ::DB::Connection) : Int32
+      conn.scalar("PRAGMA user_version").as(Int64).to_i
+    end
+
+    private def refuse_newer(stamp : Int32) : Nil
+      return unless stamp > SCHEMA
+      raise NewerStoreError.new("#{@path} has schema #{stamp}, from a newer DataDungeon than this one " \
+                                "(#{DataDungeon::VERSION}, schema #{SCHEMA}): open it with a newer DataDungeon, " \
+                                "or restore the copy made before it was converted")
+    end
+
+    private def any_tables?(conn : ::DB::Connection) : Bool
+      conn.scalar("SELECT count(*) FROM sqlite_master WHERE type = 'table'").as(Int64) > 0
+    end
+
+    # Copy the database beside itself, as `assets.db.before-<version>`, then
+    # `-2`, `-3` if that's taken: a copy is never overwritten or removed.
+    # When another process opening the store at the same moment takes the
+    # name first, its copy is the same state, and serves.
+    private def copy_database(conn : ::DB::Connection) : String
+      base = "#{@path}.before-#{DataDungeon::VERSION}"
+      target = base
+      n = 1
+      while File.exists?(target)
+        n += 1
+        target = "#{base}-#{n}"
+      end
+      begin
+        conn.exec("VACUUM INTO ?", target)
+      rescue ex : SQLite3::Exception
+        raise ex unless ex.message.try(&.includes?("output file already exists"))
+      end
+      target
     end
 
     # 0.15 dropped the conversions from before 0.12 (Thomas, 2026-10-17):
@@ -724,7 +797,13 @@ module DataDungeon
     # setup_schema leaves.
     private def check_schema : Nil
       @db.using_connection do |conn|
+        stamp = schema_of(conn)
+        refuse_newer(stamp)
         raise BEFORE_012 if before_012?(conn)
+        if stamp > 0 && stamp < SCHEMA
+          raise ReadOnlyError.new("The database needs upgrading (schema #{stamp} of #{SCHEMA}): open it read-write once first")
+        end
+        @schema = stamp
         assets = table_columns(conn, "assets")
         named = table_columns(conn, "named_texts")
         current = assets.has_key?("description_id") && !assets.has_key?("generation") &&

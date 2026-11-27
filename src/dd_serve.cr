@@ -70,7 +70,12 @@ unless read_token || host.in?("127.0.0.1", "::1", "localhost")
   abort "dd-serve: listening on #{host} needs DD_READ_TOKEN"
 end
 
-db = DataDungeon::DB.new(database, storage, read_only: write_token.nil? && embed_model.nil?)
+db = begin
+  DataDungeon::DB.new(database, storage, read_only: write_token.nil? && embed_model.nil?)
+rescue refused : DataDungeon::NewerStoreError | DataDungeon::ReadOnlyError
+  abort "dd-serve: #{refused.message}"
+end
+db.copied_to.try { |copy| puts "dd-serve: copied the database to #{copy} before converting it" }
 # Owns the store's match files; a type's index is built on its first match query.
 matcher = DataDungeon::MatchIndex.new(db, setting("DD_MATCHES_DIR"))
 searcher = embed_model.try do |model|

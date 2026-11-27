@@ -231,8 +231,20 @@ that names it (0.15.5). `transcript_id` is deprecated: link a transcript
 else its top-level type (image, audio, video, text, model, font), JSON, XML
 and YAML counting as text, and anything else (raw bytes) `data`.
 Existing rows keep the keys they were stored under. `DB#store_asset`
-indexes a file whose path the caller already owns. Existing SQLite asset tables
-are upgraded when DataDungeon opens the database.
+indexes a file whose path the caller already owns.
+
+Existing SQLite asset tables are upgraded when DataDungeon opens the
+database read-write, one way. Since 0.16.8 a store keeps its schema's
+number in SQLite's `user_version` (`DB::SCHEMA`; `DB#schema`), so anything
+can read it without DataDungeon (`sqlite3 assets.db "PRAGMA user_version"`);
+each release that converts a store raises it by one. An open that converts
+a store, or stamps it for the first time, first copies the database beside
+it as `assets.db.before-<version>` (`DB#copied_to`; `dd-serve` says so), and
+never overwrites or removes a copy. Either open refuses a store whose number
+is past its own (`NewerStoreError`); a DataDungeon older than 0.16.8 doesn't
+check. The copy undoes a conversion and is not a backup: it holds no
+objects, since no conversion touches them, and it's safe to restore only
+until something deletes objects (deleting or pruning assets, `vacuum`).
 
 To move such files into the store, `DB#outside_store` lists the rows recorded
 by an absolute path, and `DB#adopt(record)` copies one row's file to its

@@ -179,7 +179,8 @@ release the apps take when they move their pin)
 - `assets.asset_type` is `NOT NULL`: the table is rebuilt on open, as the
   wordings' was (every row compared, foreign keys checked after), and the
   column becomes `role`, nullable. First check that no app reads the
-  column by name in SQL of its own.
+  column by name in SQL of its own. `DB::SCHEMA` goes to 2, so the open
+  copies the database first, and 0.16.8 on refuses the converted store.
 - `store` without a role: no registration, no key; found by id, hash,
   tags, links and search. A role still needs its registration and a
   listed name, as a type does today.

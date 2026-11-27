@@ -34,6 +34,10 @@ the first job is to get the database into the cloud too (Thomas,
   (`memo_vectors`, 16-bit floats), so a restore calls no embedding API.
 - **A readable export** of the same store, files to diff and keep in git,
   is DESIGN-export (2026-10-27).
+- **Not the copy before converting** (0.16.8, README; Thomas, 2026-11-27):
+  an open that converts a store `VACUUM INTO`s its database beside it,
+  `assets.db.before-<version>`, to undo the conversion with. It stays on
+  the box and is never sent anywhere; snapshots are still this note's.
 
 ## Everything is an object; names find them
 
