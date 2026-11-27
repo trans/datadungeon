@@ -1,6 +1,6 @@
 # DataDungeon handoff
 
-*Updated 2026-11-26*
+*Updated 2026-11-27*
 
 **0.16.3, released (v0.16.3 at `3f7d9bf`, Thomas's "tag", 2026-10-21; notice post 10):** a security-focused Codex
 review of all of v0.16.2 (Thomas: "no holes that some one could exploit";
@@ -197,8 +197,12 @@ scope he called "about right" (2026-10-19). Built:
   Thomas's suggestion; venues keep their own stores, "a few dozen"): reply
   held in drafts. The park's eight `before-*` copies (~92 MB each) were its
   caution, not required: conversions run on open and never touch objects,
-  so only the 1.2 MB database needs copying. Proposals for Thomas: a version
-  stamp on each read-write open, and a database copy before converting.
+  so only the 1.2 MB database needs copying. Thomas agreed both proposals
+  (2026-11-27), built for 0.16.8, **not committed**: `DB::SCHEMA` (1) in
+  `user_version`, written with the conversion; `NewerStoreError` for a
+  store past it; `assets.db.before-<version>` copied before converting or
+  first stamping, never overwritten or removed (`DB#copied_to`, dd-serve
+  prints it). The reply waits for 0.16.8 to be out.
 - **Formats and roles** (Thomas, 2026-10-30; DESIGN-formats.md, committed
   `e5a5e9d` 2026-10-31, pushed 2026-11-26): an asset's type becomes its file format (the content type,
   with an extension and a probe per format; formats of our own where none
