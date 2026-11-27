@@ -48,7 +48,7 @@ with no tag, and `git pull --ff-only` on a re-run. USearch merged its 3.0
 redesign on 2026-11-10 (`840374a`), which has no `usearch_static_c`
 target, so a fresh install builds no `libusearch_static_c.a` and anything
 linking it (DD's specs, dd-serve, memo's users) fails at the link.
-Existing installs kept 2.26.3. Told the topic in post 14.
+Existing installs kept 2.26.3. Told the topic in post 14, the fix in post 15.
 
 ## awscr-s3 fork
 
