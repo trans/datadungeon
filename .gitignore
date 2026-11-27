@@ -9,3 +9,7 @@ mail/outbox/*
 # Mail not yet read: machine-local; it's committed under mail/received/ once read
 mail/inbox/*
 !mail/inbox/.gitkeep
+# The carrier's own: this project's place in each topic, and (in the topic
+# home only) the topics; the posters' mail/sent/ copies are the record
+mail/following
+topics/

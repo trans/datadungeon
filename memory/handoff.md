@@ -198,11 +198,11 @@ scope he called "about right" (2026-10-19). Built:
   held in drafts. The park's eight `before-*` copies (~92 MB each) were its
   caution, not required: conversions run on open and never touch objects,
   so only the 1.2 MB database needs copying. Thomas agreed both proposals
-  (2026-11-27), built for 0.16.8, **not committed**: `DB::SCHEMA` (1) in
+  (2026-11-27), **released in 0.16.8** (`4b6e813`, post 14): `DB::SCHEMA` (1) in
   `user_version`, written with the conversion; `NewerStoreError` for a
   store past it; `assets.db.before-<version>` copied before converting or
   first stamping, never overwritten or removed (`DB#copied_to`, dd-serve
-  prints it). The reply waits for 0.16.8 to be out.
+  prints it). The reply is ready, waiting for Thomas's send.
 - **Formats and roles** (Thomas, 2026-10-30; DESIGN-formats.md, committed
   `e5a5e9d` 2026-10-31, pushed 2026-11-26): an asset's type becomes its file format (the content type,
   with an extension and a probe per format; formats of our own where none
@@ -217,14 +217,13 @@ scope he called "about right" (2026-10-19). Built:
   in the note; stage 1 (formats, extensions) needed nothing settled. Bits are
   Yarn assets; Yarn with emoji cues is `eyarn` (`text/vnd.datadungeon.eyarn`),
   its spec DataDungeon's (Thomas, 2026-10-31).
-  **Stage 1 built, `9af59ec`, pushed 2026-11-26, not released:** `formats.cr` (`DB::FORMATS`,
+  **Stage 1 built, `9af59ec`, released in 0.16.8 (2026-11-27):** `formats.cr` (`DB::FORMATS`,
   `DB.format`, `DB.extension_for`; `media_of` moved there), `object_key`
   takes a name (`store`'s `filename:` or `source_path:`, `adopt`'s path,
   the upload's file name); `formats/eyarn.md` drafted; README keys, media,
   signed URLs and the upload; the Worker's `_index/` lines; old type names in
   four design notes. 204 specs (10 new). The five live stores hold only
   types the old map knew (json mp3 png webp txt), so no extension changes.
-  Waits for Thomas's "release" (0.16.8, version not bumped yet).
   Open: the role list, how measured details are kept, FBX, our formats' names.
 - **Export** (`@overlore` for Thomas, `67807ebe`, 2026-10-27; DESIGN-export.md,
   committed `da1d254`): the store as files, one per type, by id, nightly into git;
