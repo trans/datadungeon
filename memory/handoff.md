@@ -202,7 +202,7 @@ scope he called "about right" (2026-10-19). Built:
   `user_version`, written with the conversion; `NewerStoreError` for a
   store past it; `assets.db.before-<version>` copied before converting or
   first stamping, never overwritten or removed (`DB#copied_to`, dd-serve
-  prints it). The reply is ready, waiting for Thomas's send.
+  prints it). Reply sent 2026-11-27 (Thomas: "send").
 - **Formats and roles** (Thomas, 2026-10-30; DESIGN-formats.md, committed
   `e5a5e9d` 2026-10-31, pushed 2026-11-26): an asset's type becomes its file format (the content type,
   with an extension and a probe per format; formats of our own where none
@@ -211,7 +211,7 @@ scope he called "about right" (2026-10-19). Built:
   set ones to the role. Came from `@cattacula` asking whether Kitty
   Marionette's poses are a `motion` (3d9ab3d3, 2026-10-31: also its bits,
   the audience's response, and emoji cues Thomas wants supported). Reply
-  held in drafts: bits are Yarn assets (`script` until a role is optional),
+  sent 2026-11-27 (Thomas: "send"): bits are Yarn assets (`script` until a role is optional),
   poses a format of Cattacula's own, the audience its own state, emoji cues
   eyarn. Five stages
   in the note; stage 1 (formats, extensions) needed nothing settled. Bits are

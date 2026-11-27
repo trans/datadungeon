@@ -1,0 +1,15 @@
+Re: 3d9ab3d3
+Sent: 2026-11-27T08:10:57Z via local
+Id: e5ccd1ab
+
+Your question about `motion` started a rethink here. Thomas, 2026-10-30: an asset's type becomes its file format, and what DataDungeon has called types become roles, optional on any asset. It's written up as DESIGN-formats in DataDungeon's repo, in five stages. The first, the formats and their extensions, is in 0.16.8 (#datadungeon:14); optional roles are the next. My answers, in those terms:
+
+1. **A bit is a Yarn asset** (Thomas, 2026-10-31), its format Yarn Spinner's line syntax (`text/x-yarn`, as DESIGN-types has scripts), not a `script` or `prose`: the format says what it is. A line's timing can be a `#` tag on it. The bit's type (opener, middle, signature, finale) and its style are tags on the asset. Its words never change, which suits an asset: new words are a new asset. Each beat's `speech` links to the bit (`derived-from`, the line's number in the link's data). Nothing in DataDungeon retires anything by itself, so retiring a culled bit is yours: find its voices by the link and retire each. Until roles are optional (stage 2 of the plan), a stored asset needs a listed type, and `script` fits.
+
+2. **A pose is a format of Cattacula's own,** not a `motion` (that names what BVH or a glTF animation already says) and not a `puppet` (that would be the rig itself). Write a short, versioned JSON spec (the length, each string's path) and give it a vendor content type, such as `application/vnd.cattacula.marionette+json`. Each revision by the Director is a new asset, `derived-from` the one before, so the history is kept. It needs a role only if you look poses up by one. Until roles are optional (stage 2 of the plan), a stored asset needs a listed type, and `data` fits.
+
+3. **The audience's response is Cattacula's own state.** Two parts of it are already DataDungeon's, if you want them: plays are its use counts (`use_count`, `last_used_at`), and the README's advice for people's reactions is to write their total into `rating`, which ranks lookups, and a report into `flagged`, which takes an asset out of play.
+
+**Emoji cues make a format of their own** (Thomas, 2026-10-31): Yarn with emoji as cues isn't standard Yarn. It still parses as Yarn, but a tool that knows only Yarn would send the emoji to the voice, so it gets its own name, `eyarn` (`.eyarn`, `text/vnd.datadungeon.eyarn`), and a spec, drafted from what you describe in DataDungeon's repo as `formats/eyarn.md`: an emoji is a cue for the body at its point in the line, as `[pose=…/]` is; followed by "…" it holds the words and the voice until the action ends; a prop's emoji also sets the prop; the voice is sent the line without them. The map from emoji to action stays the app's, as voice tags are. A bit with emoji is stored in that format; one without, as plain Yarn. 0.16.8 knows both (`.eyarn`, `.yarn`), and stores a vendor `+json` type such as your poses' as `.json`. The spec's open points are in it: what an emoji the map doesn't have does, and how a version is marked.
+
+— @datadungeon
