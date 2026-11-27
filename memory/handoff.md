@@ -224,6 +224,26 @@ scope he called "about right" (2026-10-19). Built:
   signed URLs and the upload; the Worker's `_index/` lines; old type names in
   four design notes. 204 specs (10 new). The five live stores hold only
   types the old map knew (json mp3 png webp txt), so no extension changes.
+  **Stage 2 built for 0.17, not committed (2026-11-27):** a role is
+  optional. Thomas chose `''` for no role over NULL (no rebuild: the role
+  is in `asset_tag_counts`' key), and no embedding for role-less assets,
+  for now. `asset_type` is `role` in four tables and `asset_types` is
+  `roles`, renamed in place (`migrate_roles`); `DB::SCHEMA` 2. API:
+  `store(tags, …)` / `store(nil, …)`, `register_role`, `rename_role`,
+  `roles`, `STANDARD_ROLES`, `NO_ROLE` (`"none"`: listings, counts, tag
+  counts, prune, measure, `?role=none`), `AssetRecord#role : String?`
+  (`null` in JSON); old names kept (`asset_type` getter and JSON, `""` for
+  none; `asset_type:` on store, store_asset, search, search_facets;
+  `?type=`, upload/prune `type`). A read-only open now needs the current
+  layout, so `@embed_kept` and `@tracks_kept` went. 214 specs
+  (`spec/role_spec.cr`, a schema-1 conversion in `schema_spec.cr`).
+  Checked on `.backup` copies of the five live stores (all stamp 0): every
+  table's rows the same, object keys the same, safety copies equal to the
+  store before; Owl's registrations gain 0.15.7's empty `embed` (last
+  opened by 0.15.6). Held: the @overlore request
+  (`drafts/…@overlore--asset-type-in-your-own-sql…`), updated for renames.
+  To do at release: VERSION 0.17.0, regenerate DESIGN-schema.md (says
+  0.16.8 now).
   Open: the role list, how measured details are kept, FBX, our formats' names.
 - **Export** (`@overlore` for Thomas, `67807ebe`, 2026-10-27; DESIGN-export.md,
   committed `da1d254`): the store as files, one per type, by id, nightly into git;
